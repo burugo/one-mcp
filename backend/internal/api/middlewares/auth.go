@@ -1,8 +1,8 @@
-package middleware
+package middlewares
 
 import (
-	"gin-template/common"
-	"gin-template/model"
+	"one-cmp/backend/internal/common"
+	"one-cmp/backend/internal/domain/model"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"net/http"
@@ -26,7 +26,8 @@ func authHelper(c *gin.Context, minRole int) {
 			c.Abort()
 			return
 		}
-		user := model.ValidateUserToken(token)
+		// user := model.ValidateUserToken(token)
+		user := (*model.User)(nil)
 		if user != nil && user.Username != "" {
 			// Token is valid
 			username = user.Username

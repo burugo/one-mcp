@@ -1,12 +1,16 @@
-package middleware
+package middlewares
 
 import (
+	"bytes"
 	"encoding/json"
-	"gin-template/common"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-gonic/gin"
+	"io"
 	"net/http"
 	"net/url"
+
+	"one-cmp/backend/internal/common"
+
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-gonic/gin"
 )
 
 type turnstileCheckResponse struct {

@@ -1,10 +1,10 @@
-# MCP 代理服务技术架构文档
+# One MCP 服务技术架构文档
 
 ## 1. 系统架构概述
 
 ### 1.1 整体架构
 
-MCP 代理服务采用现代化的前后端分离架构，由以下主要部分组成：
+One MCP 服务采用现代化的前后端分离架构，由以下主要部分组成：
 
 ```mermaid
 graph TD
@@ -58,24 +58,28 @@ graph TD
 
 ### 2.1 技术选型详情
 
-- **核心框架**: React 18+
+- **核心框架**: React 
 - **状态管理**: React Context + Hooks
 - **路由**: React Router
 - **样式**: Tailwind CSS
 - **UI组件库**: Headless UI
 - **HTTP客户端**: Axios
-- **构建工具**: Vite
+- **构建工具**: 与 gin-template 集成，前端资源最终编译并嵌入到 Go 可执行文件中
 
 ### 2.2 目录结构
 
 ```
-frontend/
+web/
 ├── public/                  # 静态资源
 ├── src/
 │   ├── assets/              # 图片、字体等资源
+│   │   ├── css/             # CSS 样式文件 (含 Tailwind)
+│   │   ├── js/              # JavaScript 文件
+│   │   └── images/          # 图片资源
+│   ├── components/          # React 组件
 │   │   ├── common/          # 通用组件
 │   │   ├── layout/          # 布局组件
-│   │   └── ui/              # UI组件
+│   │   └── ui/              # UI组件 (使用 Headless UI)
 │   ├── contexts/            # React Context
 │   ├── hooks/               # 自定义钩子
 │   ├── pages/               # 页面组件
@@ -83,22 +87,21 @@ frontend/
 │   │   ├── dashboard/       # 仪表盘页面
 │   │   ├── services/        # MCP服务管理页面
 │   │   └── configs/         # 配置管理页面
-│   ├── services/            # API调用服务
+│   ├── templates/           # 模板文件（若需要与 gin-template 结合）
 │   ├── utils/               # 工具函数
 │   ├── App.jsx              # 应用入口
-│   ├── index.jsx            # 根组件
-│   └── routes.jsx           # 路由配置
-├── .env                     # 环境变量
-└── package.json             # 依赖配置
+│   └── index.jsx            # 根组件
+├── package.json             # 依赖配置
+└── tailwind.config.js       # Tailwind 配置
 ```
 
 ### 2.3 主要页面和功能
 
-- **登录/注册页**: 用户认证入口
+- **登录/注册页**: 利用 gin-template 已有的认证功能框架，使用 React 和 Tailwind CSS 升级 UI
 - **首页/仪表盘**: 概览统计数据，展示已安装的 MCP 服务和调用统计
 - **MCP 服务列表**: 展示已配置的服务，提供启用/禁用开关和配置复制功能
 - **配置管理**: 用户创建和管理的配置组合
-- **用户管理** (管理员): 用户账号管理
+- **用户管理** (管理员): 用户账号管理，基于 gin-template 功能，使用 React 和 Tailwind CSS 改进界面
 - **系统设置** (管理员): 全局配置管理
 
 ## 3. 后端架构
@@ -130,14 +133,15 @@ backend/
 │   ├── auth/                # 认证授权相关
 │   ├── cache/               # 缓存管理
 │   ├── domain/              # 领域模型和业务逻辑
-│   │   ├── entity/          # 实体定义
+│   │   ├── model/          # 实体定义
 │   │   ├── repository/      # 数据访问接口
 │   │   ├── service/         # 业务服务
 │   │   └── dto/             # 数据传输对象
-│   ├── infrastructure/      # 基础设施
-│   │   ├── persistence/     # 持久化实现
+│   ├── library/             # 库/基础设施 (Renamed from infrastructure)
+│   │   ├── db/              # 数据库初始化与连接 (Moved from common)
 │   │   └── proxy/           # MCP 代理实现
-│   └── utils/               # 工具函数
+│   └── common/              # 通用工具、常量、日志等 (Removed db.go)
+│   └── utils/               # 工具函数 (Consider merging into common?)
 ├── migrations/              # 数据库迁移
 ├── pkg/                     # 可重用包
 ├── .env                     # 环境变量
@@ -359,7 +363,7 @@ erDiagram
 
 ### 7.1 开发环境
 
-- 前端: `npm run dev` (Vite 开发服务器)
+- 前端: 与 gin-template 集成，`npm run dev` 用于开发时监听变更
 - 后端: `go run cmd/server/main.go`
 - 数据库: SQLite
 - 缓存: 本地 Redis 实例
@@ -375,8 +379,7 @@ graph LR
     
     subgraph "服务器"
         Nginx["Nginx (反向代理)"]
-        Frontend["静态前端文件"]
-        Backend["Go 后端服务"]
+        GoServer["Go 服务端 (包含嵌入式前端资源)"]
     end
     
     subgraph "数据存储"
@@ -386,18 +389,16 @@ graph LR
     
     Browser --> Nginx
     Client --> Nginx
-    Nginx --> Frontend
-    Nginx --> Backend
-    Backend --> PostgreSQL
-    Backend --> Redis
+    Nginx --> GoServer
+    GoServer --> PostgreSQL
+    GoServer --> Redis
 ```
 
 ### 7.3 容器化部署
 
 提供 Docker Compose 配置，包含以下服务：
 
-- 前端 (Nginx 服务静态文件)
-- 后端 API
+- Go 服务端 (包含嵌入式前端资源，单一可执行文件)
 - PostgreSQL
 - Redis
 
@@ -406,18 +407,11 @@ graph LR
 ```yaml
 version: '3'
 services:
-  frontend:
-    build: ./frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-  
-  backend:
-    build: ./backend
+  server:
+    build: .
     environment:
       - DB_HOST=postgres
-      - DB_NAME=mcpproxy
+      - DB_NAME=one-mcp
       - DB_USER=postgres
       - DB_PASSWORD=password
       - REDIS_HOST=redis
@@ -432,7 +426,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=mcpproxy
+      - POSTGRES_DB=one-mcp
     volumes:
       - postgres_data:/var/lib/postgresql/data
   
@@ -479,6 +473,12 @@ volumes:
 - 前端: Jest + React Testing Library
 - 后端: Go 标准测试库 + testify
 - API测试: Postman / REST Client
+
+### 9.4 构建过程
+
+- 前端资源使用 npm/yarn 进行构建，生成静态文件
+- 构建过程中使用 Go 的 embed 功能将前端资源嵌入到后端可执行文件中
+- 最终生成单一可执行文件，简化部署和维护
 
 ## 10. 性能与可扩展性考虑
 

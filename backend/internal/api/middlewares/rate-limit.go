@@ -1,12 +1,13 @@
-package middleware
+package middlewares
 
 import (
 	"context"
 	"fmt"
-	"gin-template/common"
+	"one-cmp/backend/internal/common"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"time"
+	"golang.org/x/time/rate"
 )
 
 var timeFormat = "2006-01-02T15:04:05.000Z"

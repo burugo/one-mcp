@@ -1,39 +1,35 @@
 package main
 
 import (
-	"embed"
-	"gin-template/common"
-	"gin-template/middleware"
-	"gin-template/model"
-	"gin-template/router"
+	"log"
+	"os"
+	"strconv"
+
+	"one-cmp/backend/internal/api/middlewares"
+	"one-cmp/backend/internal/api/routes"
+	"one-cmp/backend/internal/common"
+	"one-cmp/backend/internal/library/db"
+	"one-cmp/backend/internal/domain/model"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-contrib/sessions/redis"
 	"github.com/gin-gonic/gin"
-	"log"
-	"os"
-	"strconv"
 )
-
-//go:embed web/build
-var buildFS embed.FS
-
-//go:embed web/build/index.html
-var indexPage []byte
 
 func main() {
 	common.SetupGinLog()
-	common.SysLog("Gin Template " + common.Version + " started")
+	common.SysLog("One MCP Backend (from Gin Template) " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	// Initialize SQL Database
-	err := model.InitDB()
+	err := db.InitDB()
 	if err != nil {
 		common.FatalLog(err)
 	}
 	defer func() {
-		err := model.CloseDB()
+		err := db.CloseDB()
 		if err != nil {
 			common.FatalLog(err)
 		}
@@ -46,12 +42,13 @@ func main() {
 	}
 
 	// Initialize options
-	model.InitOptionMap()
+	// model.InitOptionMap()
+	// TODO: Resolve where InitOptionMap should live and be called. For now, it depends on db, so maybe in db package?
 
 	// Initialize HTTP server
 	server := gin.Default()
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
-	server.Use(middleware.CORS())
+	server.Use(middlewares.CORS())
 
 	// Initialize session store
 	if common.RedisEnabled {
@@ -63,13 +60,14 @@ func main() {
 		server.Use(sessions.Sessions("session", store))
 	}
 
-	router.SetRouter(server, buildFS, indexPage)
+	routes.SetRouter(server)
 	var port = os.Getenv("PORT")
 	if port == "" {
 		port = strconv.Itoa(*common.Port)
 	}
+	common.SysLog("Server listening on port: " + port)
 	err = server.Run(":" + port)
 	if err != nil {
-		log.Println(err)
+		log.Fatal("failed to start server: " + err.Error())
 	}
 }

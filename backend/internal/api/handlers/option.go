@@ -1,9 +1,10 @@
-package controller
+package handlers
 
 import (
 	"encoding/json"
-	"gin-template/common"
-	"gin-template/model"
+	"one-cmp/backend/internal/common"
+	"one-cmp/backend/internal/library/db"
+	"one-cmp/backend/internal/domain/model"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strings"

@@ -1,4 +1,4 @@
-module gin-template
+module one-cmp/backend
 
 // +heroku goVersion go1.24
 go 1.24
@@ -12,6 +12,7 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/uuid v1.6.0
 	golang.org/x/crypto v0.37.0
+	golang.org/x/time v0.11.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.26.0
