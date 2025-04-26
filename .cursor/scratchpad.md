@@ -19,29 +19,32 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
 
 ### 1. Backend: Basic Setup & User/Role Management (Adapting gin-template, Simplified Roles)
     - **1.1**: Adapt `gin-template` structure to match `backend/` layout defined in `technical_architecture.md`.
-        - Success Criteria: Project files reorganized into `backend/cmd`, `backend/internal`, etc. `go.mod` path updated (e.g., `module one-cmp/backend`). `go mod tidy` runs successfully. Basic Gin server starts via `go run backend/cmd/server/main.go`.
-    - **1.2**: Define/Refactor GORM model for `User` in `backend/internal/domain/model/`. Adapt the existing `User` model, **ensure it includes an integer `Role` field**. Define role constants (e.g., `RoleUser = 1`, `RoleAdmin = 10`) in `model` package or a shared `common` package. **Remove any `Role` model.**
+        - Success Criteria: Project files reorganized into `backend/cmd`, `backend/internal`, etc. `go.mod` path updated (e.g., `module one-mcp/backend`). `go mod tidy` runs successfully. Basic Gin server starts via `go run backend/cmd/server/main.go`.
+    - **1.2**: Define/Refactor GORM model for `User` in `backend/internal/model/`. Adapt the existing `User` model, **ensure it includes an integer `Role` field**. Define role constants (e.g., `RoleUser = 1`, `RoleAdmin = 10`) in `model` package or a shared `common` package. **Remove any `Role` model.**
         - Success Criteria: GORM model `user.go` defined with correct fields (including `Role int`) and tags. Role constants defined. No `role.go` model file exists.
     - **1.3**: Implement initial DB schema setup using GORM `AutoMigrate` **only for the `User` table**, configured for **SQLite**.
         - Success Criteria: `model.InitDB()` (or refactored equivalent) uses SQLite driver and `DB.AutoMigrate(&model.User{})`. On first run, `data/one-mcp.db` is created with the `users` table (including the `role` column). **No `roles` table is created.**
     - **1.4**: Implement logic to seed a default Admin user (e.g., in `main.go` or a seeding function) with the `RoleAdmin` constant value.
         - Success Criteria: A default admin user is created in the `users` table on initialization if no users exist, with the correct integer value in the `role` column.
-    - **1.5**: Implement `UserRepository` in `backend/internal/infrastructure/persistence/` (or `repository/`) adapting existing user logic from template's `model/user.go`. Implement basic User CRUD operations.
-        - Success Criteria: `UserRepository` interface defined in `domain/repository`. Concrete implementation using GORM exists. Functions for CreateUser, GetUserByUsername, GetUserByID, UpdateUser, DeleteUser exist. Basic unit tests pass (mocking GORM or using test DB).
+    - **1.5**: Implement `UserRepository` in `backend/internal/repository/` adapting existing user logic from template's `model/user.go`. Implement basic User CRUD operations.
+        - Success Criteria: `UserRepository` interface defined in `repository`. Concrete implementation using GORM exists. Functions for CreateUser, GetUserByUsername, GetUserByID, UpdateUser, DeleteUser exist. Basic unit tests pass (mocking GORM or using test DB).
     - **1.6**: Verify/Implement password hashing (bcrypt) within the `UserRepository` for user creation/update.
         - Success Criteria: `CreateUser` and relevant `UpdateUser` methods use `bcrypt.GenerateFromPassword`. Password verification logic (e.g., `CheckPassword`) uses `bcrypt.CompareHashAndPassword`. Unit tests verify hashing and comparison.
 
 ### 2. Backend: Authentication (JWT with Simplified Roles)
     - **2.1**: Implement JWT generation logic (e.g., in `internal/auth/`) and `/api/auth/login` endpoint. Ensure the generated JWT includes the user's integer `Role` in its claims. Remove template's session login logic.
-        - Success Criteria: Login endpoint uses `UserRepository`, verifies password hash, generates JWT (containing user ID, **integer role**, expiry) on success, returns token. Test with seeded admin user.
+        - Success Criteria: Login endpoint uses `UserRepository`, verifies password hash, generates JWT (containing user ID, **integer role**, expiry) on success, returns token and refresh token. Test with seeded admin user.
     - **2.2**: Implement JWT validation middleware (e.g., in `internal/api/middlewares/`). Ensure middleware extracts the integer `Role` from claims and adds it to the Gin context. Remove template's session middleware.
         - Success Criteria: Middleware parses token, validates signature/expiry, extracts claims (user ID, **integer role**), adds claims to Gin context. Unit tests pass.
-    - **2.3**: Implement logout mechanism (client-side token deletion focus). Remove template session logout.
-        - Success Criteria: Decision made (client-side deletion sufficient for now). Placeholder `/api/auth/logout` might exist but do nothing server-side.
-    - **2.4**: **(Removed)** No dedicated RBAC middleware needed. Authorization checks will be performed directly in handlers.
+    - **2.3**: Implement token refresh endpoint (`/api/auth/refresh`). Remove template session logout.
+        - Success Criteria: Endpoint validates refresh token, generates new access token and refresh token pair. Unit tests pass.
+    - **2.4**: Implement logout mechanism (JWT blacklisting in Redis). 
+        - Success Criteria: `/api/auth/logout` endpoint adds token to blacklist in Redis with appropriate expiry. JWT validation middleware checks blacklist. Unit tests pass.
+    - **2.5**: Preserve and adapt captcha functionality for registration and login.
+        - Success Criteria: `/api/auth/captcha` endpoint generates captcha images and stores codes in Redis with short expiry. Registration and login validate captcha. Unit tests pass.
 
 ### 3. Backend: MCP Service Management (Core)
-    - **3.1**: Define GORM model for `MCPService` in `backend/internal/domain/model/`.
+    - **3.1**: Define GORM model for `MCPService` in `backend/internal/model/`.
         - Success Criteria: `mcpservice.go` defined with fields as per architecture doc.
     - **3.2**: Add `MCPService` to GORM `AutoMigrate` in DB initialization.
         - Success Criteria: `mcp_services` table created successfully in SQLite DB on startup.
@@ -55,7 +58,7 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
         - Success Criteria: Endpoint exists, requires authentication, and returns placeholder JSON `{"message": "config copy not implemented"}`.
 
 ### 4. Backend: User Configuration Management (Core)
-    - **4.1**: Define GORM models for `UserConfig`, `ConfigService` in `backend/internal/domain/model/`.
+    - **4.1**: Define GORM models for `UserConfig`, `ConfigService` in `backend/internal/model/`.
         - Success Criteria: `userconfig.go`, `configservice.go` defined with correct fields and relationships.
     - **4.2**: Add `UserConfig`, `ConfigService` to GORM `AutoMigrate`.
         - Success Criteria: `user_configs`, `config_services` tables created successfully in SQLite DB.
@@ -68,7 +71,7 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
 ### 5. Backend: MCP Service Core (Placeholder) & Health Checks
     - **5.1**: Define basic directory structure for MCP service (`backend/internal/infrastructure/proxy/`). (No actual service handling yet).
         - Success Criteria: Directory and basic placeholder files created.
-    - **5.2**: Implement basic health check logic (placeholder, e.g., a function in `internal/domain/service/health_service.go` called periodically).
+    - **5.2**: Implement basic health check logic (placeholder, e.g., a function in `internal/service/health_service.go` called periodically).
         - Success Criteria: A background goroutine (started in `main.go`) periodically calls a health check function (which currently does nothing or simulates checks).
     - **5.3**: Store/update health status (placeholder - maybe add `status` string field to `MCPService` model/table for simplicity now). Add field to `AutoMigrate`.
         - Success Criteria: `status` field exists in `mcp_services` table. Placeholder health check updates this field (e.g., to "UNKNOWN" or "SIMULATED_OK").
@@ -90,6 +93,8 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
         - Success Criteria: Unauthenticated users accessing protected pages are redirected to the login page.
     - **7.4**: Implement Logout functionality (button in Navbar).
         - Success Criteria: Logout button clears stored token, updates auth state (clears user ID and role), redirects to login page.
+    - **7.5**: Implement Registration with captcha validation
+    - **7.6**: Implement token refresh mechanism
 
 ### 8. Frontend: Home (MCP Service List) Page
     - **8.1**: Create Home page component (`frontend/src/pages/dashboard/HomePage.jsx` or similar) accessible only when logged in.
@@ -127,8 +132,9 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
 - [ ] **Backend: Authentication (JWT with Simplified Roles)**
     - [ ] 2.1: Implement JWT generation (with integer role claim) & /api/auth/login endpoint
     - [ ] 2.2: Implement JWT validation middleware (extracting integer role)
-    - [ ] 2.3: Implement logout mechanism (client-side focused)
-    - [ ] ~~2.4: Implement RBAC middleware~~ (Removed)
+    - [ ] 2.3: Implement token refresh endpoint
+    - [ ] 2.4: Implement logout mechanism (JWT blacklisting in Redis)
+    - [ ] 2.5: Preserve and adapt captcha functionality for registration and login
 - [ ] **Backend: MCP Service Management (Core)**
     - [X] 3.1: Define MCPService model
     - [ ] 3.2: Add MCPService to AutoMigrate
@@ -145,7 +151,6 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
     - [ ] 5.2: Implement basic health check logic (placeholder)
     - [ ] 5.3: Store/update health status (placeholder, e.g., new field in MCPService)
 - [ ] **Frontend: Setup & Basic Layout (Replacing Embedded UI)**
-    - [ ] 6.1: Setup React/Vite project in `frontend/`, remove old `web/` & `embed`
     - [ ] 6.2: Implement basic routing & layout components
     - [ ] 6.3: Integrate Tailwind CSS
 - [ ] **Frontend: Authentication Pages**
@@ -153,6 +158,8 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
     - [ ] 7.2: Implement login API call & JWT/state handling (**including role**)
     - [ ] 7.3: Implement protected routes
     - [ ] 7.4: Implement Logout functionality (**clearing role**)
+    - [ ] 7.5: Implement Registration with captcha validation
+    - [ ] 7.6: Implement token refresh mechanism
 - [ ] **Frontend: Home (MCP Service List) Page**
     - [ ] 8.1: Create Home page component
     - [ ] 8.2: Implement API call to fetch services (authenticated)
@@ -169,9 +176,9 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
 ## Current Status / Progress Tracking
 
 *Plan refined to use simplified integer-based role management. Ready to start Phase 1, focusing on adapting the backend structure.*
-*   [DONE] 1.2: Defined User model model in `backend/internal/domain/model/user.go` with integer Role field and constants.
-*   **[DONE] 3.1**: Defined MCPService model model in `backend/internal/domain/model/mcpservice.go`.
-*   **[DONE] 4.1**: Defined UserConfig and ConfigService model models in `backend/internal/domain/model/`.
+*   [DONE] 1.2: Defined User model in `backend/internal/model/user.go` with integer Role field and constants.
+*   **[DONE] 3.1**: Defined MCPService model in `backend/internal/model/mcpservice.go`.
+*   **[DONE] 4.1**: Defined UserConfig and ConfigService models in `backend/internal/model/`.
 
 ## Executor's Feedback or Assistance Requests
 
@@ -183,3 +190,4 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
 *   Using GORM `AutoMigrate` with SQLite is suitable for initial development, simplifying schema management early on.
 *   Clearly defining the replacement of template features (sessions, embedded UI) is important for planning.
 *   Decision: Simplified role management using integer constants (`User=1`, `Admin=10`) in the `User` model instead of a separate `Role` table and RBAC middleware. Authorization checks for admin actions will be performed directly in API handlers.
+*   While converting from session-based to JWT authentication, keep useful gin-template features like captcha generation for registration security.

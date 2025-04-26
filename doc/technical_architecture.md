@@ -122,25 +122,21 @@ web/
 
 ```
 backend/
-├── cmd/
-│   └── server/              # 服务启动入口
-├── config/                  # 配置相关
-├── internal/
+│   ├── config/                  # 配置相关
 │   ├── api/                 # API 处理器
 │   │   ├── handlers/        # HTTP 处理器
 │   │   ├── middlewares/     # 中间件
 │   │   └── routes/          # 路由定义
 │   ├── auth/                # 认证授权相关
 │   ├── cache/               # 缓存管理
-│   ├── domain/              # 领域模型和业务逻辑
-│   │   ├── model/          # 实体定义
-│   │   ├── repository/      # 数据访问接口
-│   │   ├── service/         # 业务服务
-│   │   └── dto/             # 数据传输对象
-│   ├── library/             # 库/基础设施 (Renamed from infrastructure)
-│   │   ├── db/              # 数据库初始化与连接 (Moved from common)
+│   ├── model/               # 数据模型定义
+│   ├── service/             # 业务服务
+│   ├── repository/          # 数据访问接口
+│   ├── dto/                 # 数据传输对象
+│   ├── library/             # 库/基础设施
+│   │   ├── db/              # 数据库初始化与连接
 │   │   └── proxy/           # MCP 代理实现
-│   └── common/              # 通用工具、常量、日志等 (Removed db.go)
+│   └── common/              # 通用工具、常量、日志等
 │   └── utils/               # 工具函数 (Consider merging into common?)
 ├── migrations/              # 数据库迁移
 ├── pkg/                     # 可重用包
@@ -149,35 +145,80 @@ backend/
 └── go.sum                   # 依赖校验和
 ```
 
+同时，在项目根目录下有以下文件：
+
+```
+├── main.go                  # 主程序入口
+├── go.mod                   # Go 模块定义
+├── go.sum                   # 依赖校验和
+├── .env                     # 环境变量
+├── .gitignore               # Git 忽略文件配置
+├── Dockerfile               # Docker 构建文件
+├── LICENSE                  # 许可证文件
+└── README.md                # 项目说明文档
+```
+
 ### 3.3 主要模块
 
 #### 3.3.1 API 模块
 
-处理 HTTP 请求和响应，API 路由定义。主要路由组：
+处理 HTTP 请求和响应，API 路由定义。保留 gin-template 原有路由并扩展 MCP 服务相关功能。
 
-- `/api/auth`: 认证相关接口
-- `/api/users`: 用户管理接口
+##### 已有路由 (来自 gin-template)
+
+- `/`: 首页
+- `/login`: 登录页面
+- `/logout`: 登出
+- `/register`: 注册页面
+- `/captcha`: 验证码生成
+- `/user`: 用户信息与设置
+  - `/user/profile`: 用户个人资料
+  - `/user/setting`: 用户设置
+  - `/user/change-password`: 修改密码
+- `/admin`: 管理后台
+  - `/admin/users`: 用户管理
+  - `/admin/roles`: 角色管理
+  - `/admin/settings`: 系统设置
+
+##### 新增 API 路由
+
 - `/api/services`: MCP 服务管理接口
+  - `GET`: 获取服务列表
+  - `POST`: 创建新服务 (管理员)
+  - `/:id`: 单个服务操作
+  - `/:id/toggle`: 启用/禁用服务 (管理员)
+  - `/:id/config/:client`: 获取特定客户端配置
 - `/api/configs`: 用户配置组合管理接口
-- `/api/settings`: 系统设置接口
+  - `GET`: 获取用户配置列表
+  - `POST`: 创建新配置
+  - `/:id`: 单个配置操作
+  - `/:id/:client`: 导出客户端配置
 
 #### 3.3.2 认证授权模块
 
-- JWT 令牌生成和验证
-- 用户密码加密和验证
-- 角色和权限管理
+将 gin-template 基于会话的认证改为 JWT 认证:
 
-#### 3.3.3 MCP 代理核心模块
+- JWT 令牌生成和验证
+- 用户密码加密和验证 (bcrypt)
+- 基于 JWT 的无状态认证
+- 刷新令牌机制
+- 用户角色和权限管理
+
+#### 3.3.3 MCP 服务核心模块
 
 - MCP 服务连接管理
-- 请求转发与聚合
-- 服务健康检查
+- 服务配置处理
+- 健康检查和状态监控
+- 服务请求路由和处理
 
 #### 3.3.4 缓存管理模块
 
-- API 响应缓存
-- 会话管理
-- 配置缓存
+整合 gin-template 已有缓存和扩展:
+
+- 会话缓存
+- 验证码缓存
+- MCP 服务状态缓存
+- 配置文件缓存
 
 ## 4. 数据库设计
 
@@ -303,9 +344,11 @@ erDiagram
 
 | 端点 | 方法 | 描述 | 参数 | 响应 |
 |------|-----|------|------|------|
-| `/api/auth/login` | POST | 用户登录 | username, password | token, user_info |
-| `/api/auth/logout` | POST | 用户登出 | token | success |
-| `/api/auth/refresh` | POST | 刷新令牌 | refresh_token | new_token |
+| `/api/auth/login` | POST | 用户登录 | username, password | token, refresh_token, user_info |
+| `/api/auth/logout` | POST | 用户登出（客户端删除令牌） | - | success |
+| `/api/auth/refresh` | POST | 刷新令牌 | refresh_token | new_token, new_refresh_token |
+| `/api/auth/register` | POST | 用户注册 | username, password, email, captcha | token, user_info |
+| `/api/auth/captcha` | GET | 获取验证码 | - | captcha_id, captcha_image |
 
 ### 5.2 用户管理 API
 
@@ -345,7 +388,8 @@ erDiagram
 
 ### 6.1 缓存内容
 
-- **用户会话**: 存储用户登录状态和权限信息
+- **JWT 黑名单**: 存储已注销的 JWT 令牌
+- **验证码**: 存储生成的验证码
 - **API 响应**: 缓存频繁请求但不常变化的数据 (如服务列表)
 - **MCP 服务状态**: 缓存健康检查结果
 - **配置文件**: 缓存已生成的客户端配置
@@ -354,7 +398,8 @@ erDiagram
 
 | 缓存类型 | 键模式 | 过期时间 |
 |---------|-------|---------|
-| 用户会话 | `session:{token}` | 24小时 |
+| JWT 黑名单 | `jwt:blacklist:{token_id}` | 与令牌过期时间一致 |
+| 验证码 | `captcha:{captcha_id}` | 5分钟 |
 | 服务列表 | `services:list` | 5分钟 |
 | 服务配置 | `service:{id}:config:{client}` | 10分钟 |
 | 用户配置 | `user:{id}:config:{config_id}:{client}` | 10分钟 |
@@ -364,7 +409,7 @@ erDiagram
 ### 7.1 开发环境
 
 - 前端: 与 gin-template 集成，`npm run dev` 用于开发时监听变更
-- 后端: `go run cmd/server/main.go`
+- 后端: `go run main.go`
 - 数据库: SQLite
 - 缓存: 本地 Redis 实例
 
