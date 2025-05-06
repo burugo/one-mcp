@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+Language Consistency: 
+All code comments, git commit messages, and content written in `.cursor/scratchpad.md` must be in English.
+When communicating with the human user in Planner role, use Chinese. 

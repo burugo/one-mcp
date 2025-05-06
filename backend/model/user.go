@@ -1,6 +1,12 @@
 package model
 
-import "time"
+import (
+	"errors"
+	"one-mcp/backend/common"
+	"time"
+
+	"github.com/burugo/thing"
+)
 
 // Role constants
 const (
@@ -18,20 +24,22 @@ const (
 )
 
 // User represents the user model in the database.
-// Adapted from gin-template and example. Removed Token field (using JWT).
+// Adapted from one-mcp/backend and example. Removed Token field (using JWT).
 // Sensitive fields like Password should not be included in API responses.
 type User struct {
-	Id          int       `json:"id" gorm:"primaryKey"`
-	Username    string    `json:"username" gorm:"uniqueIndex;size:12"` // Added size constraint from example
-	Password    string    `json:"-" gorm:"size:100;not null"`          // json:"-" to prevent sending it out, increased size
-	DisplayName string    `json:"display_name" gorm:"index;size:20"`   // Added size constraint
-	Role        int       `json:"role" gorm:"type:int;default:1"`      // Simplified Role: RoleCommonUser, RoleAdminUser
-	Status      int       `json:"status" gorm:"type:int;default:1"`    // Status: UserStatusEnabled, UserStatusDisabled
-	Email       string    `json:"email" gorm:"index;size:50"`          // Added size constraint
-	GitHubId    string    `json:"-" gorm:"column:github_id;index"`     // Assuming sensitive or internal, hiding from json
-	WeChatId    string    `json:"-" gorm:"column:wechat_id;index"`     // Assuming sensitive or internal, hiding from json
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	thing.BaseModel
+	Username         string    `json:"username" gorm:"uniqueIndex;size:12"`
+	Password         string    `json:"-" gorm:"size:100;not null"`
+	DisplayName      string    `json:"display_name" gorm:"index;size:20"`
+	Role             int       `json:"role" gorm:"type:int;default:1"`
+	Status           int       `json:"status" gorm:"type:int;default:1"`
+	Email            string    `json:"email" gorm:"index;size:50"`
+	GitHubId         string    `json:"-" gorm:"column:github_id;index"`
+	WeChatId         string    `json:"-" gorm:"column:wechat_id;index"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	VerificationCode string    `json:"verification_code" gorm:"-:all"`
+	Token            string    `json:"token" gorm:"index"`
 
 	// Fields from example, consider if needed later:
 	// LarkId           string `json:"lark_id" gorm:"column:lark_id;index"`
@@ -42,4 +50,219 @@ type User struct {
 	// Group            string `json:"group" gorm:"type:varchar(32);default:'default'"`
 	// AffCode          string `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	// InviterId        int    `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
-} 
+}
+
+var UserDB *thing.Thing[*User]
+
+func init() {
+	var err error
+	UserDB, err = thing.Use[*User]()
+	if err != nil {
+		panic("failed to initialize UserDB: " + err.Error())
+	}
+}
+
+func GetMaxUserId() int64 {
+	userThing := UserDB
+	users, err := userThing.Order("id DESC").Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return 0
+	}
+	return users[0].ID
+}
+
+func GetAllUsers(startIdx int, num int) ([]*User, error) {
+	userThing := UserDB
+	return userThing.Order("id DESC").Fetch(startIdx, num)
+}
+
+func SearchUsers(keyword string) ([]*User, error) {
+	userThing := UserDB
+	return userThing.Where(
+		"id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ?",
+		keyword, keyword+"%", keyword+"%", keyword+"%",
+	).Order("id DESC").Fetch(0, 100)
+}
+
+func GetUserById(id int64, selectAll bool) (*User, error) {
+	if id == 0 {
+		return nil, errors.New("id 为空！")
+	}
+	userThing := UserDB
+	return userThing.ByID(id)
+}
+
+func DeleteUserById(id int64) error {
+	if id == 0 {
+		return errors.New("id 为空！")
+	}
+	userThing := UserDB
+	user, err := userThing.ByID(id)
+	if err != nil {
+		return err
+	}
+	return userThing.Delete(user)
+}
+
+func (user *User) Insert() error {
+	userThing := UserDB
+	if user.Password != "" {
+		var err error
+		user.Password, err = common.Password2Hash(user.Password)
+		if err != nil {
+			return err
+		}
+	}
+	return userThing.Save(user)
+}
+
+func (user *User) Update(updatePassword bool) error {
+	userThing := UserDB
+	if updatePassword {
+		var err error
+		user.Password, err = common.Password2Hash(user.Password)
+		if err != nil {
+			return err
+		}
+	}
+	return userThing.Save(user)
+}
+
+func (user *User) Delete() error {
+	if user.ID == 0 {
+		return errors.New("id 为空！")
+	}
+	userThing := UserDB
+	return userThing.Delete(user)
+}
+
+func (user *User) ValidateAndFill() error {
+	if user.Username == "" || user.Password == "" {
+		return errors.New("用户名或密码为空")
+	}
+	userThing := UserDB
+	users, err := userThing.Where("username = ?", user.Username).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return errors.New("用户名或密码错误，或用户已被封禁")
+	}
+	found := users[0]
+	okay := common.ValidatePasswordAndHash(user.Password, found.Password)
+	if !okay || found.Status != common.UserStatusEnabled {
+		return errors.New("用户名或密码错误，或用户已被封禁")
+	}
+	*user = *found
+	return nil
+}
+
+func (user *User) FillUserById() error {
+	if user.ID == 0 {
+		return errors.New("id 为空！")
+	}
+	userThing := UserDB
+	found, err := userThing.ByID(user.ID)
+	if err != nil {
+		return err
+	}
+	*user = *found
+	return nil
+}
+
+func (user *User) FillUserByEmail() error {
+	if user.Email == "" {
+		return errors.New("email 为空！")
+	}
+	userThing := UserDB
+	users, err := userThing.Where("email = ?", user.Email).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return errors.New("未找到用户")
+	}
+	*user = *users[0]
+	return nil
+}
+
+func (user *User) FillUserByGitHubId() error {
+	if user.GitHubId == "" {
+		return errors.New("GitHub id 为空！")
+	}
+	userThing := UserDB
+	users, err := userThing.Where("github_id = ?", user.GitHubId).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return errors.New("未找到用户")
+	}
+	*user = *users[0]
+	return nil
+}
+
+func (user *User) FillUserByWeChatId() error {
+	if user.WeChatId == "" {
+		return errors.New("WeChat id 为空！")
+	}
+	userThing := UserDB
+	users, err := userThing.Where("wechat_id = ?", user.WeChatId).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return errors.New("未找到用户")
+	}
+	*user = *users[0]
+	return nil
+}
+
+func (user *User) FillUserByUsername() error {
+	if user.Username == "" {
+		return errors.New("username 为空！")
+	}
+	userThing := UserDB
+	users, err := userThing.Where("username = ?", user.Username).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return errors.New("未找到用户")
+	}
+	*user = *users[0]
+	return nil
+}
+
+func ValidateUserToken(token string) *User {
+	// Stub implementation - always returns nil (invalid token) for now
+	// This will be replaced with proper JWT validation later
+	return nil
+}
+
+func IsEmailAlreadyTaken(email string) bool {
+	userThing := UserDB
+	users, err := userThing.Where("email = ?", email).Fetch(0, 1)
+	return err == nil && len(users) > 0
+}
+
+func IsWeChatIdAlreadyTaken(wechatId string) bool {
+	userThing := UserDB
+	users, err := userThing.Where("wechat_id = ?", wechatId).Fetch(0, 1)
+	return err == nil && len(users) > 0
+}
+
+func IsGitHubIdAlreadyTaken(githubId string) bool {
+	userThing := UserDB
+	users, err := userThing.Where("github_id = ?", githubId).Fetch(0, 1)
+	return err == nil && len(users) > 0
+}
+
+func IsUsernameAlreadyTaken(username string) bool {
+	userThing := UserDB
+	users, err := userThing.Where("username = ?", username).Fetch(0, 1)
+	return err == nil && len(users) > 0
+}
+
+func ResetUserPasswordByEmail(email string, password string) error {
+	if email == "" || password == "" {
+		return errors.New("邮箱地址或密码为空！")
+	}
+	hashedPassword, err := common.Password2Hash(password)
+	if err != nil {
+		return err
+	}
+	userThing := UserDB
+	users, err := userThing.Where("email = ?", email).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return errors.New("未找到用户")
+	}
+	user := users[0]
+	user.Password = hashedPassword
+	return userThing.Save(user)
+}

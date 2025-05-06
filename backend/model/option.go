@@ -1,51 +1,54 @@
 package model
 
 import (
-	"strconv"
-	"strings"
+	"one-mcp/backend/common"
 
-	"one-mcp/backend/internal/common"
-	"one-mcp/backend/internal/library/db"
+	"github.com/burugo/thing"
 )
 
 // OptionMap stores system options, accessible via common.OptionMapRWMutex
 var OptionMap map[string]string
 
 type Option struct {
-	Key   string `json:"key" gorm:"primaryKey"`
+	thing.BaseModel
+	Key   string `json:"key" db:"key,unique"`
 	Value string `json:"value"`
 }
 
-func AllOption() ([]*Option, error) {
-	var options []*Option
-	var err error
-	err = db.DB.Find(&options).Error
-	return options, err
-}
+// DB interface functions to avoid circular imports
+// These will be called by code in library/db
 
-func UpdateOption(key string, value string) error {
-	option := Option{
-		Key: key,
-	}
-	db.DB.FirstOrCreate(&option, Option{Key: key})
-	option.Value = value
-	db.DB.Save(&option)
-	// Update the central OptionMap (accessed via mutex)
-	updateOptionMapValue(key, value)
-	return nil
-}
-
-// updateOptionMapValue updates ONLY the in-memory OptionMap.
-// The logic to update global variables in common package is REMOVED
-// to prevent import cycles and tight coupling.
-// Common package or other services should read from model.OptionMap directly.
-func updateOptionMapValue(key string, value string) {
+// UpdateOptionMap updates the central OptionMap with a new option value
+func UpdateOptionMap(key string, value string) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	if OptionMap == nil {
 		OptionMap = make(map[string]string)
 	}
 	OptionMap[key] = value
-	// common.OptionMap[key] = value // REMOVED - Avoid direct update across packages here.
-	// REMOVED logic that updated common.* variables
+}
+
+// InitOptionMap initializes the option map
+func InitOptionMap() {
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
+	if OptionMap == nil {
+		OptionMap = make(map[string]string)
+	}
+}
+
+// The functions below will be implemented in service/option_service.go
+// to avoid circular dependencies
+
+// AllOption - moved to service
+// UpdateOption - moved to service
+
+var OptionDB *thing.Thing[*Option]
+
+func init() {
+	var err error
+	OptionDB, err = thing.Use[*Option]()
+	if err != nil {
+		panic("failed to initialize OptionDB: " + err.Error())
+	}
 }

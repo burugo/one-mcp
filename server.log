@@ -1,0 +1,5 @@
+[SYS] 2025/04/26 - 20:39:37 | One MCP Backend (from Gin Template) v0.0.0 started 
+[SYS] 2025/04/26 - 20:39:37 | SQL_DSN not set, using SQLite as database 
+[SYS] 2025/04/26 - 20:39:37 | REDIS_CONN_STRING not set, Redis is not enabled 
+[SYS] 2025/04/26 - 20:39:37 | Server listening on port: 3000 
+2025/04/26 20:39:37 failed to start server: listen tcp :3000: bind: address already in use

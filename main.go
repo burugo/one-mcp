@@ -1,21 +1,26 @@
 package main
 
 import (
+	"embed"
 	"log"
 	"os"
 	"strconv"
 
-	"one-mcp/backend/api/middlewares"
-	"one-mcp/backend/api/routes"
+	"one-mcp/backend/api/middleware"
+	"one-mcp/backend/api/route"
 	"one-mcp/backend/common"
-	"one-mcp/backend/library/db"
 	"one-mcp/backend/model"
-
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-contrib/sessions/redis"
 	"github.com/gin-gonic/gin"
 )
+
+//go:embed web/build
+var buildFS embed.FS
+
+//go:embed web/build/index.html
+var indexPage []byte
 
 func main() {
 	common.SetupGinLog()
@@ -24,12 +29,12 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	// Initialize SQL Database
-	err := db.InitDB()
+	err := model.InitDB()
 	if err != nil {
 		common.FatalLog(err)
 	}
 	defer func() {
-		err := db.CloseDB()
+		err := model.CloseDB()
 		if err != nil {
 			common.FatalLog(err)
 		}
@@ -42,13 +47,12 @@ func main() {
 	}
 
 	// Initialize options
-	// model.InitOptionMap()
-	// TODO: Resolve where InitOptionMap should live and be called. For now, it depends on db, so maybe in db package?
+	model.InitOptionMap()
 
 	// Initialize HTTP server
 	server := gin.Default()
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
-	server.Use(middlewares.CORS())
+	server.Use(middleware.CORS())
 
 	// Initialize session store
 	if common.RedisEnabled {
@@ -60,7 +64,7 @@ func main() {
 		server.Use(sessions.Sessions("session", store))
 	}
 
-	routes.SetRouter(server)
+	route.SetRouter(server, buildFS, indexPage)
 	var port = os.Getenv("PORT")
 	if port == "" {
 		port = strconv.Itoa(*common.Port)

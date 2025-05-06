@@ -1,0 +1,71 @@
+package model
+
+import (
+	"one-mcp/backend/common"
+
+	"github.com/burugo/thing"
+	redisCache "github.com/burugo/thing/drivers/cache/redis"
+	"github.com/burugo/thing/drivers/db/sqlite"
+)
+
+// 全局变量用于兼容旧代码，后续可逐步移除
+// var DB *gorm.DB
+
+func createRootAccountIfNeed() error {
+	// 检查是否有用户，无则创建 root 用户
+	userThing, err := thing.Use[*User]()
+	if err != nil {
+		return err
+	}
+	users, err := userThing.Query(thing.QueryParams{}).Fetch(0, 1)
+	if err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		common.SysLog("no user exists, create a root user for you: username is root, password is 123456")
+		hashedPassword, err := common.Password2Hash("123456")
+		if err != nil {
+			return err
+		}
+		rootUser := &User{
+			Username:    "root",
+			Password:    hashedPassword,
+			Role:        common.RoleRootUser,
+			Status:      common.UserStatusEnabled,
+			DisplayName: "Root User",
+		}
+		err = userThing.Save(rootUser)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func InitDB() (err error) {
+	dbAdapter, err := sqlite.NewSQLiteAdapter(common.SQLitePath)
+	if err != nil {
+		common.FatalLog(err)
+		return err
+	}
+	cacheClient, _, err := redisCache.NewClient(redisCache.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+	if err != nil {
+		return err
+	}
+	thing.Configure(dbAdapter, cacheClient)
+
+	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{})
+	if err != nil {
+		return err
+	}
+	return createRootAccountIfNeed()
+}
+
+func CloseDB() error {
+	// Thing ORM 不需要显式关闭 DB，若后续有需要可补充
+	return nil
+}

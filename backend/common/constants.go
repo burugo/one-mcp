@@ -16,7 +16,7 @@ var HomePageLink = ""
 // Any options with "Secret", "Token" in its key won't be return by GetOptions
 
 var SessionSecret = uuid.New().String()
-var SQLitePath = "gin-template.db"
+var SQLitePath = "data/one-mcp.db"
 
 var OptionMap map[string]string
 var OptionMapRWMutex sync.RWMutex
@@ -45,6 +45,12 @@ var WeChatAccountQRCodeImageURL = ""
 
 var TurnstileSiteKey = ""
 var TurnstileSecretKey = ""
+
+// JWT constants
+var JWTSecret = uuid.New().String()         // Secret for signing JWT tokens
+var JWTRefreshSecret = uuid.New().String()  // Secret for signing refresh tokens
+var JWTExpiryHours = 24                     // Token expiry in hours
+var JWTRefreshExpiryHours = 168             // Refresh token expiry in hours (7 days)
 
 const (
 	RoleGuestUser  = 0

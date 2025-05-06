@@ -1,0 +1,16 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+## Test-Driven Development (TDD)
+**Final Verification:**
+Always use: `go test -v ./tests | grep FAIL`
+
+**Debugging & Handling Verbose Output:**
+**Avoid** `go test -v ./...` directly in the terminal due to excessive output.
+**Recommended Alternatives:**
+*   **Specific Tests:** `go test -v ./... -run ^TestSpecificFunction$` (Fastest for pinpointing).
+*   **Filter Full Output:** `go test -v ./... > test_output.log && grep -E '--- FAIL:|FAIL:' test_output.log` (Simple & portable for full runs).
+     
