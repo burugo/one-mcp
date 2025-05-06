@@ -3,7 +3,6 @@ package model
 import (
 	"errors"
 	"one-mcp/backend/common"
-	"time"
 
 	"github.com/burugo/thing"
 )
@@ -28,18 +27,16 @@ const (
 // Sensitive fields like Password should not be included in API responses.
 type User struct {
 	thing.BaseModel
-	Username         string    `json:"username" gorm:"uniqueIndex;size:12"`
-	Password         string    `json:"-" gorm:"size:100;not null"`
-	DisplayName      string    `json:"display_name" gorm:"index;size:20"`
-	Role             int       `json:"role" gorm:"type:int;default:1"`
-	Status           int       `json:"status" gorm:"type:int;default:1"`
-	Email            string    `json:"email" gorm:"index;size:50"`
-	GitHubId         string    `json:"-" gorm:"column:github_id;index"`
-	WeChatId         string    `json:"-" gorm:"column:wechat_id;index"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	VerificationCode string    `json:"verification_code" gorm:"-:all"`
-	Token            string    `json:"token" gorm:"index"`
+	Username         string `json:"username" gorm:"uniqueIndex;size:12"`
+	Password         string `json:"-" gorm:"size:100;not null"`
+	DisplayName      string `json:"display_name" gorm:"index;size:20"`
+	Role             int    `json:"role" gorm:"type:int;default:1"`
+	Status           int    `json:"status" gorm:"type:int;default:1"`
+	Email            string `json:"email" gorm:"index;size:50"`
+	GitHubId         string `json:"-" gorm:"column:github_id;index"`
+	WeChatId         string `json:"-" gorm:"column:wechat_id;index"`
+	VerificationCode string `json:"verification_code" gorm:"-:all"`
+	Token            string `json:"token" gorm:"index"`
 
 	// Fields from example, consider if needed later:
 	// LarkId           string `json:"lark_id" gorm:"column:lark_id;index"`
@@ -54,12 +51,14 @@ type User struct {
 
 var UserDB *thing.Thing[*User]
 
-func init() {
+// UserInit 用于在 InitDB 时初始化 UserDB
+func UserInit() error {
 	var err error
 	UserDB, err = thing.Use[*User]()
 	if err != nil {
-		panic("failed to initialize UserDB: " + err.Error())
+		return err
 	}
+	return nil
 }
 
 func GetMaxUserId() int64 {

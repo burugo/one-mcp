@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -154,7 +153,7 @@ func Logout(c *gin.Context) {
 		ttl := expirationTime.Sub(time.Now())
 
 		// Add token to blacklist
-		err := common.RedisClient.Set(c, "jwt:blacklist:"+req.AccessToken, true, ttl).Err()
+		err := common.RDB.Set(c, "jwt:blacklist:"+req.AccessToken, true, ttl).Err()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
@@ -279,4 +278,4 @@ func Register(c *gin.Context) {
 			User:         user,
 		},
 	})
-} 
+}

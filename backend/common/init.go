@@ -9,16 +9,16 @@ import (
 )
 
 var (
-	Port         = flag.Int("port", 3000, "the listening port")
-	PrintVersion = flag.Bool("version", false, "print version and exit")
-	PrintHelp    = flag.Bool("help", false, "print help and exit")
-	LogDir       = flag.String("log-dir", "", "specify the log directory")
+	Port          = flag.Int("port", 3000, "the listening port")
+	PrintVersion  = flag.Bool("version", false, "print version and exit")
+	PrintHelpFlag = flag.Bool("help", false, "print help and exit")
+	LogDir        = flag.String("log-dir", "", "specify the log directory")
 )
 
 // UploadPath Maybe override by ENV_VAR
 var UploadPath = "upload"
 
-func printHelp() {
+func PrintHelp() {
 	fmt.Println("Gin Template " + Version + " - Your next project starts from here.")
 	fmt.Println("Copyright (C) 2023 JustSong. All rights reserved.")
 	fmt.Println("GitHub: https://github.com/songquanpeng/one-mcp/backend")
@@ -26,18 +26,6 @@ func printHelp() {
 }
 
 func init() {
-	flag.Parse()
-
-	if *PrintVersion {
-		fmt.Println(Version)
-		os.Exit(0)
-	}
-
-	if *PrintHelp {
-		printHelp()
-		os.Exit(0)
-	}
-
 	if os.Getenv("SESSION_SECRET") != "" {
 		SessionSecret = os.Getenv("SESSION_SECRET")
 	}

@@ -115,7 +115,7 @@ func JWTAuth() gin.HandlerFunc {
 
 		// Check if token is blacklisted
 		if common.RedisEnabled {
-			blacklisted, _ := common.RedisClient.Exists(c, "jwt:blacklist:"+tokenString).Result()
+			blacklisted, _ := common.RDB.Exists(c, "jwt:blacklist:"+tokenString).Result()
 			if blacklisted > 0 {
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"success": false,

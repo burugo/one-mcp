@@ -1,8 +1,9 @@
 package model
 
 import (
-	"gorm.io/gorm"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // ServiceCategory represents different categories of MCP services
@@ -26,7 +27,7 @@ type MCPService struct {
 	Icon        string          `json:"icon" gorm:"size:255"`
 	DefaultOn   bool            `json:"default_on" gorm:"default:false"`
 	AdminOnly   bool            `json:"admin_only" gorm:"default:false"`
-	Order       int             `json:"order" gorm:"default:0"`
+	OrderNum    int             `json:"order_num" gorm:"column:order_num;default:0"`
 	Enabled     bool            `json:"enabled" gorm:"default:true"`
 	CreatedAt   time.Time       `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
@@ -86,7 +87,7 @@ func ToggleServiceEnabled(db *gorm.DB, id int) error {
 	if err := db.First(&service, id).Error; err != nil {
 		return err
 	}
-	
+
 	service.Enabled = !service.Enabled
 	return db.Save(&service).Error
 }
@@ -97,22 +98,22 @@ func GetServicesWithConfig(db *gorm.DB) ([]map[string]interface{}, error) {
 	if err := db.Order("category asc, order asc").Find(&services).Error; err != nil {
 		return nil, err
 	}
-	
+
 	result := make([]map[string]interface{}, 0, len(services))
-	
+
 	for _, service := range services {
 		var configs []ConfigService
 		if err := db.Where("service_id = ?", service.Id).Order("order asc").Find(&configs).Error; err != nil {
 			return nil, err
 		}
-		
+
 		serviceMap := map[string]interface{}{
-			"service":  service,
+			"service": service,
 			"configs": configs,
 		}
-		
+
 		result = append(result, serviceMap)
 	}
-	
+
 	return result, nil
-} 
+}

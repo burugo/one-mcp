@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"flag"
 	"log"
 	"os"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"one-mcp/backend/api/route"
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-contrib/sessions/redis"
@@ -23,6 +25,15 @@ var buildFS embed.FS
 var indexPage []byte
 
 func main() {
+	flag.Parse()
+	if *common.PrintVersion {
+		println(common.Version)
+		os.Exit(0)
+	}
+	if *common.PrintHelpFlag {
+		common.PrintHelp()
+		os.Exit(0)
+	}
 	common.SetupGinLog()
 	common.SysLog("One MCP Backend (from Gin Template) " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {

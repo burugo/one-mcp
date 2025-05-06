@@ -48,15 +48,19 @@ func InitDB() (err error) {
 		common.FatalLog(err)
 		return err
 	}
-	cacheClient, _, err := redisCache.NewClient(redisCache.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
+	cacheClient, err := redisCache.NewClient(common.RDB, nil)
 	if err != nil {
 		return err
 	}
 	thing.Configure(dbAdapter, cacheClient)
+
+	// 初始化所有 ORM 实例
+	if err := UserInit(); err != nil {
+		return err
+	}
+	if err := OptionInit(); err != nil {
+		return err
+	}
 
 	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{})
 	if err != nil {

@@ -45,10 +45,12 @@ func InitOptionMap() {
 
 var OptionDB *thing.Thing[*Option]
 
-func init() {
+// OptionInit 用于在 InitDB 时初始化 OptionDB
+func OptionInit() error {
 	var err error
 	OptionDB, err = thing.Use[*Option]()
 	if err != nil {
-		panic("failed to initialize OptionDB: " + err.Error())
+		return err
 	}
+	return nil
 }
