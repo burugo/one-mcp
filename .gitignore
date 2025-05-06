@@ -26,3 +26,6 @@ go.work.sum
 .env
 .tool-versions
 ./one-mcp
+.log
+.db
+.tmp
