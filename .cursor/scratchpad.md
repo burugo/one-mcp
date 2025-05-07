@@ -46,29 +46,31 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
         - Success Criteria: `/api/auth/captcha` endpoint generates captcha images and stores codes in Redis with short expiry. Registration and login validate captcha. Unit tests pass.
 
 ### 3. Backend: MCP Service Management (Core)
+    - **Task Type: New Feature**
     - **3.1**: Define GORM model for `MCPService` in `backend/model/`.
         - Success Criteria: `mcpservice.go` defined with fields as per architecture doc.
     - **3.2**: Add `MCPService` to GORM `AutoMigrate` in DB initialization.
         - Success Criteria: `mcp_services` table created successfully in SQLite DB on startup.
-    - **3.3**: Implement CRUD methods for MCPService model and API handlers (`/api/services`) in `api/handler/service.go`, protected by JWT auth middleware. **Perform role checks directly in handlers for Admin-only operations (POST, PUT, DELETE) by checking the integer role from Gin context.**
+    - **3.3**: Implement CRUD methods for MCPService model and API handlers (`/api/services`) in `backend/api/handler/service.go`, protected by JWT auth middleware. **Perform role checks directly in handlers for Admin-only operations (POST, PUT, DELETE) by checking the integer role from Gin context.**
         - Admin: POST (Create), PUT (Update), DELETE (Delete).
         - All authenticated: GET (List/Single).
-        - Success Criteria: API endpoints function correctly. Admin endpoints explicitly check `claims.Role >= model.RoleAdmin`. Integration tests pass.
-    - **3.4**: Implement `toggle` endpoint (`/api/services/:id/toggle`). **Ensure handler checks for Admin role.**
-        - Success Criteria: Endpoint updates `is_active` field via model method. Handler verifies user role is Admin. Integration test passes.
-    - **3.5**: Implement stub config copy endpoint (`/api/services/:id/config/:client`). (Requires auth, no specific role check needed per current spec).
-        - Success Criteria: Endpoint exists, requires authentication, and returns placeholder JSON `{"message": "config copy not implemented"}`.
+        - Success Criteria: API endpoints function correctly. `backend/api/handler/service.go` created and handlers implemented. Admin endpoints explicitly check `claims.Role >= model.RoleAdmin`. Integration tests pass. Routes in `api-router.go` uncommented.
+    - **3.4**: Implement `toggle` endpoint (`/api/services/:id/toggle`) in `backend/api/handler/service.go`. **Ensure handler checks for Admin role.**
+        - Success Criteria: Endpoint updates `enabled` field (not `is_active`) via model method. Handler verifies user role is Admin. Integration test passes.
+    - **3.5**: Implement stub config copy endpoint (`/api/services/:id/config/:client`) in `backend/api/handler/service.go`. (Requires auth, no specific role check needed per current spec).
+        - Success Criteria: Endpoint exists, requires authentication, and returns placeholder JSON `{"message": "config copy not implemented for this service/client"}`.
 
 ### 4. Backend: User Configuration Management (Core)
+    - **Task Type: New Feature**
     - **4.1**: Define GORM models for `UserConfig`, `ConfigService` in `backend/model/`.
         - Success Criteria: `userconfig.go`, `configservice.go` defined with correct fields and relationships.
     - **4.2**: Add `UserConfig`, `ConfigService` to GORM `AutoMigrate`.
         - Success Criteria: `user_configs`, `config_services` tables created successfully in SQLite DB.
-    - **4.3**: Implement CRUD methods for UserConfig model and API handlers (`/api/configs`) in `api/handler/config.go`, protected by JWT auth. Check ownership within handlers.
+    - **4.3**: Implement CRUD methods for UserConfig model and API handlers (`/api/configs`) in `backend/api/handler/config.go`, protected by JWT auth. Check ownership within handlers.
         - Self: GET (List/Single), POST (Create), PUT (Update), DELETE (Delete).
-        - Success Criteria: API endpoints function correctly, ensuring users can only access/modify their own configs (check `user_id` from JWT against config's `user_id`). Integration tests pass.
-    - **4.4**: Implement stub config export endpoint (`/api/configs/:id/:client`).
-        - Success Criteria: Endpoint exists, requires authentication, checks ownership, and returns placeholder JSON.
+        - Success Criteria: API endpoints function correctly. `backend/api/handler/config.go` created and handlers implemented. Users can only access/modify their own configs (check `user_id` from JWT against config's `user_id`). Integration tests pass. Routes in `api-router.go` uncommented.
+    - **4.4**: Implement stub config export endpoint (`/api/configs/:id/:client`) in `backend/api/handler/config.go`.
+        - Success Criteria: Endpoint exists, requires authentication, checks ownership, and returns placeholder JSON `{"message": "config export not implemented for this config/client"}`.
 
 ### 5. Backend: MCP Service Core (Placeholder) & Health Checks
     - **5.1**: Define basic directory structure for MCP service (`backend/infrastructure/proxy/`). (No actual service handling yet).
@@ -148,14 +150,14 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
 - [ ] **Backend: MCP Service Management (Core)**
     - [X] 3.1: Define MCPService model
     - [X] 3.2: Add MCPService to AutoMigrate
-    - [ ] 3.3: Implement CRUD methods for MCPService model and API handlers
-    - [ ] 3.4: Implement toggle endpoint
-    - [ ] 3.5: Implement stub config copy endpoint
+    - [ ] 3.3: Implement CRUD methods for MCPService model and API handlers (Task Type: New Feature)
+    - [ ] 3.4: Implement toggle endpoint (Task Type: New Feature)
+    - [ ] 3.5: Implement stub config copy endpoint (Task Type: New Feature)
 - [ ] **Backend: User Configuration Management (Core)**
     - [X] 4.1: Define UserConfig, ConfigService models
     - [X] 4.2: Add UserConfig, ConfigService to AutoMigrate
-    - [ ] 4.3: Implement CRUD methods for UserConfig model and API handlers
-    - [ ] 4.4: Implement stub config export endpoint
+    - [ ] 4.3: Implement CRUD methods for UserConfig model and API handlers (Task Type: New Feature)
+    - [ ] 4.4: Implement stub config export endpoint (Task Type: New Feature)
 - [ ] **Backend: MCP Service Core (Placeholder) & Health Checks**
     - [ ] 5.1: Define basic service structure in `library/proxy/`
     - [ ] 5.2: Implement basic health check logic (placeholder)
@@ -202,15 +204,18 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
 
 ## Executor's Feedback or Assistance Requests
 
-*No requests at this time.*
+**Planner Update (Current Focus):**
+The immediate next steps are to implement the API handlers and uncomment routes for:
+1.  **MCP Service Management (Tasks 3.3, 3.4, 3.5):** Create `backend/api/handler/service.go` and implement the defined handlers for MCP services. This includes CRUD operations, toggling service status, and a stub for config copying. Ensure appropriate authentication (JWT) and authorization (Admin role checks for write operations).
+2.  **User Configuration Management (Tasks 4.3, 4.4):** Create `backend/api/handler/config.go` and implement handlers for user configurations. This includes CRUD operations and a stub for config export. Ensure JWT authentication and ownership checks (users can only manage their own configs).
+
+The `Task Type` for all these implementations is `New Feature`. Refer to the "High-level Task Breakdown" and "Project Status Board" for detailed success criteria.
+
+*No prior requests at this time.*
 
 ## Lessons
 
 *   Leveraging `gin-template` provides a useful starting point for the backend but better matches an MVC architecture than DDD.
 *   Using GORM `AutoMigrate` with SQLite is suitable for initial development, simplifying schema management early on.
 *   Clearly defining the replacement of template features (sessions, embedded UI) is important for planning.
-*   Decision: Simplified role management using integer constants (`User=1`, `Admin=10`) in the `User` model instead of a separate `Role` table and RBAC middleware. Authorization checks for admin actions will be performed directly in API handlers.
-*   While converting from session-based to JWT authentication, keep useful gin-template features like captcha generation for registration security.
-*   **When using SQLite in Go applications, ensure the database path is properly configured and the directory exists before the application attempts to access it. This prevents errors like "unable to open database file: not a directory".**
-*   **In some cases, SQLite database files may need to be manually created with proper permissions. If the application can't create or write to the database file, try creating it manually (touch data/one-mcp.db) and setting appropriate permissions (chmod 666 data/one-mcp.db).**
-*   **An MVC architecture is easier to understand and requires less boilerplate than DDD for smaller to medium-sized applications. It aligns better with the existing gin-template structure and simplifies development.**
+*   Decision: Simplified role management using integer constants (`User=1`, `Admin=10`) in the `User` model instead of a separate `Role`
