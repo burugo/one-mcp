@@ -10,10 +10,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
 import { Settings, Search, User, Home, BarChart, PlusCircle, ChevronDown, Globe, Menu } from 'lucide-react'
+import { LoginDialog } from './components/ui/login-dialog'
+import { ThemeToggle } from './components/ui/theme-toggle'
 
 function App() {
   const { toast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
+  const [showLoginDialog, setShowLoginDialog] = useState(false)
+
+  // Function for links with hover effect
+  const NavLink = ({ href, children }: { href: string, children: React.ReactNode }) => (
+    <a
+      href={href}
+      className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-200"
+    >
+      {children}
+    </a>
+  )
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -30,7 +43,7 @@ function App() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                className="pl-10 bg-muted/40 border-muted"
+                className="pl-10 bg-muted/40 border-muted rounded-md"
                 placeholder="Search services..."
               />
             </div>
@@ -39,12 +52,19 @@ function App() {
           {/* Main Navigation */}
           <div className="flex items-center ml-auto gap-4">
             <nav className="hidden md:flex items-center gap-6">
-              <a href="#" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">API</a>
-              <a href="#" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Models</a>
-              <a href="#" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Dashboard</a>
-              <a href="#" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Docs</a>
+              <NavLink href="#">API</NavLink>
+              <NavLink href="#">Models</NavLink>
+              <NavLink href="#">Dashboard</NavLink>
+              <NavLink href="#">Docs</NavLink>
             </nav>
-            <Button size="sm" className="rounded-full">Login</Button>
+            <ThemeToggle />
+            <Button
+              size="sm"
+              className="rounded-full transition-all duration-200 hover:opacity-90"
+              onClick={() => setShowLoginDialog(true)}
+            >
+              Login
+            </Button>
             <Button variant="ghost" size="icon" className="md:hidden">
               <Menu className="h-5 w-5" />
             </Button>
@@ -112,7 +132,7 @@ function App() {
                   { id: 2, name: "Analytics", status: "Active", description: "Usage tracking and reporting", icon: <BarChart className="w-6 h-6 text-primary" /> },
                   { id: 3, name: "User Management", status: "Inactive", description: "User access and controls", icon: <User className="w-6 h-6 text-primary" /> }
                 ].map(service => (
-                  <Card key={service.id} className="border-border">
+                  <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200">
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center">
@@ -123,8 +143,8 @@ function App() {
                             <CardTitle className="text-lg">{service.name}</CardTitle>
                             <CardDescription>
                               <span className={`inline-flex items-center px-2 py-1 text-xs rounded-full ${service.status === "Active"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-gray-100 text-gray-800"
+                                ? "bg-green-100 text-green-800"
+                                : "bg-gray-100 text-gray-800"
                                 }`}>
                                 {service.status}
                               </span>
@@ -163,7 +183,7 @@ function App() {
 
           <div className="mt-12">
             <h3 className="text-2xl font-bold mb-4">Usage Statistics</h3>
-            <Card>
+            <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle>Service Utilization</CardTitle>
                 <CardDescription>Performance overview for the last 30 days</CardDescription>
@@ -241,6 +261,9 @@ function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Login Dialog */}
+      <LoginDialog isOpen={showLoginDialog} onClose={() => setShowLoginDialog(false)} />
 
       <Toaster />
     </div>
