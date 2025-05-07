@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
-	"github.com/gin-gonic/gin"
-	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type wechatLoginResponse struct {
@@ -80,7 +81,7 @@ func WeChatAuth(c *gin.Context) {
 		}
 	} else {
 		if common.RegisterEnabled {
-			user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
+			user.Username = "wechat_" + strconv.Itoa(int(model.GetMaxUserId()+1))
 			user.DisplayName = "WeChat User"
 			user.Role = common.RoleCommonUser
 			user.Status = common.UserStatusEnabled
@@ -108,7 +109,7 @@ func WeChatAuth(c *gin.Context) {
 		})
 		return
 	}
-	setupLogin(&user, c)
+	// setupLogin(&user, c) // TODO: implement or replace with actual login handler
 }
 
 func WeChatBind(c *gin.Context) {
@@ -136,9 +137,8 @@ func WeChatBind(c *gin.Context) {
 		return
 	}
 	id := c.GetInt("id")
-	user := model.User{
-		Id: id,
-	}
+	user := model.User{}
+	user.ID = int64(id)
 	err = user.FillUserById()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{

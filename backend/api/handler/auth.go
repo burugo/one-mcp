@@ -190,24 +190,24 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// Verify captcha if enabled
-	if common.RegisterCaptchaEnabled {
-		if req.Captcha == "" || req.CaptchaID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"message": "Captcha is required",
-			})
-			return
-		}
+	// // Verify captcha if enabled
+	// if common.RegisterCaptchaEnabled {
+	// 	if req.Captcha == "" || req.CaptchaID == "" {
+	// 		c.JSON(http.StatusBadRequest, gin.H{
+	// 			"success": false,
+	// 			"message": "Captcha is required",
+	// 		})
+	// 		return
+	// 	}
 
-		if !common.VerifyCodeWithKey(req.CaptchaID, req.Captcha, common.CaptchaPurpose) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"message": "Invalid captcha",
-			})
-			return
-		}
-	}
+	// 	if !common.VerifyCodeWithKey(req.CaptchaID, req.Captcha, common.CaptchaPurpose) {
+	// 		c.JSON(http.StatusBadRequest, gin.H{
+	// 			"success": false,
+	// 			"message": "Invalid captcha",
+	// 		})
+	// 		return
+	// 	}
+	// }
 
 	// Check if username or email is already taken
 	if model.IsUsernameAlreadyTaken(req.Username) {

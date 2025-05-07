@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-gonic/gin"
-	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-gonic/gin"
 )
 
 type GitHubOAuthResponse struct {
@@ -115,7 +116,7 @@ func GitHubOAuth(c *gin.Context) {
 		}
 	} else {
 		if common.RegisterEnabled {
-			user.Username = "github_" + strconv.Itoa(model.GetMaxUserId()+1)
+			user.Username = "github_" + strconv.Itoa(int(model.GetMaxUserId()+1))
 			if githubUser.Name != "" {
 				user.DisplayName = githubUser.Name
 			} else {
@@ -148,7 +149,7 @@ func GitHubOAuth(c *gin.Context) {
 		})
 		return
 	}
-	setupLogin(&user, c)
+	// setupLogin(&user, c) // TODO: implement or replace with actual login handler
 }
 
 func GitHubBind(c *gin.Context) {
@@ -180,8 +181,7 @@ func GitHubBind(c *gin.Context) {
 	}
 	session := sessions.Default(c)
 	id := session.Get("id")
-	// id := c.GetInt("id")  // critical bug!
-	user.Id = id.(int)
+	user.ID = int64(id.(int))
 	err = user.FillUserById()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{

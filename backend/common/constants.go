@@ -1,9 +1,10 @@
 package common
 
 import (
-	"github.com/google/uuid"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 var StartTime = time.Now().Unix() // unit: second
@@ -47,10 +48,10 @@ var TurnstileSiteKey = ""
 var TurnstileSecretKey = ""
 
 // JWT constants
-var JWTSecret = uuid.New().String()         // Secret for signing JWT tokens
-var JWTRefreshSecret = uuid.New().String()  // Secret for signing refresh tokens
-var JWTExpiryHours = 24                     // Token expiry in hours
-var JWTRefreshExpiryHours = 168             // Refresh token expiry in hours (7 days)
+var JWTSecret = uuid.New().String()        // Secret for signing JWT tokens
+var JWTRefreshSecret = uuid.New().String() // Secret for signing refresh tokens
+var JWTExpiryHours = 24                    // Token expiry in hours
+var JWTRefreshExpiryHours = 168            // Refresh token expiry in hours (7 days)
 
 const (
 	RoleGuestUser  = 0

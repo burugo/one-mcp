@@ -3,6 +3,7 @@ package route
 import (
 	"one-mcp/backend/api/handler"
 	"one-mcp/backend/api/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -78,37 +79,37 @@ func SetApiRouter(route *gin.Engine) {
 		}
 
 		// MCP Service routes
-		serviceRoute := apiRouter.Group("/services")
+		// serviceRoute := apiRouter.Group("/services")
 		{
 			// Public endpoints (read-only, require authentication)
-			serviceRoute.Use(middleware.JWTAuth())
-			{
-				serviceRoute.GET("/", handler.GetAllServices)
-				serviceRoute.GET("/:id", handler.GetService)
-				serviceRoute.GET("/:id/config/:client", handler.GetServiceConfig)
-			}
+			// serviceRoute.Use(middleware.JWTAuth())
+			// {
+			// 	serviceRoute.GET("/", handler.GetAllServices)
+			// 	serviceRoute.GET("/:id", handler.GetService)
+			// 	serviceRoute.GET("/:id/config/:client", handler.GetServiceConfig)
+			// }
 
-			// Admin-only endpoints (write operations)
-			adminServiceRoute := serviceRoute.Group("/")
-			adminServiceRoute.Use(middleware.AdminAuth())
-			{
-				adminServiceRoute.POST("/", handler.CreateService)
-				adminServiceRoute.PUT("/:id", handler.UpdateService)
-				adminServiceRoute.DELETE("/:id", handler.DeleteService)
-				adminServiceRoute.POST("/:id/toggle", handler.ToggleService)
-			}
+			// // Admin-only endpoints (write operations)
+			// adminServiceRoute := serviceRoute.Group("/")
+			// adminServiceRoute.Use(middleware.AdminAuth())
+			// {
+			// 	adminServiceRoute.POST("/", handler.CreateService)
+			// 	adminServiceRoute.PUT("/:id", handler.UpdateService)
+			// 	adminServiceRoute.DELETE("/:id", handler.DeleteService)
+			// 	adminServiceRoute.POST("/:id/toggle", handler.ToggleService)
+			// }
 		}
 
 		// User Config routes
-		configRoute := apiRouter.Group("/configs")
-		configRoute.Use(middleware.JWTAuth())
-		{
-			configRoute.GET("/", handler.GetUserConfigs)
-			configRoute.POST("/", handler.CreateUserConfig)
-			configRoute.GET("/:id", handler.GetUserConfig)
-			configRoute.PUT("/:id", handler.UpdateUserConfig)
-			configRoute.DELETE("/:id", handler.DeleteUserConfig)
-			configRoute.GET("/:id/:client", handler.ExportUserConfig)
-		}
+		// configRoute := apiRouter.Group("/configs")
+		// configRoute.Use(middleware.JWTAuth())
+		// {
+		// 	configRoute.GET("/", handler.GetUserConfigs)
+		// 	configRoute.POST("/", handler.CreateUserConfig)
+		// 	configRoute.GET("/:id", handler.GetUserConfig)
+		// 	configRoute.PUT("/:id", handler.UpdateUserConfig)
+		// 	configRoute.DELETE("/:id", handler.DeleteUserConfig)
+		// 	configRoute.GET("/:id/:client", handler.ExportUserConfig)
+		// }
 	}
 }
