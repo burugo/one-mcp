@@ -83,7 +83,7 @@ alwaysApply: false
         ```go
         params := thing.QueryParams{
             Where: "age > ?", Args: []interface{}{25},
-            OrderBy: "name ASC",
+            Order: "name ASC",
             // Preloads: []string{"RelatedModelField"}, // For relationships
         }
         result := userThing.Query(params) // Returns a CachedResult
