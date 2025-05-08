@@ -1,0 +1,20 @@
+{
+    "ERR_INTERNAL_SERVER": "Internal server error",
+    "ERR_INVALID_PARAM": "Invalid parameter",
+    "ERR_EMPTY_ID": "ID is empty",
+    "ERR_USER_NOT_FOUND": "User not found",
+    "ERR_EMPTY_CREDENTIALS": "Username or password is empty",
+    "ERR_INVALID_CREDENTIALS": "Invalid username or password, or user is disabled",
+    "ERR_USER_DISABLED": "User is disabled",
+    "ERR_EMPTY_EMAIL": "Email is empty",
+    "ERR_EMPTY_USERNAME": "Username is empty",
+    "ERR_EMAIL_TAKEN": "Email is already taken",
+    "ERR_USERNAME_TAKEN": "Username is already taken",
+    "ERR_EMPTY_PASSWORD": "Password is empty",
+    "ERR_GITHUB_ID_EMPTY": "GitHub ID is empty",
+    "ERR_WECHAT_ID_EMPTY": "WeChat ID is empty",
+    "ERR_SERVICE_NOT_FOUND": "Service not found",
+    "ERR_SERVICE_DISABLED": "Service is disabled",
+    "ERR_CONFIG_NOT_FOUND": "Configuration not found",
+    "ERR_CONFIG_OWNERSHIP": "You don't have permission to access this configuration"
+}

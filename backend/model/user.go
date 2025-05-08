@@ -3,6 +3,8 @@ package model
 import (
 	"errors"
 	"one-mcp/backend/common"
+	mcperrors "one-mcp/backend/common/errors"
+	"one-mcp/backend/common/i18n"
 
 	"github.com/burugo/thing"
 )
@@ -62,8 +64,7 @@ func UserInit() error {
 }
 
 func GetMaxUserId() int64 {
-	userThing := UserDB
-	users, err := userThing.Order("id DESC").Fetch(0, 1)
+	users, err := UserDB.Order("id DESC").Fetch(0, 1)
 	if err != nil || len(users) == 0 {
 		return 0
 	}
@@ -71,40 +72,43 @@ func GetMaxUserId() int64 {
 }
 
 func GetAllUsers(startIdx int, num int) ([]*User, error) {
-	userThing := UserDB
-	return userThing.Order("id DESC").Fetch(startIdx, num)
+	return UserDB.Order("id DESC").Fetch(startIdx, num)
 }
 
 func SearchUsers(keyword string) ([]*User, error) {
-	userThing := UserDB
-	return userThing.Where(
+	return UserDB.Where(
 		"id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ?",
 		keyword, keyword+"%", keyword+"%", keyword+"%",
 	).Order("id DESC").Fetch(0, 100)
 }
 
-func GetUserById(id int64, selectAll bool) (*User, error) {
+// GetUserById 根据ID获取用户
+// 添加lang参数支持i18n错误消息
+func GetUserById(id int64, selectAll bool, lang string) (*User, error) {
 	if id == 0 {
-		return nil, errors.New("id 为空！")
+		return nil, i18n.New(mcperrors.ErrEmptyID, lang)
 	}
-	userThing := UserDB
-	return userThing.ByID(id)
+	user, err := UserDB.ByID(id)
+	if err != nil {
+		return nil, i18n.Wrap(err, mcperrors.ErrUserNotFound, lang)
+	}
+	return user, nil
 }
 
-func DeleteUserById(id int64) error {
+// DeleteUserById 根据ID删除用户
+// 添加lang参数支持i18n错误消息
+func DeleteUserById(id int64, lang string) error {
 	if id == 0 {
-		return errors.New("id 为空！")
+		return i18n.New(mcperrors.ErrEmptyID, lang)
 	}
-	userThing := UserDB
-	user, err := userThing.ByID(id)
+	user, err := UserDB.ByID(id)
 	if err != nil {
-		return err
+		return i18n.Wrap(err, mcperrors.ErrUserNotFound, lang)
 	}
-	return userThing.Delete(user)
+	return UserDB.Delete(user)
 }
 
 func (user *User) Insert() error {
-	userThing := UserDB
 	if user.Password != "" {
 		var err error
 		user.Password, err = common.Password2Hash(user.Password)
@@ -112,11 +116,10 @@ func (user *User) Insert() error {
 			return err
 		}
 	}
-	return userThing.Save(user)
+	return UserDB.Save(user)
 }
 
 func (user *User) Update(updatePassword bool) error {
-	userThing := UserDB
 	if updatePassword {
 		var err error
 		user.Password, err = common.Password2Hash(user.Password)
@@ -124,23 +127,21 @@ func (user *User) Update(updatePassword bool) error {
 			return err
 		}
 	}
-	return userThing.Save(user)
+	return UserDB.Save(user)
 }
 
 func (user *User) Delete() error {
 	if user.ID == 0 {
 		return errors.New("id 为空！")
 	}
-	userThing := UserDB
-	return userThing.Delete(user)
+	return UserDB.Delete(user)
 }
 
 func (user *User) ValidateAndFill() error {
 	if user.Username == "" || user.Password == "" {
 		return errors.New("用户名或密码为空")
 	}
-	userThing := UserDB
-	users, err := userThing.Where("username = ?", user.Username).Fetch(0, 1)
+	users, err := UserDB.Where("username = ?", user.Username).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
 		return errors.New("用户名或密码错误，或用户已被封禁")
 	}
@@ -157,8 +158,7 @@ func (user *User) FillUserById() error {
 	if user.ID == 0 {
 		return errors.New("id 为空！")
 	}
-	userThing := UserDB
-	found, err := userThing.ByID(user.ID)
+	found, err := UserDB.ByID(user.ID)
 	if err != nil {
 		return err
 	}
@@ -170,8 +170,7 @@ func (user *User) FillUserByEmail() error {
 	if user.Email == "" {
 		return errors.New("email 为空！")
 	}
-	userThing := UserDB
-	users, err := userThing.Where("email = ?", user.Email).Fetch(0, 1)
+	users, err := UserDB.Where("email = ?", user.Email).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
 		return errors.New("未找到用户")
 	}
@@ -183,8 +182,7 @@ func (user *User) FillUserByGitHubId() error {
 	if user.GitHubId == "" {
 		return errors.New("GitHub id 为空！")
 	}
-	userThing := UserDB
-	users, err := userThing.Where("github_id = ?", user.GitHubId).Fetch(0, 1)
+	users, err := UserDB.Where("github_id = ?", user.GitHubId).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
 		return errors.New("未找到用户")
 	}
@@ -196,8 +194,7 @@ func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
 		return errors.New("WeChat id 为空！")
 	}
-	userThing := UserDB
-	users, err := userThing.Where("wechat_id = ?", user.WeChatId).Fetch(0, 1)
+	users, err := UserDB.Where("wechat_id = ?", user.WeChatId).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
 		return errors.New("未找到用户")
 	}
@@ -209,8 +206,7 @@ func (user *User) FillUserByUsername() error {
 	if user.Username == "" {
 		return errors.New("username 为空！")
 	}
-	userThing := UserDB
-	users, err := userThing.Where("username = ?", user.Username).Fetch(0, 1)
+	users, err := UserDB.Where("username = ?", user.Username).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
 		return errors.New("未找到用户")
 	}
@@ -225,26 +221,22 @@ func ValidateUserToken(token string) *User {
 }
 
 func IsEmailAlreadyTaken(email string) bool {
-	userThing := UserDB
-	users, err := userThing.Where("email = ?", email).Fetch(0, 1)
+	users, err := UserDB.Where("email = ?", email).Fetch(0, 1)
 	return err == nil && len(users) > 0
 }
 
 func IsWeChatIdAlreadyTaken(wechatId string) bool {
-	userThing := UserDB
-	users, err := userThing.Where("wechat_id = ?", wechatId).Fetch(0, 1)
+	users, err := UserDB.Where("wechat_id = ?", wechatId).Fetch(0, 1)
 	return err == nil && len(users) > 0
 }
 
 func IsGitHubIdAlreadyTaken(githubId string) bool {
-	userThing := UserDB
-	users, err := userThing.Where("github_id = ?", githubId).Fetch(0, 1)
+	users, err := UserDB.Where("github_id = ?", githubId).Fetch(0, 1)
 	return err == nil && len(users) > 0
 }
 
 func IsUsernameAlreadyTaken(username string) bool {
-	userThing := UserDB
-	users, err := userThing.Where("username = ?", username).Fetch(0, 1)
+	users, err := UserDB.Where("username = ?", username).Fetch(0, 1)
 	return err == nil && len(users) > 0
 }
 
@@ -256,12 +248,11 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	if err != nil {
 		return err
 	}
-	userThing := UserDB
-	users, err := userThing.Where("email = ?", email).Fetch(0, 1)
+	users, err := UserDB.Where("email = ?", email).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
 		return errors.New("未找到用户")
 	}
 	user := users[0]
 	user.Password = hashedPassword
-	return userThing.Save(user)
+	return UserDB.Save(user)
 }

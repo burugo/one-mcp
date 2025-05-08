@@ -132,75 +132,17 @@ This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-templa
     - **10.3**: 验证 AutoMigrate 及索引创建逻辑，确保表结构和索引与模型定义一致。
         - Success Criteria: SQLite 数据库表结构和索引与模型定义完全一致，复合索引生效。
 
-## Project Status Board (Phase 1)
+## Project Status Board
 
-- [ ] **Backend: Basic Setup & User Management (MVC Architecture)**
-    - [X] 1.1: Adapt `gin-template` structure to MVC layout
-    - [X] 1.2: Define/Refactor User model (with `Role int`), define Role constants, remove Role model
-    - [X] 1.3: Implement initial DB schema (User only) with GORM AutoMigrate (SQLite)
-    - [X] 1.4: Implement Admin user seeding logic
-    - [ ] 1.5: Enhance User model with CRUD methods following MVC pattern
-    - [ ] 1.6: Verify/Implement password hashing (bcrypt)
-- [ ] **Backend: Authentication (JWT with Simplified Roles)**
-    - [ ] 2.1: Implement JWT generation & /api/auth/login handler
-    - [ ] 2.2: Implement JWT validation middleware
-    - [ ] 2.3: Implement token refresh endpoint
-    - [ ] 2.4: Implement logout mechanism (JWT blacklisting in Redis)
-    - [ ] 2.5: Preserve and adapt captcha functionality for registration and login
-- [ ] **Backend: MCP Service Management (Core)**
-    - [X] 3.1: Define MCPService model
-    - [X] 3.2: Add MCPService to AutoMigrate
-    - [ ] 3.3: Implement CRUD methods for MCPService model and API handlers (Task Type: New Feature)
-    - [ ] 3.4: Implement toggle endpoint (Task Type: New Feature)
-    - [ ] 3.5: Implement stub config copy endpoint (Task Type: New Feature)
-- [ ] **Backend: User Configuration Management (Core)**
-    - [X] 4.1: Define UserConfig, ConfigService models
-    - [X] 4.2: Add UserConfig, ConfigService to AutoMigrate
-    - [ ] 4.3: Implement CRUD methods for UserConfig model and API handlers (Task Type: New Feature)
-    - [ ] 4.4: Implement stub config export endpoint (Task Type: New Feature)
-- [ ] **Backend: MCP Service Core (Placeholder) & Health Checks**
-    - [ ] 5.1: Define basic service structure in `library/proxy/`
-    - [ ] 5.2: Implement basic health check logic (placeholder)
-    - [ ] 5.3: Store/update health status (placeholder, e.g., new field in MCPService)
-- [ ] **Frontend: Setup & Basic Layout (Replacing Embedded UI)**
-    - [ ] 6.2: Implement basic routing & layout components
-    - [ ] 6.3: Integrate Tailwind CSS
-- [ ] **Frontend: Authentication Pages**
-    - [ ] 7.1: Create Login page component
-    - [ ] 7.2: Implement login API call & JWT/state handling (**including role**)
-    - [ ] 7.3: Implement protected routes
-    - [ ] 7.4: Implement Logout functionality (**clearing role**)
-    - [ ] 7.5: Implement Registration with captcha validation
-    - [ ] 7.6: Implement token refresh mechanism
-- [ ] **Frontend: Home (MCP Service List) Page**
-    - [ ] 8.1: Create Home page component
-    - [ ] 8.2: Implement API call to fetch services (authenticated)
-    - [ ] 8.3: Display service list
-    - [ ] 8.4: Implement enable/disable button (**conditional on Admin role**)
-    - [ ] 8.5: Implement Add/Edit/Delete buttons (**conditional on Admin role**, placeholders)
-    - [ ] 8.6: Implement Copy Config button (placeholder)
-- [ ] **Frontend: My Configurations Page**
-    - [ ] 9.1: Create My Configurations page component
-    - [ ] 9.2: Implement API call to fetch user configs (authenticated)
-    - [ ] 9.3: Implement Add/Edit/Delete functionality (placeholders)
-    - [ ] 9.4: Implement Export button (placeholder)
-- [ ] **Backend: Thing ORM Model Tag & Index Feature Update**
-    - [ ] 10.1: Upgrade @thing.mdc dependency to ensure model tags support omitting db field (auto snake_case) and support index/unique compound index declarations.
-    - [ ] 10.2: Update all model definitions to remove redundant db tags and compound index usage to comply with latest Thing specification.
-    - [ ] 10.3: Verify AutoMigrate and index creation logic to ensure table structure and index match model definitions.
+任务管理系统已重新组织。请参考以下文件：
 
-## Current Status / Progress Tracking
+- **主任务文件**: `.cursor/tasks.md`
+- **当前活跃任务**:
+  - `.cursor/feature-backend-setup.md` - 后端基础设置任务
+  - `.cursor/feature-i18n.md` - 国际化框架任务
+  - `.cursor/feature-frontend.md` - 前端开发任务
 
-*Plan refined to use MVC architecture instead of DDD approach. This better matches the existing gin-template structure and simplifies development.*
-*   [DONE] 1.2: Defined User model in `backend/model/user.go` with integer Role field and constants.
-*   **[DONE] 3.1**: Defined MCPService model in `backend/model/mcpservice.go`.
-*   **[DONE] 4.1**: Defined UserConfig and ConfigService models in `backend/model/`.
-*   **[FIXED]**: Login error resolved by updating SQLitePath in `backend/common/constants.go` to use `data/one-mcp.db` instead of `one-mcp.db` and creating the data directory at project root. This ensures the database file is created in a valid directory path.
-*   **[DONE] 1.3**: Basic DB initialization is now working properly. The `one-mcp.db` SQLite database is created successfully in the data directory and can be accessed by the application.
-*   **[DONE] 1.4**: Admin user seeding logic verified to be working correctly - creates a root user with username "root" and password "123456" with RoleRootUser.
-*   **[DONE] 3.2**: Added MCPService model to GORM AutoMigrate in DB initialization, creating the mcp_services table.
-*   **[DONE] 4.2**: Added UserConfig and ConfigService models to GORM AutoMigrate in DB initialization, creating the user_configs and config_services tables.
-*   **[UPDATE]**: Modified technical architecture to use MVC pattern instead of the original DDD approach. Updated directory structure and module descriptions to reflect this change.
+各任务文件包含更详细的任务分解和实现计划。
 
 ## Executor's Feedback or Assistance Requests
 
@@ -219,3 +161,4 @@ The `Task Type` for all these implementations is `New Feature`. Refer to the "Hi
 *   Using GORM `AutoMigrate` with SQLite is suitable for initial development, simplifying schema management early on.
 *   Clearly defining the replacement of template features (sessions, embedded UI) is important for planning.
 *   Decision: Simplified role management using integer constants (`User=1`, `Admin=10`) in the `User` model instead of a separate `Role`
+*   **Internationalization (i18n)**: Implementing a robust i18n framework with error codes and language resource files allows for better error handling and future-proofs the application for international use. This approach separates error codes from their messages, making maintenance easier.
