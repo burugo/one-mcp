@@ -9,6 +9,7 @@ import (
 
 func SetApiRouter(route *gin.Engine) {
 	apiRouter := route.Group("/api")
+	apiRouter.Use(middleware.LangMiddleware())
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	{
 		// Public routes (no authentication required)

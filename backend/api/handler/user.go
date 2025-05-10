@@ -61,7 +61,7 @@ func GetUser(c *gin.Context) {
 		})
 		return
 	}
-	user, err := model.GetUserById(int64(id), false)
+	user, err := model.GetUserById(c.Request.Context(), int64(id), false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -87,7 +87,7 @@ func GetUser(c *gin.Context) {
 
 func GenerateToken(c *gin.Context) {
 	id := c.GetInt("id")
-	user, err := model.GetUserById(int64(id), true)
+	user, err := model.GetUserById(c.Request.Context(), int64(id), true)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -134,7 +134,7 @@ func GenerateToken(c *gin.Context) {
 
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
-	user, err := model.GetUserById(int64(id), false)
+	user, err := model.GetUserById(c.Request.Context(), int64(id), false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -170,7 +170,7 @@ func UpdateUser(c *gin.Context) {
 		})
 		return
 	}
-	originUser, err := model.GetUserById(int64(updatedUser.ID), false)
+	originUser, err := model.GetUserById(c.Request.Context(), int64(updatedUser.ID), false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -267,7 +267,7 @@ func DeleteUser(c *gin.Context) {
 		})
 		return
 	}
-	originUser, err := model.GetUserById(int64(id), false)
+	originUser, err := model.GetUserById(c.Request.Context(), int64(id), false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -283,7 +283,7 @@ func DeleteUser(c *gin.Context) {
 		})
 		return
 	}
-	err = model.DeleteUserById(int64(id))
+	err = model.DeleteUserById(c.Request.Context(), int64(id))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
@@ -295,7 +295,7 @@ func DeleteUser(c *gin.Context) {
 
 func DeleteSelf(c *gin.Context) {
 	id := c.GetInt("id")
-	err := model.DeleteUserById(int64(id))
+	err := model.DeleteUserById(c.Request.Context(), int64(id))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,

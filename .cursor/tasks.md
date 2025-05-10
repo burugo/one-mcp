@@ -1,28 +1,34 @@
-# One MCP 项目任务管理
+# Model 层 context 重构与多语言支持
 
-本文档是One MCP项目的主要任务管理文件。它包含项目状态信息和所有活跃的任务文件列表。
+本任务旨在将所有需要 i18n 的 model 层方法签名统一加 context.Context，支持多用户多语言并发。
 
-## 项目状态板
+## Completed Tasks
 
-- **活跃任务文件**: `feature-backend-setup.md`
-- **活跃任务文件**: `feature-i18n.md`
-- **活跃任务文件**: `feature-frontend.md`
+- [x] 现有 model 层方法签名梳理
+- [x] 批量修改 model 层方法签名，增加 context.Context `Task Type: Refactoring (Structural)`
+- [x] 批量修改 handler 层调用，传递 c.Request.Context() `Task Type: Refactoring (Structural)`
+- [x] 设计并注册 Gin 中间件注入 lang `Task Type: New Feature`
+- [x] model 层通过 ctx.Value("lang") 获取语言 `Task Type: Refactoring (Functional)`
+- [x] 修正/补充测试用例 `Task Type: Refactoring (Functional)`
+- [x] 回归测试 `Task Type: Bug Fix`
 
-### 任务文件状态
+## In Progress Tasks
 
-| 任务文件 | 描述 | 状态 |
-|---------|------|------|
-| `feature-backend-setup.md` | 后端基础设置和模型实现 | 进行中 |
-| `feature-i18n.md` | 国际化(i18n)错误处理框架 | 进行中 |
-| `feature-frontend.md` | 前端开发任务 | 进行中 |
-| `feature-auth.md` | 认证系统实现 | 未开始 |
-| `feature-user-config.md` | 用户配置管理 | 未开始 |
-| `feature-service-management.md` | MCP服务管理 | 未开始 |
+- [ ] 文档和注释同步更新 `Task Type: Refactoring (Functional)`
 
-### 最近更新
+## Future Tasks
 
-- 前端实现了基础UI布局、服务管理页面和服务统计功能
-- 前端实现了深色/浅色模式切换功能
-- 创建了基于新cursor规则的任务管理系统
-- 合并了旧有的TASK.md、tasks.md和TASK_FILE.md文件
-- 完成了i18n国际化错误处理框架的基本实现 
+- [ ] 文档和注释同步更新 `Task Type: Refactoring (Functional)`
+
+## Implementation Plan
+
+- 先从 user.go 相关方法和 handler 开始，逐步推广到其他 model。
+- 中间件优先实现，便于后续 handler 层统一传递。
+- 每步重构后及时回归测试，确保无回归。
+
+### Relevant Files
+
+- backend/model/user.go - 用户模型及相关方法
+- backend/api/handler/user.go - 用户相关 handler
+- backend/common/i18n.go - 国际化相关
+- tests/basic_test.go - 测试用例 

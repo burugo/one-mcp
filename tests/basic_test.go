@@ -15,6 +15,10 @@ import (
 
 func TestMain(m *testing.M) {
 	common.SQLitePath = ":memory:"
+	if os.Getenv("REDIS_CONN_STRING") == "" {
+		common.RedisEnabled = false
+		common.RDB = nil
+	}
 	dbAdapter, err := sqlite.NewSQLiteAdapter(":memory:")
 	if err != nil {
 		panic(err)
@@ -36,10 +40,10 @@ func TestMain(m *testing.M) {
 func TestRedisConnection(t *testing.T) {
 	os.Setenv("REDIS_CONN_STRING", "redis://localhost:6379/0")
 	err := common.InitRedisClient()
-	assert.NoError(t, err)
 	if !common.RedisEnabled {
 		t.Skip("Redis not enabled, skipping test")
 	}
+	assert.NoError(t, err)
 	err = common.RDB.Set(context.Background(), "test-key", "test-value", 0).Err()
 	assert.NoError(t, err)
 	val, err := common.RDB.Get(context.Background(), "test-key").Result()
@@ -75,3 +79,27 @@ func TestUserInsertAndQuery(t *testing.T) {
 }
 
 // TODO: 增加 HTTP 路由和中间件测试
+
+func TestGetUserByIdAndDeleteUserById(t *testing.T) {
+	// 需要 SQLite 环境支持
+	os.Setenv("SQLITE_PATH", "test.db")
+	user := &model.User{
+		Username: "testuser",
+		Password: "testpass",
+		Email:    "test@example.com",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}
+	err := user.Insert()
+	assert.NoError(t, err)
+
+	gotUser, err := model.GetUserById(context.Background(), int64(user.ID), false)
+	assert.NoError(t, err)
+	assert.Equal(t, user.ID, gotUser.ID)
+
+	err = model.DeleteUserById(context.Background(), int64(user.ID))
+	assert.NoError(t, err)
+
+	// 清理
+	// TODO: 删除测试用户
+}

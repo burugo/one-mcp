@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"one-mcp/backend/common"
 	mcperrors "one-mcp/backend/common/errors"
@@ -83,8 +84,9 @@ func SearchUsers(keyword string) ([]*User, error) {
 }
 
 // GetUserById 根据ID获取用户
-// 添加lang参数支持i18n错误消息
-func GetUserById(id int64, selectAll bool, lang string) (*User, error) {
+// 支持 context 传递 lang
+func GetUserById(ctx context.Context, id int64, selectAll bool) (*User, error) {
+	lang, _ := ctx.Value("lang").(string)
 	if id == 0 {
 		return nil, i18n.New(mcperrors.ErrEmptyID, lang)
 	}
@@ -96,8 +98,9 @@ func GetUserById(id int64, selectAll bool, lang string) (*User, error) {
 }
 
 // DeleteUserById 根据ID删除用户
-// 添加lang参数支持i18n错误消息
-func DeleteUserById(id int64, lang string) error {
+// 支持 context 传递 lang
+func DeleteUserById(ctx context.Context, id int64) error {
+	lang, _ := ctx.Value("lang").(string)
 	if id == 0 {
 		return i18n.New(mcperrors.ErrEmptyID, lang)
 	}

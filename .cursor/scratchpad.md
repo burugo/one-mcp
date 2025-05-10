@@ -2,158 +2,104 @@
 
 ## Background and Motivation
 
-The goal is to develop an One MCP (Multi-Cloud Platform) Service. This service will act as a central hub for managing and interacting with various MCP services, providing a unified interface and configuration management capabilities. The system utilizes a modern frontend (React) and backend (Go) stack, as detailed in `doc/architecture.md`. Development will leverage the existing `gin-template` as a starting point for the backend, adapting it to the project's specific needs. The development will follow the phased approach outlined in `doc/roadmap.md`, starting with core user management and web interface features. **Note:** This involves replacing the template's session-based authentication with JWT and replacing its embedded web UI with a separate React Single Page Application (SPA). **Roles will be simplified using integer constants within the User model (e.g., Admin=10, User=1) instead of a separate Role table and RBAC middleware.**
+The goal is to develop an One MCP (Multi-Cloud Platform) Service. This service will act as a central hub for managing and interacting with various MCP services. Users will be able to create "MCP Setups" (configurations sets), each containing multiple configured MCP service instances. A key feature is the ability to export these setups into JSON formats انرژی بخش specific to different client applications (e.g., Cursor, Cherry-Studio).
 
-**UPDATE:** The project will now follow a traditional MVC (Model-View-Controller) architecture instead of the originally planned DDD (Domain-Driven Design) approach. This change allows for a simpler, more familiar code structure that better matches the existing gin-template codebase. The structure will consist of Models (data structures and database operations), Views (frontend React components), and Controllers (API handlers in the backend).
+The system needs to support:
+- Admins defining abstract MCP Service types (`MCPService`), including:
+    - Schema for admin-level configurations (e.g., a shared API key, default root paths for a file service).
+    - Default values for these admin-level configurations.
+    - Schema for user-level configurations (parameters that users can customize or override).
+    - Rules زيت on which admin-defined parameters users are allowed to override.
+    - Templates for converting the final effective configuration (admin defaults + user overrides) into various client-specific JSON formats. Configuration parameters can be single-value (string) or multi-value (array of strings, often from multi-line UI input).
+- Users creating their own MCP Setups (`UserConfig`), adding service instances (`ConfigService`) to these setups, and providing their own configuration values (`UserOverrideConfigValues`) that override admin defaults where permitted.
+- Users exporting an MCP Setup for a chosen client type, triggering a backend process to:
+    1. Retrieve all service instances within the setup.
+    2. For each instance, calculate the final effective configuration by merging admin defaults with user overrides.
+    3. Use the appropriate client template stored in `MCPService` to transform this effective configuration into the client-specific format.
+    4. Aggregate all transformed service configurations into a single JSON output matching the target client's expected structure.
+
+This approach aligns with the existing `architecture.md`'s concept of `UserConfig` as a collection and `ConfigService` as a join table, while significantly enhancing the detail and flexibility of service definition and configuration overrides.
 
 ## Key Challenges and Analysis
 
-- **Backend Development (MVC Pattern)**: Adapting the `gin-template` to follow a clean MVC pattern, implementing robust JWT authentication, **simplified integer-based role checks**, and secure interactions with underlying MCP services. Models will handle data structures and database operations, Controllers will handle API requests, and Views will be handled by the React frontend.
-- **Frontend Development**: Building a responsive React SPA with Tailwind CSS, separate from the backend Go code. Replacing the template's embedded UI approach. Managing state and API integration. **Displaying UI elements conditionally based on user role retrieved from JWT.**
-- **Authentication Overhaul**: Replacing the template's `gin-contrib/sessions` with a custom JWT implementation requires careful handling of token generation, validation, **including the user's integer role in the claims**, and middleware.
-- **MVC Implementation**: Organizing the codebase following MVC principles: Models in `model/` directory, Controllers in `api/handler/` directory, and Views represented by the React frontend. This provides a cleaner separation of concerns compared to DDD.
-- **Database Design & Migration**: Ensuring the GORM models (`User` with integer `Role`) are correct and using `AutoMigrate` for initial development with SQLite. Planning for potential future migrations to PostgreSQL. **No separate `Role` table needed.**
-- **Integration**: Seamless integration between the React frontend (View), Go backend controllers (Controller), and data models (Model), along with SQLite/Redis and external MCP services.
+- **Complex Data Modeling**: Defining `MCPService`, `UserConfig`, and `ConfigService` to accurately represent abstract service types, admin-defined defaults/schemas, user-specific overrides, multi-value parameters, and client-specific export templates.
+- **Configuration Merging Logic**: Implementing robust logic to merge `MCPService.DefaultAdminConfigValues` with `ConfigService.UserOverrideConfigValues` based on `MCPService.AllowUserOverride` rules.
+- **Dynamic Template-Based Transformation**: Designing and implementing a flexible system (likely using Go's `text/template` or a similar templating engine) for `MCPService.ClientConfigTemplates` to convert a set of key-value parameters (which can include arrays for multi-value fields) into arbitrary client JSON structures. This includes handling iterations for array values if the client format requires it.
+- **Schema Definition and Validation**: Defining how `AdminConfigSchema` and `UserConfigSchema` (likely JSON Schema) are stored and used, both for UI generation (frontend) and backend validation.
+- **API Design**: Crafting APIs for:
+    - Admins to manage `MCPService` definitions (schemas, defaults, client templates).
+    - Users to manage their `UserConfig` setups and the `ConfigService` instances within them (including providing override values for single/multi-value fields).
+    - Users to trigger the export-to-client-format functionality.
+- **UI/UX for Configuration**: Frontend needs to dynamically render forms based on JSON schemas for both admin and user configurations, handling single-line and multi-line inputsgracefully (converting multi-line to string arrays).
 
-## High-level Task Breakdown (Phase 1: v1.1 - Q3 2024)
+## High-level Task Breakdown (Feature: MCP Setup Management & Export)
 
-This plan focuses on Phase 1 as defined in the roadmap, adapting the `gin-template` and using simplified role management.
+This new feature supersedes previous, simpler "UserConfig" plans.
 
-### 1. Backend: Basic Setup & User/Role Management (MVC Architecture)
-    - **1.1**: Adapt `gin-template` structure to match `backend/` layout defined in `architecture.md`.
-        - Success Criteria: Project files reorganized into standard MVC structure: `model/`, `api/handler/`, `api/route/`, etc. `go.mod` path updated (e.g., `module one-mcp/backend`). `go mod tidy` runs successfully. Basic Gin server starts via `go run main.go`.
-    - **1.2**: Define/Refactor GORM model for `User` in `backend/model/`. Adapt the existing `User` model, **ensure it includes an integer `Role` field**. Define role constants (e.g., `RoleUser = 1`, `RoleAdmin = 10`) in `model` package or a shared `common` package. **Remove any `Role` model.**
-        - Success Criteria: GORM model `user.go` defined with correct fields (including `Role int`) and tags. Role constants defined. No `role.go` model file exists.
-    - **1.3**: Implement initial DB schema setup using GORM `AutoMigrate` **only for the `User` table**, configured for **SQLite**.
-        - Success Criteria: `model.InitDB()` (or refactored equivalent) uses SQLite driver and `DB.AutoMigrate(&model.User{})`. On first run, `data/one-mcp.db` is created with the `users` table (including the `role` column). **No `roles` table is created.**
-    - **1.4**: Implement logic to seed a default Admin user (e.g., in `main.go` or a seeding function) with the `RoleAdmin` constant value.
-        - Success Criteria: A default admin user is created in the `users` table on initialization if no users exist, with the correct integer value in the `role` column.
-    - **1.5**: Enhance the User model with CRUD methods following MVC pattern. Adapt existing user logic from template's `model/user.go`.
-        - Success Criteria: User model with methods for Create, Read, Update, Delete operations. Basic unit tests pass (testing GORM database operations).
-    - **1.6**: Verify/Implement password hashing (bcrypt) within the User model methods for user creation/update.
-        - Success Criteria: CreateUser and UpdateUser methods use `bcrypt.GenerateFromPassword`. Password verification logic (e.g., `CheckPassword`) uses `bcrypt.CompareHashAndPassword`. Unit tests verify hashing and comparison.
+### 1. Core Model Redesign & Implementation
+    - **1.1**: Define/Refactor `MCPService` GORM model: `Task Type: New Feature`
+        - Fields: `ID`, `Name`, `DisplayName`, `Type`, `AdminConfigSchema` (JSON/TEXT), `DefaultAdminConfigValues` (JSON/TEXT), `UserConfigSchema` (JSON/TEXT), `AllowUserOverride` (JSON/TEXT or specific structure), `ClientConfigTemplates` (JSON/TEXT).
+        - Success Criteria: Model defined, migratable. Schemas and templates will store valid JSON.
+    - **1.2**: Define/Refactor `UserConfig` (MCP Setup) GORM model: `Task Type: New Feature`
+        - Fields: `ID`, `UserID` (FK), `Name`, `Description`.
+        - Success Criteria: Model defined, migratable. Aligns with `architecture.md`.
+    - **1.3**: Define/Refactor `ConfigService` (Service Instance in Setup) GORM model: `Task Type: New Feature`
+        - Fields: `ID`, `UserConfigID` (FK), `MCPServiceID` (FK), `InstanceName` (optional, for user's reference), `UserOverrideConfigValues` (JSON/TEXT for user's specific overrides), `IsEnabled`.
+        - Success Criteria: Model defined, migratable. `UserOverrideConfigValues` stores JSON.
+    - **1.4**: Implement GORM `AutoMigrate` for the new/refactored models.
+        - Success Criteria: Database schema created/updated successfully.
 
-### 2. Backend: Authentication (JWT with Simplified Roles)
-    - **2.1**: Implement JWT generation logic (e.g., in `service/auth_service.go`) and `/api/auth/login` handler in `api/handler/auth.go`. Ensure the generated JWT includes the user's integer `Role` in its claims. Remove template's session login logic.
-        - Success Criteria: Login handler uses User model methods, verifies password hash, generates JWT (containing user ID, **integer role**, expiry) on success, returns token and refresh token. Test with seeded admin user.
-    - **2.2**: Implement JWT validation middleware (e.g., in `api/middleware/auth.go`). Ensure middleware extracts the integer `Role` from claims and adds it to the Gin context. Remove template's session middleware.
-        - Success Criteria: Middleware parses token, validates signature/expiry, extracts claims (user ID, **integer role**), adds claims to Gin context. Unit tests pass.
-    - **2.3**: Implement token refresh endpoint (`/api/auth/refresh`). Remove template session logout.
-        - Success Criteria: Endpoint validates refresh token, generates new access token and refresh token pair. Unit tests pass.
-    - **2.4**: Implement logout mechanism (JWT blacklisting in Redis). 
-        - Success Criteria: `/api/auth/logout` endpoint adds token to blacklist in Redis with appropriate expiry. JWT validation middleware checks blacklist. Unit tests pass.
-    - **2.5**: Preserve and adapt captcha functionality for registration and login.
-        - Success Criteria: `/api/auth/captcha` endpoint generates captcha images and stores codes in Redis with short expiry. Registration and login validate captcha. Unit tests pass.
+### 2. Admin: MCPService Definition Management
+    - **2.1**: Design & Implement APIs for Admin to CRUD `MCPService` definitions: `Task Type: New Feature`
+        - Endpoints: e.g., `POST /api/admin/mcp_services`, `GET /api/admin/mcp_services`, `GET /api/admin/mcp_services/:id`, `PUT /api/admin/mcp_services/:id`, `DELETE /api/admin/mcp_services/:id`.
+        - Success Criteria: Admins can fully manage service types, including their schemas, default values, override rules, and client export templates. Secure with Admin role.
+    - **2.2**: Implement backend logic for validating `AdminConfigSchema`, `UserConfigSchema` (e.g., ensure they are valid JSON Schema). `Task Type: New Feature`
+        - Success Criteria: Invalid schemas are rejected.
 
-### 3. Backend: MCP Service Management (Core)
-    - **Task Type: New Feature**
-    - **3.1**: Define GORM model for `MCPService` in `backend/model/`.
-        - Success Criteria: `mcpservice.go` defined with fields as per architecture doc.
-    - **3.2**: Add `MCPService` to GORM `AutoMigrate` in DB initialization.
-        - Success Criteria: `mcp_services` table created successfully in SQLite DB on startup.
-    - **3.3**: Implement CRUD methods for MCPService model and API handlers (`/api/services`) in `backend/api/handler/service.go`, protected by JWT auth middleware. **Perform role checks directly in handlers for Admin-only operations (POST, PUT, DELETE) by checking the integer role from Gin context.**
-        - Admin: POST (Create), PUT (Update), DELETE (Delete).
-        - All authenticated: GET (List/Single).
-        - Success Criteria: API endpoints function correctly. `backend/api/handler/service.go` created and handlers implemented. Admin endpoints explicitly check `claims.Role >= model.RoleAdmin`. Integration tests pass. Routes in `api-router.go` uncommented.
-    - **3.4**: Implement `toggle` endpoint (`/api/services/:id/toggle`) in `backend/api/handler/service.go`. **Ensure handler checks for Admin role.**
-        - Success Criteria: Endpoint updates `enabled` field (not `is_active`) via model method. Handler verifies user role is Admin. Integration test passes.
-    - **3.5**: Implement stub config copy endpoint (`/api/services/:id/config/:client`) in `backend/api/handler/service.go`. (Requires auth, no specific role check needed per current spec).
-        - Success Criteria: Endpoint exists, requires authentication, and returns placeholder JSON `{"message": "config copy not implemented for this service/client"}`.
+### 3. User: MCP Setup & Service Instance Management
+    - **3.1**: Design & Implement APIs for User to CRUD `UserConfig` (MCP Setups): `Task Type: New Feature`
+        - Endpoints: e.g., `POST /api/mcp_setups`, `GET /api/mcp_setups`, `GET /api/mcp_setups/:id`, `PUT /api/mcp_setups/:id`, `DELETE /api/mcp_setups/:id`.
+        - Success Criteria: Users can manage their named configuration sets. Ownership enforced.
+    - **3.2**: Design & Implement APIs for User to CRUD `ConfigService` (Service Instances within a Setup): `Task Type: New Feature`
+        - Endpoints: e.g., `POST /api/mcp_setups/:setup_id/service_instances` (body includes `MCPServiceID`, `InstanceName`, `UserOverrideConfigValues`), `GET /api/mcp_setups/:setup_id/service_instances/:instance_id`, `PUT /api/mcp_setups/:setup_id/service_instances/:instance_id` (update overrides, name, or is_enabled), `DELETE /api/mcp_setups/:setup_id/service_instances/:instance_id`.
+        - Success Criteria: Users can add, configure (with overrides for single/multi-value fields), and remove service instances from their setups. `UserOverrideConfigValues` validated against `MCPService.UserConfigSchema` and `AllowUserOverride` rules.
+    - **3.3**: Implement logic for handling multi-value inputs (e.g., ensuring string arrays are correctly stored in `UserOverrideConfigValues` from frontend-converted multi-line inputs). `Task Type: New Feature`
+        - Success Criteria: Backend correctly stores and processes array-type config values.
 
-### 4. Backend: User Configuration Management (Core)
-    - **Task Type: New Feature**
-    - **4.1**: Define GORM models for `UserConfig`, `ConfigService` in `backend/model/`.
-        - Success Criteria: `userconfig.go`, `configservice.go` defined with correct fields and relationships.
-    - **4.2**: Add `UserConfig`, `ConfigService` to GORM `AutoMigrate`.
-        - Success Criteria: `user_configs`, `config_services` tables created successfully in SQLite DB.
-    - **4.3**: Implement CRUD methods for UserConfig model and API handlers (`/api/configs`) in `backend/api/handler/config.go`, protected by JWT auth. Check ownership within handlers.
-        - Self: GET (List/Single), POST (Create), PUT (Update), DELETE (Delete).
-        - Success Criteria: API endpoints function correctly. `backend/api/handler/config.go` created and handlers implemented. Users can only access/modify their own configs (check `user_id` from JWT against config's `user_id`). Integration tests pass. Routes in `api-router.go` uncommented.
-    - **4.4**: Implement stub config export endpoint (`/api/configs/:id/:client`) in `backend/api/handler/config.go`.
-        - Success Criteria: Endpoint exists, requires authentication, checks ownership, and returns placeholder JSON `{"message": "config export not implemented for this config/client"}`.
+### 4. Core: Configuration Merging & Client Export Logic
+    - **4.1**: Implement "Effective Configuration" calculation logic: `Task Type: New Feature`
+        - Function: `func calculateEffectiveConfig(mcpService model.MCPService, configService model.ConfigService) (map[string]interface{}, error)`
+        - Logic: Merges `mcpService.DefaultAdminConfigValues` with `configService.UserOverrideConfigValues` respecting `mcpService.AllowUserOverride`.
+        - Success Criteria: Correctly produces a single map of final key-value parameters for a service instance. Handles single and multi-value fields.
+    - **4.2**: Design & Implement API for Exporting `UserConfig` to specific client format: `Task Type: New Feature`
+        - Endpoint: `GET /api/mcp_setups/:setup_id/export?client_type=<client_name>` (e.g., "cursor", "cherry-studio").
+        - Success Criteria: API authenticates user, verifies ownership of setup.
+    - **4.3**: Implement core transformation logic using `MCPService.ClientConfigTemplates`: `Task Type: New Feature`
+        - For each enabled `ConfigService` instance in the `UserConfig` setup:
+            1. Calculate its effective configuration (using 4.1).
+            2. Retrieve the `ClientConfigTemplate` for the target `client_type` from the `MCPService`.
+            3. Apply the template (e.g., Go `text/template`) to the effective configuration to generate the client-specific JSON snippet for this service instance.
+        - Success Criteria: Transformation logic correctly generates individual service config snippets. Template engine handles single values and iterating over multi-value arrays.
+    - **4.4**: Implement aggregation of transformed snippets into final client JSON structure. `Task Type: New Feature`
+        - Logic depends on the target client's top-level JSON structure (e.g., Cursor's `mcpServers` object).
+        - Success Criteria: A valid, complete `config.json` string for the target client is produced and returned by the API.
 
-### 5. Backend: MCP Service Core (Placeholder) & Health Checks
-    - **5.1**: Define basic directory structure for MCP service (`backend/infrastructure/proxy/`). (No actual service handling yet).
-        - Success Criteria: Directory and basic placeholder files created.
-    - **5.2**: Implement basic health check logic (placeholder, e.g., a function in `internal/service/health_service.go` called periodically).
-        - Success Criteria: A background goroutine (started in `main.go`) periodically calls a health check function (which currently does nothing or simulates checks).
-    - **5.3**: Store/update health status (placeholder - maybe add `status` string field to `MCPService` model/table for simplicity now). Add field to `AutoMigrate`.
-        - Success Criteria: `status` field exists in `mcp_services` table. Placeholder health check updates this field (e.g., to "UNKNOWN" or "SIMULATED_OK").
-
-### 6. Frontend: Setup & Basic Layout (Replacing Embedded UI)
-    - **6.1**: Create a new React project structure in `frontend/` using Vite. Remove the old `web/` directory and `embed` directives from the Go backend (`main.go`, etc.).
-        - Success Criteria: `frontend/` directory exists with Vite/React setup. `go build` for backend works without the `web/` dir. `npm run dev` in `frontend/` starts the React dev server.
-    - **6.2**: Implement basic routing (React Router) and layout components (e.g., `Navbar`, `MainContent`) in `frontend/src/`.
-        - Success Criteria: Basic app shell with placeholders for navigation and content area exists. Different routes show different placeholder components.
-    - **6.3**: Integrate Tailwind CSS into the React project.
-        - Success Criteria: Tailwind classes can be used for styling components in `frontend/`. Basic styled elements appear correctly.
-
-### 7. Frontend: Authentication Pages
-    - **7.1**: Create Login page component (`frontend/src/pages/auth/LoginPage.jsx`).
-        - Success Criteria: Page renders with styled username/password fields and login button.
-    - **7.2**: Implement login API call (using Axios) to backend `/api/auth/login`. Handle JWT response: store token, **decode JWT payload to get user role**, update global auth state (e.g., using React Context with user ID and role).
-        - Success Criteria: User can log in. Token stored. App state reflects logged-in status and **user role**.
-    - **7.3**: Implement protected routes logic (e.g., a `ProtectedRoute` component) using React Router and auth state.
-        - Success Criteria: Unauthenticated users accessing protected pages are redirected to the login page.
-    - **7.4**: Implement Logout functionality (button in Navbar).
-        - Success Criteria: Logout button clears stored token, updates auth state (clears user ID and role), redirects to login page.
-    - **7.5**: Implement Registration with captcha validation
-    - **7.6**: Implement token refresh mechanism
-
-### 8. Frontend: Home (MCP Service List) Page
-    - **8.1**: Create Home page component (`frontend/src/pages/dashboard/HomePage.jsx` or similar) accessible only when logged in.
-        - Success Criteria: Page component created and renders basic structure.
-    - **8.2**: Implement API call (authenticated Axios instance) to fetch MCP services (`/api/services`).
-        - Success Criteria: Service list is fetched on page load using the stored JWT.
-    - **8.3**: Display service list (e.g., using a styled table or cards).
-        - Success Criteria: Services (if any created via API testing/seeding) are displayed with name, type, status.
-    - **8.4**: Implement enable/disable button (calls `/api/services/:id/toggle`). **Conditionally render/enable button based on user role (>= Admin) from auth context.**
-        - Success Criteria: Button updates service status via API call. UI reflects the change. Button is hidden/disabled for non-admins based on role check.
-    - **8.5**: Implement Add/Edit/Delete buttons (placeholders). **Conditionally render based on user role (>= Admin) from auth context.**
-        - Success Criteria: Buttons are visible only to Admins based on role check. Clicking does nothing yet or opens placeholder modals.
-    - **8.6**: Implement Copy Config button (placeholder). (Visible to all authenticated users).
-        - Success Criteria: Button exists, triggers placeholder action (e.g., console log).
-
-### 9. Frontend: My Configurations Page
-    - **9.1**: Create My Configurations page component (`frontend/src/pages/configs/ConfigsPage.jsx`) accessible only when logged in.
-        - Success Criteria: Page component created and renders basic structure.
-    - **9.2**: Implement API call (authenticated Axios instance) to fetch user's configurations (`/api/configs`).
-        - Success Criteria: User's configurations (if any) are fetched and displayed.
-    - **9.3**: Implement Add/Edit/Delete functionality (placeholder buttons/forms).
-        - Success Criteria: Buttons/forms exist. Clicking does nothing yet or opens placeholder modals.
-    - **9.4**: Implement Export button (placeholder).
-        - Success Criteria: Button exists, triggers placeholder action (e.g., console log).
-
-### 10. Backend: Thing ORM Model Tag & Index Feature Update
-    - **10.1**: 升级 @thing.mdc 依赖，确保 model 标签支持省略 db 字段（自动 snake_case），并支持 index/unique 复合索引声明。
-        - Success Criteria: 依赖已升级，model 结构体可省略 db 标签，index/unique 支持复合索引，相关单元测试通过。
-    - **10.2**: 更新所有模型定义，去除冗余 db 标签，复合索引用法符合最新 Thing 规范。
-        - Success Criteria: 所有模型文件已按新规范调整，代码可编译通过。
-    - **10.3**: 验证 AutoMigrate 及索引创建逻辑，确保表结构和索引与模型定义一致。
-        - Success Criteria: SQLite 数据库表结构和索引与模型定义完全一致，复合索引生效。
+### 5. Testing & Documentation
+    - **5.1**: Write unit tests for model methods, config merging, and template transformation logic. `Task Type: New Feature`
+    - **5.2**: Write integration tests for all new Admin and User APIs, including the export functionality with various client types and multi-value fields. `Task Type: New Feature`
+    - **5.3**: Update API documentation. `Task Type: Refactoring (Functional)`
+    - **5.4**: Add code comments. `Task Type: Refactoring (Functional)`
 
 ## Project Status Board
 
-任务管理系统已重新组织。请参考以下文件：
-
-- **主任务文件**: `.cursor/tasks.md`
-- **当前活跃任务**:
-  - `.cursor/feature-backend-setup.md` - 后端基础设置任务
-  - `.cursor/feature-i18n.md` - 国际化框架任务
-  - `.cursor/feature-frontend.md` - 前端开发任务
-
-各任务文件包含更详细的任务分解和实现计划。
+- **Active Task File**: `.cursor/feature-mcp-setup-management.md` (This file will be created next)
+- **Current Focus**: Planning and design for MCP Setup Management & Multi-Client Export feature.
 
 ## Executor's Feedback or Assistance Requests
 
-**Planner Update (Current Focus):**
-The immediate next steps are to implement the API handlers and uncomment routes for:
-1.  **MCP Service Management (Tasks 3.3, 3.4, 3.5):** Create `backend/api/handler/service.go` and implement the defined handlers for MCP services. This includes CRUD operations, toggling service status, and a stub for config copying. Ensure appropriate authentication (JWT) and authorization (Admin role checks for write operations).
-2.  **User Configuration Management (Tasks 4.3, 4.4):** Create `backend/api/handler/config.go` and implement handlers for user configurations. This includes CRUD operations and a stub for config export. Ensure JWT authentication and ownership checks (users can only manage their own configs).
-
-The `Task Type` for all these implementations is `New Feature`. Refer to the "High-level Task Breakdown" and "Project Status Board" for detailed success criteria.
-
-*No prior requests at this time.*
+- 已完成 model 层 context 重构与多语言支持的所有任务：包括批量签名修改、handler 调用、Gin 中间件注入、model 层 ctx.Value("lang") 获取、测试用例修正与回归测试。
+- 所有相关测试已全部通过。
+- 等待 Planner/用户验收或进一步指示。
 
 ## Lessons
 
@@ -162,3 +108,12 @@ The `Task Type` for all these implementations is `New Feature`. Refer to the "Hi
 *   Clearly defining the replacement of template features (sessions, embedded UI) is important for planning.
 *   Decision: Simplified role management using integer constants (`User=1`, `Admin=10`) in the `User` model instead of a separate `Role`
 *   **Internationalization (i18n)**: Implementing a robust i18n framework with error codes and language resource files allows for better error handling and future-proofs the application for international use. This approach separates error codes from their messages, making maintenance easier.
+*   Passing `context.Context` is a standard and robust way to handle request-scoped data like language preferences in Go web services.
+*   Client-specific configuration formats require a flexible backend that can store generic user inputs and transform them based on templates or rules for different export targets. Admin-defined defaults and user-level overrides add another layer of complexity and utility. Schemas (like JSON Schema) are crucial for managing the structure of these configurations.
+
+## User Specified Lessons
+
+- Include info useful for debugging in the program output.
+- Read the file before you try to edit it.
+- Always ask before using the -force git command
+- For multi-value config items (e.g., root_path), use JSON arrays for storage and ensure UI/template logic can handle them.

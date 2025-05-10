@@ -48,9 +48,12 @@ func InitDB() (err error) {
 		common.FatalLog(err)
 		return err
 	}
-	cacheClient, err := redisCache.NewClient(common.RDB, nil)
-	if err != nil {
-		return err
+	var cacheClient thing.CacheClient = nil
+	if common.RedisEnabled && common.RDB != nil {
+		cacheClient, err = redisCache.NewClient(common.RDB, nil)
+		if err != nil {
+			return err
+		}
 	}
 	thing.Configure(dbAdapter, cacheClient)
 
