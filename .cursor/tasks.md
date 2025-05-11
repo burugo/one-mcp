@@ -11,6 +11,8 @@
 - [x] model 层通过 ctx.Value("lang") 获取语言 `Task Type: Refactoring (Functional)`
 - [x] 修正/补充测试用例 `Task Type: Refactoring (Functional)`
 - [x] 回归测试 `Task Type: Bug Fix`
+- [x] Fix linter error: use package-level ErrRecordNotFound in user model, update all usages and tests to match function signatures (no context arg) `Task Type: Bug Fix`
+- [x] model层所有业务错误返回i18n key（user_config, mcp_service, config_service） `Task Type: Refactoring (Functional)`
 
 ## In Progress Tasks
 

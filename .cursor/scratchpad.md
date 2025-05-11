@@ -92,6 +92,9 @@ This simplified approach streamlines export by tying the proxy protocol choice d
 
 ## Executor's Feedback or Assistance Requests
 
+- Fixed linter error in user model: replaced all uses of thing.ErrRecordNotFound with package-level ErrRecordNotFound, as defined in model/config_service.go. Updated all usages in API handlers and tests to match the correct function signatures (removed context argument). All tests pass. Changes committed.
+- Completed i18n key refactor for all business errors in user_config.go, mcp_service.go, config_service.go (model layer). All tests pass. Changes committed.
+
 已完成所有核心模型的定义与重构：
 1. 使用Thing ORM（非GORM）完成了`MCPService`模型的重构，添加了`Type`字段以区分不同类型的底层服务（stdio、sse、streamable_http），以及`ClientConfigTemplates`等关键字段。
 2. 完成了`ConfigService`模型重构，添加了完整的索引、关系和查询接口。
@@ -112,6 +115,13 @@ This simplified approach streamlines export by tying the proxy protocol choice d
 *   在使用Thing ORM时，需要为每个模型初始化一个全局变量（如`MCPServiceDB`）并在`InitDB`中调用相应的初始化函数。
 *   Thing ORM使用`db`标签而非`gorm`标签定义字段映射和索引。
 *   Thing ORM没有内置的`RecordNotFound`错误，需要自定义错误处理。
+*   **错误与i18n处理规范：Model层返回i18n key（如`errors.New("user_not_found")`），Handler层根据i18n key和当前语言直接调用i18n.T(lang, err.Error())进行翻译和响应。这样可简化错误处理流程，便于多语言支持和维护。**
+*   MCPService模型中未直接使用thing ORM的ToJSON方法进行序列化，原因可能包括：
+    1. 仅需序列化部分字段或嵌套结构（如ClientConfigTemplates为string字段，需手动json.Marshal/map转换），直接Marshal更灵活。
+    2. ToJSON适合标准结构体/关系型数据的灵活字段导出，若有特殊结构或自定义序列化需求，手动处理更可控。
+    3. 目前项目未统一采用ToJSON，部分历史代码/习惯直接用encoding/json。
+    4. 若后续需支持灵活字段导出、虚拟字段、嵌套关系等，建议优先用thing.ToJSON+WithFields DSL。
+*   thing ORM的ToJSON支持WithFields("field1,nested{subfield},-excluded")等灵活字段控制，适合API导出、前端定制等场景。
 
 ## User Specified Lessons
 

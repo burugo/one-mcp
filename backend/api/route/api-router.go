@@ -80,25 +80,24 @@ func SetApiRouter(route *gin.Engine) {
 		}
 
 		// MCP Service routes
-		// serviceRoute := apiRouter.Group("/services")
+		mcpServiceRoute := apiRouter.Group("/mcp_services")
 		{
 			// Public endpoints (read-only, require authentication)
-			// serviceRoute.Use(middleware.JWTAuth())
-			// {
-			// 	serviceRoute.GET("/", handler.GetAllServices)
-			// 	serviceRoute.GET("/:id", handler.GetService)
-			// 	serviceRoute.GET("/:id/config/:client", handler.GetServiceConfig)
-			// }
+			mcpServiceRoute.Use(middleware.JWTAuth())
+			{
+				mcpServiceRoute.GET("/", handler.GetAllMCPServices)
+				mcpServiceRoute.GET("/:id", handler.GetMCPService)
+			}
 
-			// // Admin-only endpoints (write operations)
-			// adminServiceRoute := serviceRoute.Group("/")
-			// adminServiceRoute.Use(middleware.AdminAuth())
-			// {
-			// 	adminServiceRoute.POST("/", handler.CreateService)
-			// 	adminServiceRoute.PUT("/:id", handler.UpdateService)
-			// 	adminServiceRoute.DELETE("/:id", handler.DeleteService)
-			// 	adminServiceRoute.POST("/:id/toggle", handler.ToggleService)
-			// }
+			// Admin-only endpoints (write operations)
+			adminMCPServiceRoute := mcpServiceRoute.Group("/")
+			adminMCPServiceRoute.Use(middleware.AdminAuth())
+			{
+				adminMCPServiceRoute.POST("/", handler.CreateMCPService)
+				adminMCPServiceRoute.PUT("/:id", handler.UpdateMCPService)
+				adminMCPServiceRoute.DELETE("/:id", handler.DeleteMCPService)
+				adminMCPServiceRoute.POST("/:id/toggle", handler.ToggleMCPService)
+			}
 		}
 
 		// User Config routes

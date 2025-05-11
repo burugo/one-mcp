@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"one-mcp/backend/common/i18n"
+
 	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -53,6 +55,7 @@ func SearchUsers(c *gin.Context) {
 }
 
 func GetUser(c *gin.Context) {
+	lang := c.GetString("lang")
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -73,7 +76,7 @@ func GetUser(c *gin.Context) {
 	if myRole <= user.Role {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权获取同级或更高等级用户的信息",
+			"message": i18n.Translate("no_permission_get_same_or_higher_user", lang),
 		})
 		return
 	}
@@ -86,6 +89,7 @@ func GetUser(c *gin.Context) {
 }
 
 func GenerateToken(c *gin.Context) {
+	lang := c.GetString("lang")
 	id := c.GetInt("id")
 	user, err := model.GetUserById(int64(id), true)
 	if err != nil {
@@ -104,14 +108,14 @@ func GenerateToken(c *gin.Context) {
 		// Handle potential database error during check
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Database error checking token: " + err.Error(),
+			"message": i18n.Translate("db_error_checking_token", lang) + err.Error(),
 		})
 		return
 	}
 	if len(existingUsers) > 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "请重试，系统生成的 UUID 竟然重复了！",
+			"message": i18n.Translate("uuid_duplicate_retry", lang),
 		})
 		return
 	}
@@ -151,12 +155,13 @@ func GetSelf(c *gin.Context) {
 }
 
 func UpdateUser(c *gin.Context) {
+	lang := c.GetString("lang")
 	var updatedUser model.User
 	err := json.NewDecoder(c.Request.Body).Decode(&updatedUser)
 	if err != nil || updatedUser.ID == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数",
+			"message": i18n.Translate("invalid_param", lang),
 		})
 		return
 	}
@@ -166,7 +171,7 @@ func UpdateUser(c *gin.Context) {
 	if err := common.Validate.Struct(&updatedUser); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "输入不合法 " + err.Error(),
+			"message": i18n.Translate("invalid_input", lang) + err.Error(),
 		})
 		return
 	}
@@ -182,14 +187,14 @@ func UpdateUser(c *gin.Context) {
 	if myRole <= originUser.Role {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权更新同权限等级或更高权限等级的用户信息",
+			"message": i18n.Translate("no_permission_update_same_or_higher_user", lang),
 		})
 		return
 	}
 	if myRole <= updatedUser.Role {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权将其他用户权限等级提升到大于等于自己的权限等级",
+			"message": i18n.Translate("no_permission_promote_user_to_higher_or_equal", lang),
 		})
 		return
 	}
@@ -212,12 +217,13 @@ func UpdateUser(c *gin.Context) {
 }
 
 func UpdateSelf(c *gin.Context) {
+	lang := c.GetString("lang")
 	var user model.User
 	err := json.NewDecoder(c.Request.Body).Decode(&user)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数",
+			"message": i18n.Translate("invalid_param", lang),
 		})
 		return
 	}
@@ -227,7 +233,7 @@ func UpdateSelf(c *gin.Context) {
 	if err := common.Validate.Struct(&user); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "输入不合法 " + err.Error(),
+			"message": i18n.Translate("invalid_input", lang) + err.Error(),
 		})
 		return
 	}
@@ -259,6 +265,7 @@ func UpdateSelf(c *gin.Context) {
 }
 
 func DeleteUser(c *gin.Context) {
+	lang := c.GetString("lang")
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -279,7 +286,7 @@ func DeleteUser(c *gin.Context) {
 	if myRole <= originUser.Role {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权删除同权限等级或更高权限等级的用户",
+			"message": i18n.Translate("no_permission_delete_same_or_higher_user", lang),
 		})
 		return
 	}
@@ -311,12 +318,13 @@ func DeleteSelf(c *gin.Context) {
 }
 
 func CreateUser(c *gin.Context) {
+	lang := c.GetString("lang")
 	var user model.User
 	err := json.NewDecoder(c.Request.Body).Decode(&user)
 	if err != nil || user.Username == "" || user.Password == "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数",
+			"message": i18n.Translate("invalid_param", lang),
 		})
 		return
 	}
@@ -327,7 +335,7 @@ func CreateUser(c *gin.Context) {
 	if user.Role >= myRole {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无法创建权限大于等于自己的用户",
+			"message": i18n.Translate("cannot_create_user_with_higher_or_equal_role", lang),
 		})
 		return
 	}
@@ -359,13 +367,14 @@ type ManageRequest struct {
 
 // ManageUser Only admin user can do this
 func ManageUser(c *gin.Context) {
+	lang := c.GetString("lang")
 	var req ManageRequest
 	err := json.NewDecoder(c.Request.Body).Decode(&req)
 
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数",
+			"message": i18n.Translate("invalid_param", lang),
 		})
 		return
 	}
@@ -376,14 +385,14 @@ func ManageUser(c *gin.Context) {
 		// Handle potential database error during lookup
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Database error looking up user: " + err.Error(),
+			"message": err.Error(),
 		})
 		return
 	}
 	if len(users) == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "用户不存在",
+			"message": i18n.Translate("user_not_found", lang),
 		})
 		return
 	}
@@ -393,7 +402,7 @@ func ManageUser(c *gin.Context) {
 	if myRole <= user.Role && myRole != common.RoleRootUser {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权更新同权限等级或更高权限等级的用户信息",
+			"message": i18n.Translate("no_permission_update_same_or_higher_user", lang),
 		})
 		return
 	}
@@ -403,7 +412,7 @@ func ManageUser(c *gin.Context) {
 		if user.Role == common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无法禁用超级管理员用户",
+				"message": i18n.Translate("cannot_disable_root_user", lang),
 			})
 			return
 		}
@@ -413,7 +422,7 @@ func ManageUser(c *gin.Context) {
 		if user.Role == common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无法删除超级管理员用户",
+				"message": i18n.Translate("cannot_delete_root_user", lang),
 			})
 			return
 		}
@@ -428,14 +437,14 @@ func ManageUser(c *gin.Context) {
 		if myRole != common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "普通管理员用户无法提升其他用户为管理员",
+				"message": i18n.Translate("admin_cannot_promote_to_admin", lang),
 			})
 			return
 		}
 		if user.Role >= common.RoleAdminUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "该用户已经是管理员",
+				"message": i18n.Translate("user_already_admin", lang),
 			})
 			return
 		}
@@ -444,14 +453,14 @@ func ManageUser(c *gin.Context) {
 		if user.Role == common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无法降级超级管理员用户",
+				"message": i18n.Translate("cannot_demote_root_user", lang),
 			})
 			return
 		}
 		if user.Role == common.RoleCommonUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "该用户已经是普通用户",
+				"message": i18n.Translate("user_already_common", lang),
 			})
 			return
 		}
@@ -483,12 +492,13 @@ func ManageUser(c *gin.Context) {
 }
 
 func EmailBind(c *gin.Context) {
+	lang := c.GetString("lang")
 	email := c.Query("email")
 	code := c.Query("code")
 	if !common.VerifyCodeWithKey(email, code, common.EmailVerificationPurpose) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "验证码错误或已过期",
+			"message": i18n.Translate("invalid_or_expired_code", lang),
 		})
 		return
 	}
