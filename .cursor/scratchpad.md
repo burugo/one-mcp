@@ -4,6 +4,20 @@
 
 The goal is to develop an One MCP (Multi-Cloud Platform) Service. This service acts as a central hub for managing and proxying various underlying MCP services (types: `stdio`, `sse`, `streamable_http`). Users configure these underlying services and then access them through unified SSE or Streamable HTTP endpoints provided by this One MCP service. Users create "MCP Setups" (configuration sets) containing multiple service instances. A key feature is exporting these setups into JSON formats specific to different client applications (e.g., Cursor, Cherry-Studio). The exported configurations will always point to the One MCP service's proxy endpoints, and the protocol used by these proxy endpoints (SSE or Streamable HTTP) is determined by the chosen client application type at export time.
 
+This simplified approach streamlines export by tying the proxy protocol choice directly to the client type.
+
+**New: MCP Server Installation User Experience**
+The project will also include a user interface for discovering and installing MCP servers, similar to the experience in C-Line and Cherry Studio.
+- **User Interface**: A dedicated UI will allow users to browse and search for available MCP servers.
+- **Marketplace Integration**:
+    - Users will be able to search for MCP servers from public marketplaces like npm (Node Package Manager) and PyPI (Python Package Index).
+    - The system will initially feature a curated list of built-in/recommended servers.
+- **Installation Mechanism**:
+    - Upon selecting a server, the system will use the appropriate command-line tool to install it:
+        - `npx` for npm packages.
+        - `uvx` (or equivalent like `pip install`) for PyPI packages.
+    - The installed server will then be available within the One MCP system for users to configure and use.
+
 The system needs to support:
 - Admins defining abstract MCP Service types (`MCPService`), including:
     - The underlying type of the service (`stdio`, `sse`, `streamable_http`).
@@ -23,8 +37,6 @@ The system needs to support:
         - Render the `template_string`, providing it with data including the effective config of the underlying service and the `effective_our_proxy_protocol`. The template will generate a snippet matching `client_expected_protocol`. The URLs within this snippet will point to One MCP's proxy, constructed using `effective_our_proxy_protocol` (e.g., using `/sse` or `/mcp` path segments).
     4. Aggregate snippets into the final client JSON.
 
-This simplified approach streamlines export by tying the proxy protocol choice directly to the client type.
-
 ## Key Challenges and Analysis
 
 - **Complex Data Modeling**: Accurately defining `MCPService` (esp. the simplified `ClientConfigTemplates`), `UserConfig`, `ConfigService`.
@@ -36,6 +48,12 @@ This simplified approach streamlines export by tying the proxy protocol choice d
 - **Schema Definition and Validation**: For config schemas.
 - **Proxying Logic**: Runtime proxy for `stdio`, `sse`, `streamable_http` underlying services, exposed via One MCP's SSE or Streamable HTTP endpoints (distinguished by URL path, e.g., `/proxy/:instance_id/sse` vs `/proxy/:instance_id/mcp`).
 - **API Design**: For Admin, User, and Export (now simpler, no protocol choice param).
+
+**New Challenges for Server Installation Feature:**
+- **Multi-Package Manager Integration**: Securely and reliably executing external commands (`npx`, `uvx`) to install packages from different ecosystems. Managing their outputs and error states.
+- **Marketplace Search Aggregation & UI**: Designing a user-friendly interface to search across multiple marketplaces (npm, PyPI) and display results effectively. Handling potential differences in package metadata.
+- **Installation State Management**: Tracking the installation status of servers and reflecting this in the UI and backend.
+- **Dependency Management**: Ensuring that installed servers and their dependencies do not conflict with the One MCP system or other installed servers. (This might be a longer-term consideration).
 
 ## High-level Task Breakdown (Feature: MCP Setup Management & Export with Proxying)
 
@@ -85,15 +103,28 @@ This simplified approach streamlines export by tying the proxy protocol choice d
     - **6.3**: Update API documentation. `Task Type: Refactoring (Functional)`
     - **6.4**: Add code comments. `Task Type: Refactoring (Functional)`
 
+### 7. UI for MCP Server Installation (New Feature Section)
+    - **7.1**: Design and implement MCP Server Installation UI (See `.cursor/feature-mcp-installer-ui.md` for details). `Task Type: New Feature`
+        - Sub-tasks: UI Mockups, Frontend Component Development, Backend APIs for search & installation, Frontend-Backend Integration, State Management, Testing.
+        - Success Criteria: Users can search for MCP servers from npm & PyPI, view details, and trigger installation via `npx`/`uvx` through a user-friendly interface.
+
 ## Project Status Board
 
-- **Active Task File**: `.cursor/feature-mcp-setup-management.md`
-- **Current Focus**: Implementation of core models and preparing for API development.
+- **Active Task File**: `.cursor/feature-service-management.md`
+- **Additional Task Files**:
+    - `.cursor/feature-mcp-setup-management.md` (Status: On Hold - awaiting service management completion)
+    - `.cursor/feature-mcp-installer-ui.md` (Status: Planned - conceptual design complete)
+- **Current Focus**: Implementation of core MCPService management APIs as per `.cursor/feature-service-management.md`.
 
 ## Executor's Feedback or Assistance Requests
 
-- Fixed linter error in user model: replaced all uses of thing.ErrRecordNotFound with package-level ErrRecordNotFound, as defined in model/config_service.go. Updated all usages in API handlers and tests to match the correct function signatures (removed context argument). All tests pass. Changes committed.
-- Completed i18n key refactor for all business errors in user_config.go, mcp_service.go, config_service.go (model layer). All tests pass. Changes committed.
+已完成以下结构性清理工作：
+- 删除了 backend/common/errors/code.go 文件（所有旧错误码常量）。
+- 从 locales/zh.json 和 locales/en.json 中移除了所有 ERR_ 开头、与 code.go 对应的 i18n key。
+- 运行全部测试，未发现失败。
+- 已完成 git commit。
+
+本次为纯结构性清理，未影响任何业务逻辑。建议用户/Planner 验证无遗漏后再继续后续工作。
 
 已完成所有核心模型的定义与重构：
 1. 使用Thing ORM（非GORM）完成了`MCPService`模型的重构，添加了`Type`字段以区分不同类型的底层服务（stdio、sse、streamable_http），以及`ClientConfigTemplates`等关键字段。
