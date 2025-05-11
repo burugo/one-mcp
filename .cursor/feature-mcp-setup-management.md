@@ -1,87 +1,81 @@
-# MCP Setup Management & Multi-Client Export
+# MCP Setup Management & Multi-Client Export with Proxying
 
-This document outlines the tasks for implementing the MCP Setup Management feature, allowing users to create sets of configured MCP service instances and export them into client-specific JSON formats. This includes support for admin-defined service defaults, user overrides, and handling of multi-value configuration parameters.
+This document outlines tasks for implementing MCP Setup Management. Users configure underlying MCP services (`stdio`, `sse`, `streamable_http`) and access them via this One MCP service's own SSE or Streamable HTTP proxy endpoints. Setups are exported to client-specific JSON. The proxy protocol (SSE/Streamable HTTP) used in the export is fixed per client type.
 
 ## Completed Tasks
 
-- [ ] Initial planning and design based on user feedback and architecture review.
+- [x] Initial planning, design, and refinements based on user feedback.
+- [x] **1.1**: Define/Refactor `MCPService` GORM model `Task Type: New Feature`
+    - Fields: `ID`, `Name`, `DisplayName`, `Type` (enum: `stdio`, `sse`, `streamable_http`), `AdminConfigSchema`, `DefaultAdminConfigValues`, `UserConfigSchema`, `AllowUserOverride`, `ClientConfigTemplates` (JSON/TEXT - Map of `client_type` to `{ "template_string": string, "client_expected_protocol": string, "our_proxy_protocol_for_this_client": string }`).
+    - Success Criteria: Model defined using Thing ORM. `ClientConfigTemplates` stores new simplified structure determining client-fixed proxy protocol and URL format (e.g. with `/sse` or `/mcp` path suffix).
+- [x] **1.2**: Define/Refactor `UserConfig` GORM model. `Task Type: New Feature`
+- [x] **1.3**: Define/Refactor `ConfigService` GORM model. `Task Type: New Feature`
+- [x] **1.4**: Implement GORM `AutoMigrate`. `Task Type: New Feature`
 
 ## In Progress Tasks
 
-### 1. Core Model Redesign & Implementation
-- [ ] **1.1**: Define/Refactor `MCPService` GORM model `Task Type: New Feature`
-    - Fields: `ID`, `Name`, `DisplayName`, `Type`, `AdminConfigSchema` (JSON/TEXT), `DefaultAdminConfigValues` (JSON/TEXT), `UserConfigSchema` (JSON/TEXT), `AllowUserOverride` (JSON/TEXT or specific structure), `ClientConfigTemplates` (JSON/TEXT).
-    - Success Criteria: Model defined, migratable. Schemas and templates will store valid JSON.
-- [ ] **1.2**: Define/Refactor `UserConfig` (MCP Setup) GORM model `Task Type: New Feature`
-    - Fields: `ID`, `UserID` (FK), `Name`, `Description`.
-    - Success Criteria: Model defined, migratable. Aligns with `architecture.md`.
-- [ ] **1.3**: Define/Refactor `ConfigService` (Service Instance in Setup) GORM model `Task Type: New Feature`
-    - Fields: `ID`, `UserConfigID` (FK), `MCPServiceID` (FK), `InstanceName` (optional, for user's reference), `UserOverrideConfigValues` (JSON/TEXT for user's specific overrides), `IsEnabled`.
-    - Success Criteria: Model defined, migratable. `UserOverrideConfigValues` stores JSON.
-- [ ] **1.4**: Implement GORM `AutoMigrate` for the new/refactored models. `Task Type: New Feature`
-    - Success Criteria: Database schema created/updated successfully.
-
 ### 2. Admin: MCPService Definition Management
-- [ ] **2.1**: Design & Implement APIs for Admin to CRUD `MCPService` definitions `Task Type: New Feature`
-    - Endpoints: e.g., `POST /api/admin/mcp_services`, `GET /api/admin/mcp_services`, `GET /api/admin/mcp_services/:id`, `PUT /api/admin/mcp_services/:id`, `DELETE /api/admin/mcp_services/:id`.
-    - Success Criteria: Admins can fully manage service types, including their schemas, default values, override rules, and client export templates. Secure with Admin role.
-- [ ] **2.2**: Implement backend logic for validating `AdminConfigSchema`, `UserConfigSchema` (e.g., ensure they are valid JSON Schema). `Task Type: New Feature`
-    - Success Criteria: Invalid schemas are rejected.
+- [ ] **2.1**: APIs for Admin to CRUD `MCPService` (including simplified `ClientConfigTemplates` structure). `Task Type: New Feature`
+    - Success Criteria: Admins can fully manage service types, explicitly defining `our_proxy_protocol_for_this_client` for each client template.
 
 ### 3. User: MCP Setup & Service Instance Management
-- [ ] **3.1**: Design & Implement APIs for User to CRUD `UserConfig` (MCP Setups) `Task Type: New Feature`
-    - Endpoints: e.g., `POST /api/mcp_setups`, `GET /api/mcp_setups`, `GET /api/mcp_setups/:id`, `PUT /api/mcp_setups/:id`, `DELETE /api/mcp_setups/:id`.
-    - Success Criteria: Users can manage their named configuration sets. Ownership enforced.
-- [ ] **3.2**: Design & Implement APIs for User to CRUD `ConfigService` (Service Instances within a Setup) `Task Type: New Feature`
-    - Endpoints: e.g., `POST /api/mcp_setups/:setup_id/service_instances` (body includes `MCPServiceID`, `InstanceName`, `UserOverrideConfigValues`), `GET /api/mcp_setups/:setup_id/service_instances/:instance_id`, `PUT /api/mcp_setups/:setup_id/service_instances/:instance_id` (update overrides, name, or is_enabled), `DELETE /api/mcp_setups/:setup_id/service_instances/:instance_id`.
-    - Success Criteria: Users can add, configure (with overrides for single/multi-value fields), and remove service instances from their setups. `UserOverrideConfigValues` validated against `MCPService.UserConfigSchema` and `AllowUserOverride` rules.
-- [ ] **3.3**: Implement logic for handling multi-value inputs (e.g., ensuring string arrays are correctly stored in `UserOverrideConfigValues` from frontend-converted multi-line inputs). `Task Type: New Feature`
-    - Success Criteria: Backend correctly stores and processes array-type config values.
+- [ ] **3.1**: Design & Implement APIs for User to CRUD `UserConfig` (MCP Setups). `Task Type: New Feature`
+- [ ] **3.2**: Design & Implement APIs for User to CRUD `ConfigService` (Service Instances). `Task Type: New Feature`
+- [ ] **3.3**: Implement logic for handling multi-value inputs. `Task Type: New Feature`
 
 ### 4. Core: Configuration Merging & Client Export Logic
-- [ ] **4.1**: Implement "Effective Configuration" calculation logic `Task Type: New Feature`
-    - Function: `func calculateEffectiveConfig(mcpService model.MCPService, configService model.ConfigService) (map[string]interface{}, error)`
-    - Logic: Merges `mcpService.DefaultAdminConfigValues` with `configService.UserOverrideConfigValues` respecting `mcpService.AllowUserOverride`.
-    - Success Criteria: Correctly produces a single map of final key-value parameters for a service instance. Handles single and multi-value fields.
-- [ ] **4.2**: Design & Implement API for Exporting `UserConfig` to specific client format `Task Type: New Feature`
-    - Endpoint: `GET /api/mcp_setups/:setup_id/export?client_type=<client_name>` (e.g., "cursor", "cherry-studio").
-    - Success Criteria: API authenticates user, verifies ownership of setup.
-- [ ] **4.3**: Implement core transformation logic using `MCPService.ClientConfigTemplates` `Task Type: New Feature`
-    - For each enabled `ConfigService` instance in the `UserConfig` setup:
-        1. Calculate its effective configuration (using 4.1).
-        2. Retrieve the `ClientConfigTemplate` for the target `client_type` from the `MCPService`.
-        3. Apply the template (e.g., Go `text/template`) to the effective configuration to generate the client-specific JSON snippet for this service instance.
-    - Success Criteria: Transformation logic correctly generates individual service config snippets. Template engine handles single values and iterating over multi-value arrays.
-- [ ] **4.4**: Implement aggregation of transformed snippets into final client JSON structure. `Task Type: New Feature`
-    - Logic depends on the target client's top-level JSON structure (e.g., Cursor's `mcpServers` object).
-    - Success Criteria: A valid, complete `config.json` string for the target client is produced and returned by the API.
+- [ ] **4.1**: Implement "Effective Configuration" calculation for an underlying service instance. `Task Type: New Feature`
+- [ ] **4.2**: Design & Implement API for Exporting `UserConfig`: `Task Type: New Feature`
+    - Endpoint: `GET /api/mcp_setups/:setup_id/export?client_type=<client_name>` (No `protocol` query param is needed as it's fixed by `client_type`).
+    - Logic: Retrieves `ClientTemplateDetail` for `client_name`. The `effective_our_proxy_protocol` is directly set from `templateDetail.our_proxy_protocol_for_this_client`.
+    - Success Criteria: API authenticates user, verifies ownership, and correctly determines `effective_our_proxy_protocol` solely from the `client_type`'s stored template configuration.
+- [ ] **4.3**: Implement core transformation logic: `Task Type: New Feature`
+    - For each enabled `ConfigService` instance:
+        1. Calculate its effective configuration for the underlying service.
+        2. Get `ClientTemplateDetail` for the target `client_type`.
+        3. Set `effective_our_proxy_protocol = templateDetail.our_proxy_protocol_for_this_client`.
+        4. Prepare data for the template: effective config of the underlying service, and `EffectiveOurProxyProtocol: effective_our_proxy_protocol`. The template will use `EffectiveOurProxyProtocol` to construct the correct proxy URL, appending `/sse` or `/mcp` as appropriate (e.g., `https://our.service.com/api/proxy/:instance_id/{{ if eq .EffectiveOurProxyProtocol "sse" }}sse{{ else }}mcp{{ end }}`).
+        5. Render `templateDetail.template_string`. The template generates a service entry structure consistent with `templateDetail.client_expected_protocol`.
+    - Success Criteria: Generates correct client-specific snippets with proxy URLs correctly reflecting the client-fixed protocol (e.g., containing `/sse` or `/mcp` path segments).
+- [ ] **4.4**: Implement aggregation of transformed snippets into final client JSON. `Task Type: New Feature`
 
-### 5. Testing & Documentation
-- [ ] **5.1**: Write unit tests for model methods, config merging, and template transformation logic. `Task Type: New Feature`
-- [ ] **5.2**: Write integration tests for all new Admin and User APIs, including the export functionality with various client types and multi-value fields. `Task Type: New Feature`
-- [ ] **5.3**: Update API documentation. `Task Type: Refactoring (Functional)`
-- [ ] **5.4**: Add code comments. `Task Type: Refactoring (Functional)`
+### 5. Core: Service Proxying Runtime
+- [ ] **5.1**: Design proxy endpoints with protocol-specific paths: e.g., `/api/proxy/:instance_id/sse` and `/api/proxy/:instance_id/mcp`. `Task Type: New Feature`
+    - Success Criteria: Proxy URLs are distinct for SSE and Streamable HTTP, matching what the export template logic generates.
+- [ ] **5.2**: Implement request handling for these distinct proxy endpoints (e.g., one handler for `/api/proxy/:instance_id/sse`, another for `/api/proxy/:instance_id/mcp`). `Task Type: New Feature`
+- [ ] **5.3**: Implement dispatch logic based on `MCPService.Type` of the *underlying* service, invoked by the specific protocol handler from 5.2. `Task Type: New Feature`
+- [ ] **5.4**: Handle parameter mapping from proxy to underlying service. `Task Type: New Feature`
+    - Success Criteria: One MCP service successfully proxies requests to underlying stdio, sse, and streamable_http services, exposing them via SSE or Streamable HTTP based on the specific proxy path suffix (`/sse` or `/mcp`) invoked by the client.
+
+### 6. Testing & Documentation
+- [ ] **6.1**: Write unit tests for models, merging, transformation (including protocol choices), and proxying. `Task Type: New Feature`
+- [ ] **6.2**: Write integration tests for APIs (including export with different client_type/protocol combinations) and proxy endpoints. `Task Type: New Feature`
+- [ ] **6.3**: Update API documentation. `Task Type: Refactoring (Functional)`
+- [ ] **6.4**: Add code comments. `Task Type: Refactoring (Functional)`
 
 ## Future Tasks
 
-- [ ] UI/UX implementation for Admin `MCPService` management.
-- [ ] UI/UX implementation for User MCP Setup and Service Instance management, including dynamic form generation from schemas and handling of multi-line inputs for array values.
+- [ ] UI/UX for Admin `MCPService` management (including an intuitive editor for the simplified `ClientConfigTemplates`).
+- [ ] UI/UX for User MCP Setup and Service Instance management.
+- [ ] Detailed error handling and reporting for the proxy layer.
 
 ## Implementation Plan
 
-- Prioritize backend model and core logic (merging, transformation) implementation.
-- Develop Admin APIs for `MCPService` definition as a foundational step.
+- Prioritize backend model updates (simplified `ClientConfigTemplates` structure) and core logic (merging, transformation logic aware of client-fixed protocol, initial proxy structure with distinct paths for SSE/Streamable HTTP).
+- Develop Admin APIs for `MCPService` definition.
 - Implement User APIs for managing setups and instances.
-- Finally, implement the export API and its underlying transformation and aggregation logic.
+- Develop the core proxying runtime logic, ensuring handlers for `/sse` and `/mcp` paths correctly dispatch to underlying services.
+- Implement the simplified export API.
 - Testing will be conducted incrementally alongside development.
 
 ### Relevant Files
 
-- `backend/model/mcp_service.go` (to be created/refactored)
-- `backend/model/user_config.go` (to be refactored as MCPSetup)
-- `backend/model/config_service.go` (to be refactored as ServiceInstanceInSetup)
-- `backend/api/handler/admin_mcp_service.go` (to be created)
-- `backend/api/handler/user_mcp_setup.go` (to be created)
-- `backend/api/handler/export.go` (or similar, for export logic)
-- `backend/api/route/api-router.go` (to be updated with new routes)
-- `tests/` (new test files for models and APIs) 
+- `backend/model/mcp_service.go` (updated for simplified `ClientConfigTemplates` structure)
+- `backend/model/user_config.go`
+- `backend/model/config_service.go`
+- `backend/api/handler/admin_mcp_service.go`
+- `backend/api/handler/user_mcp_setup.go`
+- `backend/api/handler/export.go` (updated export logic, no protocol param)
+- `backend/api/handler/proxy.go` (or separate `proxy_sse.go`, `proxy_mcp.go` if cleaner, handling distinct `/sse` and `/mcp` paths)
+- `backend/api/route/api-router.go` (routes for distinct proxy paths)
+- `tests/` (updated test files for new logic, simplified export, and distinct proxy paths) 

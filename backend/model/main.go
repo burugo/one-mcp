@@ -64,6 +64,15 @@ func InitDB() (err error) {
 	if err := OptionInit(); err != nil {
 		return err
 	}
+	if err := MCPServiceInit(); err != nil {
+		return err
+	}
+	if err := ConfigServiceInit(); err != nil {
+		return err
+	}
+	if err := UserConfigInit(); err != nil {
+		return err
+	}
 
 	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{})
 	if err != nil {

@@ -1,10 +1,13 @@
 package model
 
 import (
-	"time"
+	"errors"
 
-	"gorm.io/gorm"
+	"github.com/burugo/thing"
 )
+
+// ErrRecordNotFound is used when a record is not found
+var ErrRecordNotFound = errors.New("record not found")
 
 // ConfigType defines the type of configuration option
 type ConfigType string
@@ -21,20 +24,17 @@ const (
 
 // ConfigService represents a configuration option for an MCP service
 type ConfigService struct {
-	Id              int        `json:"id" gorm:"primaryKey"`
-	ServiceId       int        `json:"service_id" gorm:"not null;index:idx_service_key"`
-	Key             string     `json:"key" gorm:"size:100;not null;index:idx_service_key"`
-	DisplayName     string     `json:"display_name" gorm:"size:255;not null"`
-	Description     string     `json:"description" gorm:"type:text"`
-	Type            ConfigType `json:"type" gorm:"size:50;not null;default:'string'"`
-	DefaultValue    string     `json:"default_value" gorm:"type:text"`
-	Options         string     `json:"options" gorm:"type:text"` // JSON array for select options
-	Required        bool       `json:"required" gorm:"default:false"`
-	AdvancedSetting bool       `json:"advanced_setting" gorm:"default:false"`
-	OrderNum        int        `json:"order_num" gorm:"column:order_num;default:0"`
-	CreatedAt       time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt       time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
-	Service         MCPService `json:"-" gorm:"foreignKey:ServiceId"`
+	thing.BaseModel
+	ServiceID       int64      `db:"service_id,index:idx_service_key"`
+	Key             string     `db:"key,index:idx_service_key"`
+	DisplayName     string     `db:"display_name"`
+	Description     string     `db:"description"`
+	Type            ConfigType `db:"type"`
+	DefaultValue    string     `db:"default_value"`
+	Options         string     `db:"options"` // JSON array for select options
+	Required        bool       `db:"required"`
+	AdvancedSetting bool       `db:"advanced_setting"`
+	OrderNum        int        `db:"order_num"`
 }
 
 // TableName sets the table name for the ConfigService model
@@ -42,88 +42,76 @@ func (c *ConfigService) TableName() string {
 	return "config_services"
 }
 
+var ConfigServiceDB *thing.Thing[*ConfigService]
+
+// ConfigServiceInit initializes the ConfigServiceDB
+func ConfigServiceInit() error {
+	var err error
+	ConfigServiceDB, err = thing.Use[*ConfigService]()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetConfigOptionsForService returns all configuration options for a specific service
-func GetConfigOptionsForService(db *gorm.DB, serviceId int) ([]ConfigService, error) {
-	var configs []ConfigService
-	err := db.Where("service_id = ?", serviceId).Order("order_num asc").Find(&configs).Error
-	return configs, err
+func GetConfigOptionsForService(serviceID int64) ([]*ConfigService, error) {
+	return ConfigServiceDB.Where("service_id = ?", serviceID).Order("order_num ASC").All()
 }
 
 // GetConfigOptionByID returns a specific configuration option by ID
-func GetConfigOptionByID(db *gorm.DB, id int) (ConfigService, error) {
-	var config ConfigService
-	err := db.First(&config, id).Error
-	return config, err
+func GetConfigOptionByID(id int64) (*ConfigService, error) {
+	return ConfigServiceDB.ByID(id)
 }
 
 // GetConfigOptionByKey returns a specific configuration option by service ID and key
-func GetConfigOptionByKey(db *gorm.DB, serviceId int, key string) (ConfigService, error) {
-	var config ConfigService
-	err := db.Where("service_id = ? AND key = ?", serviceId, key).First(&config).Error
-	return config, err
+func GetConfigOptionByKey(serviceID int64, key string) (*ConfigService, error) {
+	configs, err := ConfigServiceDB.Where("service_id = ? AND key = ?", serviceID, key).Fetch(0, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(configs) == 0 {
+		return nil, ErrRecordNotFound
+	}
+	return configs[0], nil
 }
 
 // CreateConfigOption creates a new service configuration option
-func CreateConfigOption(db *gorm.DB, config *ConfigService) error {
-	return db.Create(config).Error
+func CreateConfigOption(config *ConfigService) error {
+	return ConfigServiceDB.Save(config)
 }
 
 // UpdateConfigOption updates an existing service configuration option
-func UpdateConfigOption(db *gorm.DB, config *ConfigService) error {
-	return db.Save(config).Error
+func UpdateConfigOption(config *ConfigService) error {
+	return ConfigServiceDB.Save(config)
 }
 
 // DeleteConfigOption deletes a service configuration option
-func DeleteConfigOption(db *gorm.DB, id int) error {
-	return db.Delete(&ConfigService{}, id).Error
+func DeleteConfigOption(id int64) error {
+	config, err := ConfigServiceDB.ByID(id)
+	if err != nil {
+		return err
+	}
+	return ConfigServiceDB.Delete(config)
 }
 
 // DeleteConfigOptionsForService deletes all configuration options for a service
-func DeleteConfigOptionsForService(db *gorm.DB, serviceId int) error {
-	return db.Where("service_id = ?", serviceId).Delete(&ConfigService{}).Error
+func DeleteConfigOptionsForService(serviceID int64) error {
+	configs, err := ConfigServiceDB.Where("service_id = ?", serviceID).All()
+	if err != nil {
+		return err
+	}
+
+	for _, config := range configs {
+		if err := ConfigServiceDB.Delete(config); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // GetAllConfigOptions returns all configuration options for all services
-func GetAllConfigOptions(db *gorm.DB) ([]ConfigService, error) {
-	var configs []ConfigService
-	err := db.Order("service_id asc, order_num asc").Find(&configs).Error
-	return configs, err
-}
-
-// GetConfigOptionsWithServiceDetails returns configuration options with their service details
-func GetConfigOptionsWithServiceDetails(db *gorm.DB) ([]map[string]interface{}, error) {
-	var configOptions []ConfigService
-	if err := db.Order("service_id asc, order_num asc").Find(&configOptions).Error; err != nil {
-		return nil, err
-	}
-
-	result := make([]map[string]interface{}, 0, len(configOptions))
-
-	for _, config := range configOptions {
-		var service MCPService
-
-		if err := db.First(&service, config.ServiceId).Error; err != nil {
-			continue
-		}
-
-		configMap := map[string]interface{}{
-			"id":               config.Id,
-			"service":          service,
-			"key":              config.Key,
-			"display_name":     config.DisplayName,
-			"description":      config.Description,
-			"type":             config.Type,
-			"default_value":    config.DefaultValue,
-			"options":          config.Options,
-			"required":         config.Required,
-			"advanced_setting": config.AdvancedSetting,
-			"order_num":        config.OrderNum,
-			"created_at":       config.CreatedAt,
-			"updated_at":       config.UpdatedAt,
-		}
-
-		result = append(result, configMap)
-	}
-
-	return result, nil
+func GetAllConfigOptions() ([]*ConfigService, error) {
+	return ConfigServiceDB.Order("service_id ASC, order_num ASC").All()
 }
