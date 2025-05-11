@@ -49,7 +49,7 @@ func GetUserConfigValue(userID, configID int64) (*UserConfig, error) {
 		return nil, err
 	}
 	if len(configs) == 0 {
-		return nil, errors.New("record not found")
+		return nil, errors.New("user_config_not_found")
 	}
 	return configs[0], nil
 }

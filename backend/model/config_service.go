@@ -7,7 +7,7 @@ import (
 )
 
 // ErrRecordNotFound is used when a record is not found
-var ErrRecordNotFound = errors.New("record not found")
+var ErrRecordNotFound = errors.New("config_service_not_found")
 
 // ConfigType defines the type of configuration option
 type ConfigType string

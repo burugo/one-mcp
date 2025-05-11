@@ -92,7 +92,7 @@ func (s *MCPService) GetClientTemplateDetail(clientType string) (*ClientTemplate
 
 	detail, exists := templates[clientType]
 	if !exists {
-		return nil, errors.New("no template found for client type: " + clientType)
+		return nil, errors.New("mcp_service_template_not_found")
 	}
 
 	return &detail, nil
@@ -132,7 +132,7 @@ func GetServiceByName(name string) (*MCPService, error) {
 		return nil, err
 	}
 	if len(services) == 0 {
-		return nil, errors.New("service not found")
+		return nil, errors.New("mcp_service_not_found")
 	}
 	return services[0], nil
 }
