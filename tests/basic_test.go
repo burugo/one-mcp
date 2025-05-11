@@ -93,11 +93,11 @@ func TestGetUserByIdAndDeleteUserById(t *testing.T) {
 	err := user.Insert()
 	assert.NoError(t, err)
 
-	gotUser, err := model.GetUserById(context.Background(), int64(user.ID), false)
+	gotUser, err := model.GetUserById(int64(user.ID), false)
 	assert.NoError(t, err)
 	assert.Equal(t, user.ID, gotUser.ID)
 
-	err = model.DeleteUserById(context.Background(), int64(user.ID))
+	err = model.DeleteUserById(int64(user.ID))
 	assert.NoError(t, err)
 
 	// 清理

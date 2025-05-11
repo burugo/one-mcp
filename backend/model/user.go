@@ -1,11 +1,8 @@
 package model
 
 import (
-	"context"
 	"errors"
 	"one-mcp/backend/common"
-	mcperrors "one-mcp/backend/common/errors"
-	"one-mcp/backend/common/i18n"
 
 	"github.com/burugo/thing"
 )
@@ -84,29 +81,31 @@ func SearchUsers(keyword string) ([]*User, error) {
 }
 
 // GetUserById 根据ID获取用户
-// 支持 context 传递 lang
-func GetUserById(ctx context.Context, id int64, selectAll bool) (*User, error) {
-	lang, _ := ctx.Value("lang").(string)
+func GetUserById(id int64, selectAll bool) (*User, error) {
 	if id == 0 {
-		return nil, i18n.New(mcperrors.ErrEmptyID, lang)
+		return nil, errors.New("empty_id")
 	}
 	user, err := UserDB.ByID(id)
 	if err != nil {
-		return nil, i18n.Wrap(err, mcperrors.ErrUserNotFound, lang)
+		if errors.Is(err, ErrRecordNotFound) {
+			return nil, errors.New("user_not_found")
+		}
+		return nil, err
 	}
 	return user, nil
 }
 
 // DeleteUserById 根据ID删除用户
-// 支持 context 传递 lang
-func DeleteUserById(ctx context.Context, id int64) error {
-	lang, _ := ctx.Value("lang").(string)
+func DeleteUserById(id int64) error {
 	if id == 0 {
-		return i18n.New(mcperrors.ErrEmptyID, lang)
+		return errors.New("empty_id")
 	}
 	user, err := UserDB.ByID(id)
 	if err != nil {
-		return i18n.Wrap(err, mcperrors.ErrUserNotFound, lang)
+		if errors.Is(err, ErrRecordNotFound) {
+			return errors.New("user_not_found")
+		}
+		return err
 	}
 	return UserDB.Delete(user)
 }
@@ -135,23 +134,23 @@ func (user *User) Update(updatePassword bool) error {
 
 func (user *User) Delete() error {
 	if user.ID == 0 {
-		return errors.New("id 为空！")
+		return errors.New("empty_id")
 	}
 	return UserDB.Delete(user)
 }
 
 func (user *User) ValidateAndFill() error {
 	if user.Username == "" || user.Password == "" {
-		return errors.New("用户名或密码为空")
+		return errors.New("empty_username_or_password")
 	}
 	users, err := UserDB.Where("username = ?", user.Username).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
-		return errors.New("用户名或密码错误，或用户已被封禁")
+		return errors.New("invalid_username_or_password")
 	}
 	found := users[0]
 	okay := common.ValidatePasswordAndHash(user.Password, found.Password)
 	if !okay || found.Status != common.UserStatusEnabled {
-		return errors.New("用户名或密码错误，或用户已被封禁")
+		return errors.New("invalid_username_or_password")
 	}
 	*user = *found
 	return nil
@@ -159,10 +158,13 @@ func (user *User) ValidateAndFill() error {
 
 func (user *User) FillUserById() error {
 	if user.ID == 0 {
-		return errors.New("id 为空！")
+		return errors.New("empty_id")
 	}
 	found, err := UserDB.ByID(user.ID)
 	if err != nil {
+		if errors.Is(err, ErrRecordNotFound) {
+			return errors.New("user_not_found")
+		}
 		return err
 	}
 	*user = *found
@@ -171,11 +173,11 @@ func (user *User) FillUserById() error {
 
 func (user *User) FillUserByEmail() error {
 	if user.Email == "" {
-		return errors.New("email 为空！")
+		return errors.New("empty_email")
 	}
 	users, err := UserDB.Where("email = ?", user.Email).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
-		return errors.New("未找到用户")
+		return errors.New("user_not_found")
 	}
 	*user = *users[0]
 	return nil
@@ -183,11 +185,11 @@ func (user *User) FillUserByEmail() error {
 
 func (user *User) FillUserByGitHubId() error {
 	if user.GitHubId == "" {
-		return errors.New("GitHub id 为空！")
+		return errors.New("empty_github_id")
 	}
 	users, err := UserDB.Where("github_id = ?", user.GitHubId).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
-		return errors.New("未找到用户")
+		return errors.New("user_not_found")
 	}
 	*user = *users[0]
 	return nil
@@ -195,11 +197,11 @@ func (user *User) FillUserByGitHubId() error {
 
 func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
-		return errors.New("WeChat id 为空！")
+		return errors.New("empty_wechat_id")
 	}
 	users, err := UserDB.Where("wechat_id = ?", user.WeChatId).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
-		return errors.New("未找到用户")
+		return errors.New("user_not_found")
 	}
 	*user = *users[0]
 	return nil
@@ -207,11 +209,11 @@ func (user *User) FillUserByWeChatId() error {
 
 func (user *User) FillUserByUsername() error {
 	if user.Username == "" {
-		return errors.New("username 为空！")
+		return errors.New("empty_username")
 	}
 	users, err := UserDB.Where("username = ?", user.Username).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
-		return errors.New("未找到用户")
+		return errors.New("user_not_found")
 	}
 	*user = *users[0]
 	return nil
@@ -245,7 +247,7 @@ func IsUsernameAlreadyTaken(username string) bool {
 
 func ResetUserPasswordByEmail(email string, password string) error {
 	if email == "" || password == "" {
-		return errors.New("邮箱地址或密码为空！")
+		return errors.New("empty_email_or_password")
 	}
 	hashedPassword, err := common.Password2Hash(password)
 	if err != nil {
@@ -253,7 +255,7 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	}
 	users, err := UserDB.Where("email = ?", email).Fetch(0, 1)
 	if err != nil || len(users) == 0 {
-		return errors.New("未找到用户")
+		return errors.New("user_not_found")
 	}
 	user := users[0]
 	user.Password = hashedPassword
