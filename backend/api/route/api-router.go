@@ -107,6 +107,9 @@ func SetApiRouter(route *gin.Engine) {
 		marketRoute := apiRouter.Group("/mcp_market")
 		marketRoute.Use(middleware.JWTAuth())
 		{
+			marketRoute.GET("/search", handler.SearchMCPMarket)
+			marketRoute.GET("/discover_env_vars", handler.DiscoverEnvVars)
+			marketRoute.GET("/installed", handler.ListInstalledMCPServices)
 			marketRoute.GET("/search", handler.SearchMarketPackages)
 			marketRoute.GET("/package_details", handler.GetPackageDetails)
 			marketRoute.GET("/discover_env_vars", handler.DiscoverEnvVars)

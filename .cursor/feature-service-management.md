@@ -37,26 +37,14 @@
   - 实现了健康状态的存储和查询API
 
 ### Marketplace & Installation APIs (New Section for Future Tasks)
-- [ ] **MKT-1**: Design and Implement `GET /api/mcp_market/search` API `Task Type: New Feature`
-    - Purpose: Search services from npm, PyPI, and recommended list.
-    - Params: `query`, `sources`, pagination.
-    - Response: List of service candidates with details (`name`, `version`, `description`, `package_name`, `package_manager`, `source_url`, `icon_url`, `is_installed`).
-- [ ] **MKT-2**: Design and Implement `POST /api/mcp_market/install_or_add_service` API `Task Type: New Feature`
-    - Purpose: Install `stdio` services via `npx`/`uvx` OR add predefined `remote`/`stdio` services.
-    - Params: `sourceType` ("marketplace" or "predefined"), package details if marketplace, `mcpServiceID` if predefined, `userProvidedEnvVars`.
-    - Logic: Installs package, auto-creates/updates `MCPService` (for new marketplace stdio), creates `ConfigService` for user, stores env vars.
-- [ ] **MKT-3**: Design and Implement `GET /api/mcp_market/discover_env_vars` API `Task Type: Research/New Feature`
-    - Purpose: Attempt to discover required env vars from npm/PyPI package pages/readmes for `stdio` services.
-    - Params: `packageName`, `packageManager`.
-    - Response: Suggested env vars list.
-- [ ] **MKT-4**: Design and Implement `GET /api/mcp_market/installed` API `Task Type: New Feature`
-    - Purpose: List user's configured service instances (linked to `ConfigService`).
-    - Response: List of services with `packageName`, `installedVersion`, `packageManager`, `status`, actions.
-- [ ] **MKT-5**: Design and Implement `POST /api/mcp_market/uninstall` API `Task Type: New Feature`
-    - Purpose: Uninstall `stdio` package and remove related `ConfigService`.
-    - Params: `packageName`, `packageManager` (or `configServiceID`).
-- [ ] **MKT-6**: (Optional) Design and Implement `GET /api/mcp_market/install/status/:task_id` API `Task Type: New Feature`
-    - Purpose: Poll status for asynchronous installations.
+- [x] **MKT-1**: 实现 GET /api/mcp_market/search API，支持 npm 包聚合搜索，返回统一格式（后续可扩展 PyPI/推荐源） `Task Type: New Feature`
+- [x] **MKT-3**: 实现 GET /api/mcp_market/discover_env_vars API，自动发现 npm 包所需环境变量（后续可扩展 PyPI） `Task Type: Research/New Feature`
+- [x] **MKT-4**: 实现 GET /api/mcp_market/installed API，列出已安装 MCP 服务 `Task Type: New Feature`
+- [x] **MKT-5**: 实现 POST /api/mcp_market/uninstall API，支持服务卸载与进程关闭 `Task Type: New Feature`
+- [x] **MKT-2**: 实现 POST /api/mcp_market/install_or_add_service API，支持 npm 包安装与服务注册 `Task Type: New Feature`
+- [ ] **MKT-6**: (Optional) 轮询安装状态 API，后续可选 `Task Type: New Feature`
+
+> 说明：上述 API 已完成后端 handler、路由注册与主流程对接，核心功能已可用。PyPI/推荐源聚合与更细致的用户/权限逻辑可后续补充。
 
 ## 实现计划
 

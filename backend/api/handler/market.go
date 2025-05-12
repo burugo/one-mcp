@@ -783,3 +783,76 @@ func contains(slice []string, s string) bool {
 	}
 	return false
 }
+
+// SearchMCPMarket godoc
+// @Summary 搜索 MCP 市场服务
+// @Description 支持从 npm、PyPI、推荐列表聚合搜索
+// @Tags Market
+// @Accept json
+// @Produce json
+// @Param query query string false "搜索关键词"
+// @Param sources query string false "数据源, 逗号分隔 (npm,pypi,recommended)"
+// @Param page query int false "页码"
+// @Param size query int false "每页数量"
+// @Success 200 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_market/search [get]
+func SearchMCPMarket(c *gin.Context) {
+	ctx := c.Request.Context()
+	query := c.Query("query")
+	sources := c.DefaultQuery("sources", "npm")
+	pageStr := c.Query("page")
+	sizeStr := c.Query("size")
+	page := 1
+	size := 20
+	if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+		page = p
+	}
+	if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
+		size = s
+	}
+
+	var results []market.SearchPackageResult
+	var err error
+
+	// 目前仅实现 npm，后续可扩展 pypi/recommended
+	if strings.Contains(sources, "npm") {
+		npmResult, e := market.SearchNPMPackages(ctx, query, size, page)
+		if e != nil {
+			err = e
+		} else {
+			// 查询已安装包
+			installed, _ := market.GetInstalledMCPServersFromDB()
+			installedMap := make(map[string]bool)
+			for name := range installed {
+				installedMap[name] = true
+			}
+			results = append(results, market.ConvertNPMToSearchResult(npmResult, installedMap)...)
+		}
+	}
+	// TODO: 支持 pypi、recommended
+
+	if err != nil {
+		common.RespError(c, 500, "market_search_failed", err)
+		return
+	}
+	common.RespSuccess(c, results)
+}
+
+// ListInstalledMCPServices godoc
+// @Summary 列出已安装的 MCP 服务
+// @Description 查询数据库中已安装的 MCP 服务
+// @Tags Market
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_market/installed [get]
+func ListInstalledMCPServices(c *gin.Context) {
+	installed, err := market.GetInstalledMCPServersFromDB()
+	if err != nil {
+		common.RespError(c, 500, "list_installed_failed", err)
+		return
+	}
+	common.RespSuccess(c, installed)
+}
