@@ -110,10 +110,7 @@ func SetApiRouter(route *gin.Engine) {
 			marketRoute.GET("/search", handler.SearchMCPMarket)
 			marketRoute.GET("/discover_env_vars", handler.DiscoverEnvVars)
 			marketRoute.GET("/installed", handler.ListInstalledMCPServices)
-			marketRoute.GET("/search", handler.SearchMarketPackages)
 			marketRoute.GET("/package_details", handler.GetPackageDetails)
-			marketRoute.GET("/discover_env_vars", handler.DiscoverEnvVars)
-			marketRoute.GET("/installed", handler.GetInstalledServices)
 			marketRoute.GET("/installation_status", handler.GetInstallationStatus)
 
 			// Admin-only endpoints
