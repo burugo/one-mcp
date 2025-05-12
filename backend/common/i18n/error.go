@@ -2,7 +2,6 @@ package i18n
 
 import (
 	"errors"
-	mcperrors "one-mcp/backend/common/errors"
 )
 
 // I18nError 表示一个国际化错误
@@ -48,13 +47,13 @@ func Wrap(err error, code string, lang string, args ...interface{}) *I18nError {
 }
 
 // 便捷方法：创建通用错误
-func InternalServerError(lang string) *I18nError {
-	return New(mcperrors.ErrInternalServer, lang)
-}
+// func InternalServerError(lang string) *I18nError {
+// 	return New(mcperrors.ErrInternalServer, lang)
+// }
 
-func InvalidParamError(lang string, param string) *I18nError {
-	return New(mcperrors.ErrInvalidParam, lang, param)
-}
+// func InvalidParamError(lang string, param string) *I18nError {
+// 	return New(mcperrors.ErrInvalidParam, lang, param)
+// }
 
 // 是否为特定错误码
 func IsErrorCode(err error, code string) bool {
