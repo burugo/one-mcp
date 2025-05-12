@@ -36,5 +36,6 @@
   "client_type_required": "客户端类型为必填项",
   "client_template_not_found": "未找到指定客户端的配置模板",
   "template_parse_failed": "模板解析失败",
-  "template_render_failed": "模板渲染失败"
+  "template_render_failed": "模板渲染失败",
+  "get_template_failed": "获取模板失败"
 }

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/ioutil"
 	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/common/i18n"
@@ -319,7 +321,7 @@ func ToggleMCPService(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path int true "服务ID"
-// @Param client path string true "客户端类型，例如 'cherry_studio', 'cursor' 等"
+// @Param client path string true "客户端类型，例如 'cherry_studio', 'cursor_sse', 'cursor_streamable' 等"
 // @Security ApiKeyAuth
 // @Success 200 {object} common.APIResponse
 // @Failure 400 {object} common.APIResponse
@@ -350,11 +352,26 @@ func GetMCPServiceConfig(c *gin.Context) {
 		return
 	}
 
-	// 获取特定客户端的模板
-	templateDetail, err := service.GetClientTemplateDetail(clientType)
-	if err != nil {
-		common.RespError(c, http.StatusNotFound, i18n.Translate("client_template_not_found", lang), err)
-		return
+	var templateDetail *model.ClientTemplateDetail
+
+	// 首先尝试从服务的ClientConfigTemplates获取模板
+	if service.ClientConfigTemplates != "" {
+		// 尝试从服务模型获取模板
+		templateDetail, err = service.GetClientTemplateDetail(clientType)
+		if err != nil && err.Error() != "mcp_service_template_not_found" {
+			common.RespError(c, http.StatusInternalServerError, i18n.Translate("get_template_failed", lang), err)
+			return
+		}
+	}
+
+	// 如果服务模型中没有找到模板，尝试从配置文件加载
+	if templateDetail == nil {
+		// 从配置文件加载客户端模板
+		templateDetail, err = loadClientTemplateFromConfig(clientType)
+		if err != nil {
+			common.RespError(c, http.StatusNotFound, i18n.Translate("client_template_not_found", lang), err)
+			return
+		}
 	}
 
 	// 构建响应数据
@@ -387,6 +404,7 @@ func GetMCPServiceConfig(c *gin.Context) {
 		"InstanceId":             instanceID,
 		"BaseUrl":                baseURL,
 		"ClientExpectedProtocol": templateDetail.ClientExpectedProtocol,
+		"OurProxyProtocol":       templateDetail.OurProxyProtocolForThisClient,
 	}
 
 	// 渲染模板
@@ -400,6 +418,30 @@ func GetMCPServiceConfig(c *gin.Context) {
 	response["rendered_config"] = renderedConfig.String()
 
 	common.RespSuccess(c, response)
+}
+
+// 从配置文件加载客户端模板
+func loadClientTemplateFromConfig(clientType string) (*model.ClientTemplateDetail, error) {
+	// 读取配置文件
+	configPath := "config/client_templates.json"
+	data, err := ioutil.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read client templates config: %w", err)
+	}
+
+	// 解析配置
+	var templates map[string]model.ClientTemplateDetail
+	if err := json.Unmarshal(data, &templates); err != nil {
+		return nil, fmt.Errorf("failed to parse client templates config: %w", err)
+	}
+
+	// 获取特定客户端类型的模板
+	template, exists := templates[clientType]
+	if !exists {
+		return nil, fmt.Errorf("template for client type '%s' not found in config", clientType)
+	}
+
+	return &template, nil
 }
 
 // 辅助函数：验证服务类型

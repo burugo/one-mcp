@@ -36,5 +36,6 @@
   "client_type_required": "Client type is required",
   "client_template_not_found": "Config template for specified client not found",
   "template_parse_failed": "Template parsing failed",
-  "template_render_failed": "Template rendering failed"
+  "template_render_failed": "Template rendering failed",
+  "get_template_failed": "Failed to get template"
 }
