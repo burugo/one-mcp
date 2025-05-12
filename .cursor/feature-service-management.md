@@ -121,6 +121,10 @@ type MCPService struct {
 
 - [ ] 性能优化与资源回收机制 `Task Type: Refactoring (Functional)`
 - [ ] 支持多种类型的 MCP 客户端（如 SSE/HTTP） `Task Type: New Feature`
+- [ ] 支持 PyPI 包市场聚合搜索与安装 `Task Type: New Feature`
+- [ ] 支持推荐/内置服务列表聚合与展示 `Task Type: New Feature`
+- [ ] 支持用户关联的服务列表与管理（如"我的服务"） `Task Type: New Feature`
+- [ ] 补充单元测试与集成测试，覆盖新功能与边界情况 `Task Type: New Feature`
 
 ## Implementation Plan
 

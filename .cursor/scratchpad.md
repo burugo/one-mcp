@@ -108,12 +108,15 @@ The system needs to support:
         - Sub-tasks: UI Mockups, Frontend Component Development, Backend APIs for search & installation, Frontend-Backend Integration, State Management, Testing.
         - Success Criteria: Users can search for MCP servers from npm & PyPI, view details, and trigger installation via `npx`/`uvx` through a user-friendly interface.
 
+### 8. UI Implementation for MCP Installer (Next Major Task)
+    - **8.1**: See `.cursor/feature-mcp-installer-ui.md` for detailed UI implementation plan and tasks. `Task Type: New Feature`
+
 ## Project Status Board
 
-Active Task File: feature-service-management.md
+Active Task File: feature-mcp-installer-ui.md
 
 - feature-service-management.md: 已完成全局 MCP 客户端管理器相关任务，主流程和单元测试全部通过。
-- feature-mcp-installer-ui.md: 暂未变动
+- feature-mcp-installer-ui.md: UI 实现为下一个活跃任务。
 
 # Executor's Feedback or Assistance Requests
 
