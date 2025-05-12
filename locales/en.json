@@ -29,5 +29,8 @@
   "toggle_service_status_failed": "Failed to toggle service status",
   "enabled": "Enabled",
   "disabled": "Disabled",
-  "service_toggle_success": "Service successfully "
+  "service_toggle_success": "Service successfully ",
+  "invalid_env_vars_json": "Invalid environment variables format",
+  "source_package_name_required": "Source package name is required",
+  "invalid_request_data": "Invalid request data"
 }

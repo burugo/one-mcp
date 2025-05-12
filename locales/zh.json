@@ -29,5 +29,8 @@
   "toggle_service_status_failed": "切换服务状态失败",
   "enabled": "启用",
   "disabled": "禁用",
-  "service_toggle_success": "服务已成功"
+  "service_toggle_success": "服务已成功",
+  "invalid_env_vars_json": "环境变量格式无效",
+  "source_package_name_required": "源包名称为必填项",
+  "invalid_request_data": "请求数据无效"
 }

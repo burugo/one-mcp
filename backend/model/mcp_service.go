@@ -25,6 +25,7 @@ const (
 	ServiceTypeStdio          ServiceType = "stdio"
 	ServiceTypeSSE            ServiceType = "sse"
 	ServiceTypeStreamableHTTP ServiceType = "streamable_http"
+	ServiceTypeRemote         ServiceType = "remote"
 )
 
 // ClientTemplateDetail contains template info for a specific client type
@@ -32,6 +33,15 @@ type ClientTemplateDetail struct {
 	TemplateString                string `json:"template_string"`
 	ClientExpectedProtocol        string `json:"client_expected_protocol"`
 	OurProxyProtocolForThisClient string `json:"our_proxy_protocol_for_this_client"`
+}
+
+// EnvVarDefinition defines a required environment variable
+type EnvVarDefinition struct {
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	IsSecret     bool   `json:"is_secret"`
+	Optional     bool   `json:"optional"`
+	DefaultValue string `json:"default_value"`
 }
 
 // MCPService represents an MCP service that can be enabled or configured
@@ -46,12 +56,16 @@ type MCPService struct {
 	AdminOnly                bool            `db:"admin_only"`
 	OrderNum                 int             `db:"order_num"`
 	Enabled                  bool            `db:"enabled"`
-	Type                     ServiceType     `db:"type"`                        // New: Underlying type (stdio, sse, streamable_http)
-	AdminConfigSchema        string          `db:"admin_config_schema"`         // New: JSON schema for admin configuration
-	DefaultAdminConfigValues string          `db:"default_admin_config_values"` // New: Default values for admin configuration
-	UserConfigSchema         string          `db:"user_config_schema"`          // New: JSON schema for user configuration
-	AllowUserOverride        bool            `db:"allow_user_override"`         // New: Whether users can override admin settings
-	ClientConfigTemplates    string          `db:"client_config_templates"`     // New: JSON map of client_type to template details
+	Type                     ServiceType     `db:"type"`                        // Underlying type (stdio, sse, streamable_http, remote)
+	AdminConfigSchema        string          `db:"admin_config_schema"`         // JSON schema for admin configuration
+	DefaultAdminConfigValues string          `db:"default_admin_config_values"` // Default values for admin configuration
+	UserConfigSchema         string          `db:"user_config_schema"`          // JSON schema for user configuration
+	AllowUserOverride        bool            `db:"allow_user_override"`         // Whether users can override admin settings
+	ClientConfigTemplates    string          `db:"client_config_templates"`     // JSON map of client_type to template details
+	RequiredEnvVarsJSON      string          `db:"required_env_vars_json"`      // JSON array of environment variables required by the service
+	PackageManager           string          `db:"package_manager"`             // For marketplace services: npm, pypi
+	SourcePackageName        string          `db:"source_package_name"`         // For marketplace services: package name in the repository
+	InstalledVersion         string          `db:"installed_version"`           // For marketplace services: currently installed version
 }
 
 // TableName sets the table name for the MCPService model
@@ -98,6 +112,35 @@ func (s *MCPService) GetClientTemplateDetail(clientType string) (*ClientTemplate
 	return &detail, nil
 }
 
+// SetRequiredEnvVars sets the RequiredEnvVarsJSON field from a slice of EnvVarDefinition
+func (s *MCPService) SetRequiredEnvVars(envVars []EnvVarDefinition) error {
+	if len(envVars) == 0 {
+		s.RequiredEnvVarsJSON = ""
+		return nil
+	}
+
+	data, err := json.Marshal(envVars)
+	if err != nil {
+		return err
+	}
+	s.RequiredEnvVarsJSON = string(data)
+	return nil
+}
+
+// GetRequiredEnvVars returns the RequiredEnvVarsJSON as a slice of EnvVarDefinition
+func (s *MCPService) GetRequiredEnvVars() ([]EnvVarDefinition, error) {
+	if s.RequiredEnvVarsJSON == "" {
+		return []EnvVarDefinition{}, nil
+	}
+
+	var envVars []EnvVarDefinition
+	err := json.Unmarshal([]byte(s.RequiredEnvVarsJSON), &envVars)
+	if err != nil {
+		return nil, err
+	}
+	return envVars, nil
+}
+
 var MCPServiceDB *thing.Thing[*MCPService]
 
 // MCPServiceInit initializes the MCPServiceDB
@@ -122,7 +165,14 @@ func GetEnabledServices() ([]*MCPService, error) {
 
 // GetServiceByID retrieves a specific service by ID
 func GetServiceByID(id int64) (*MCPService, error) {
-	return MCPServiceDB.ByID(id)
+	service, err := MCPServiceDB.ByID(id)
+	if err != nil {
+		if err.Error() == "record not found" {
+			return nil, errors.New("service_not_found")
+		}
+		return nil, err
+	}
+	return service, nil
 }
 
 // GetServiceByName retrieves a specific service by name
@@ -132,7 +182,7 @@ func GetServiceByName(name string) (*MCPService, error) {
 		return nil, err
 	}
 	if len(services) == 0 {
-		return nil, errors.New("mcp_service_not_found")
+		return nil, errors.New("service_not_found")
 	}
 	return services[0], nil
 }
@@ -149,7 +199,7 @@ func UpdateService(service *MCPService) error {
 
 // DeleteService deletes an MCP service
 func DeleteService(id int64) error {
-	service, err := MCPServiceDB.ByID(id)
+	service, err := GetServiceByID(id)
 	if err != nil {
 		return err
 	}
@@ -158,7 +208,7 @@ func DeleteService(id int64) error {
 
 // ToggleServiceEnabled toggles the enabled status of a service
 func ToggleServiceEnabled(id int64) error {
-	service, err := MCPServiceDB.ByID(id)
+	service, err := GetServiceByID(id)
 	if err != nil {
 		return err
 	}
@@ -191,4 +241,9 @@ func GetServicesWithConfig() ([]map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// GetServicesByPackageDetails retrieves services by package details
+func GetServicesByPackageDetails(packageManager, packageName string) ([]*MCPService, error) {
+	return MCPServiceDB.Where("package_manager = ? AND source_package_name = ?", packageManager, packageName).All()
 }
