@@ -32,5 +32,9 @@
   "service_toggle_success": "Service successfully ",
   "invalid_env_vars_json": "Invalid environment variables format",
   "source_package_name_required": "Source package name is required",
-  "invalid_request_data": "Invalid request data"
+  "invalid_request_data": "Invalid request data",
+  "client_type_required": "Client type is required",
+  "client_template_not_found": "Config template for specified client not found",
+  "template_parse_failed": "Template parsing failed",
+  "template_render_failed": "Template rendering failed"
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"one-mcp/backend/common/i18n"
 	"one-mcp/backend/model"
 	"strconv"
+	"text/template"
 
 	"github.com/gin-gonic/gin"
 )
@@ -308,6 +310,96 @@ func ToggleMCPService(c *gin.Context) {
 	}
 
 	common.RespSuccessStr(c, i18n.Translate("service_toggle_success", lang)+status)
+}
+
+// GetMCPServiceConfig godoc
+// @Summary 获取特定客户端的MCP服务配置模板
+// @Description 根据服务ID和客户端类型，返回适用于该客户端的服务配置模板
+// @Tags MCP Services
+// @Accept json
+// @Produce json
+// @Param id path int true "服务ID"
+// @Param client path string true "客户端类型，例如 'cherry_studio', 'cursor' 等"
+// @Security ApiKeyAuth
+// @Success 200 {object} common.APIResponse
+// @Failure 400 {object} common.APIResponse
+// @Failure 404 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_services/{id}/config/{client} [get]
+func GetMCPServiceConfig(c *gin.Context) {
+	lang := c.GetString("lang")
+	idStr := c.Param("id")
+	clientType := c.Param("client")
+
+	// 检查参数有效性
+	if clientType == "" {
+		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("client_type_required", lang))
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_service_id", lang), err)
+		return
+	}
+
+	// 获取服务信息
+	service, err := model.GetServiceByID(id)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
+		return
+	}
+
+	// 获取特定客户端的模板
+	templateDetail, err := service.GetClientTemplateDetail(clientType)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("client_template_not_found", lang), err)
+		return
+	}
+
+	// 构建响应数据
+	response := map[string]interface{}{
+		"service_id":               service.ID,
+		"service_name":             service.Name,
+		"client_type":              clientType,
+		"template_string":          templateDetail.TemplateString,
+		"client_expected_protocol": templateDetail.ClientExpectedProtocol,
+		"our_proxy_protocol":       templateDetail.OurProxyProtocolForThisClient,
+	}
+
+	// 示例实例ID（用于演示）
+	instanceID := "instance_" + strconv.FormatInt(service.ID, 10)
+
+	// 示例基础URL（实际应从配置或请求中获取）
+	baseURL := "https://router.mcp.so"
+
+	// 处理模板
+	tmpl, err := template.New("config").Parse(templateDetail.TemplateString)
+	if err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("template_parse_failed", lang), err)
+		return
+	}
+
+	// 准备模板数据
+	templateData := map[string]interface{}{
+		"Name":                   service.Name,
+		"ID":                     service.ID,
+		"InstanceId":             instanceID,
+		"BaseUrl":                baseURL,
+		"ClientExpectedProtocol": templateDetail.ClientExpectedProtocol,
+	}
+
+	// 渲染模板
+	var renderedConfig bytes.Buffer
+	if err := tmpl.Execute(&renderedConfig, templateData); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("template_render_failed", lang), err)
+		return
+	}
+
+	// 将渲染后的配置添加到响应中
+	response["rendered_config"] = renderedConfig.String()
+
+	common.RespSuccess(c, response)
 }
 
 // 辅助函数：验证服务类型

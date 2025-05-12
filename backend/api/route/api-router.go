@@ -87,6 +87,7 @@ func SetApiRouter(route *gin.Engine) {
 			{
 				mcpServiceRoute.GET("/", handler.GetAllMCPServices)
 				mcpServiceRoute.GET("/:id", handler.GetMCPService)
+				mcpServiceRoute.GET("/:id/config/:client", handler.GetMCPServiceConfig)
 			}
 
 			// Admin-only endpoints (write operations)
