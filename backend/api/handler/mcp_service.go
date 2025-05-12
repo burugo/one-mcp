@@ -314,8 +314,7 @@ func ToggleMCPService(c *gin.Context) {
 func isValidServiceType(sType model.ServiceType) bool {
 	return sType == model.ServiceTypeStdio ||
 		sType == model.ServiceTypeSSE ||
-		sType == model.ServiceTypeStreamableHTTP ||
-		sType == model.ServiceTypeRemote
+		sType == model.ServiceTypeStreamableHTTP
 }
 
 // 辅助函数：验证RequiredEnvVarsJSON格式

@@ -25,7 +25,6 @@ const (
 	ServiceTypeStdio          ServiceType = "stdio"
 	ServiceTypeSSE            ServiceType = "sse"
 	ServiceTypeStreamableHTTP ServiceType = "streamable_http"
-	ServiceTypeRemote         ServiceType = "remote"
 )
 
 // ClientTemplateDetail contains template info for a specific client type
@@ -56,7 +55,7 @@ type MCPService struct {
 	AdminOnly                bool            `db:"admin_only"`
 	OrderNum                 int             `db:"order_num"`
 	Enabled                  bool            `db:"enabled"`
-	Type                     ServiceType     `db:"type"`                        // Underlying type (stdio, sse, streamable_http, remote)
+	Type                     ServiceType     `db:"type"`                        // Underlying type (stdio, sse, streamable_http)
 	AdminConfigSchema        string          `db:"admin_config_schema"`         // JSON schema for admin configuration
 	DefaultAdminConfigValues string          `db:"default_admin_config_values"` // Default values for admin configuration
 	UserConfigSchema         string          `db:"user_config_schema"`          // JSON schema for user configuration
