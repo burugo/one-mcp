@@ -88,6 +88,8 @@ func SetApiRouter(route *gin.Engine) {
 				mcpServiceRoute.GET("/", handler.GetAllMCPServices)
 				mcpServiceRoute.GET("/:id", handler.GetMCPService)
 				mcpServiceRoute.GET("/:id/config/:client", handler.GetMCPServiceConfig)
+				mcpServiceRoute.GET("/:id/health", handler.GetMCPServiceHealth)
+				mcpServiceRoute.POST("/:id/health/check", handler.CheckMCPServiceHealth)
 			}
 
 			// Admin-only endpoints (write operations)
@@ -98,6 +100,25 @@ func SetApiRouter(route *gin.Engine) {
 				adminMCPServiceRoute.PUT("/:id", handler.UpdateMCPService)
 				adminMCPServiceRoute.DELETE("/:id", handler.DeleteMCPService)
 				adminMCPServiceRoute.POST("/:id/toggle", handler.ToggleMCPService)
+			}
+		}
+
+		// Market API routes
+		marketRoute := apiRouter.Group("/mcp_market")
+		marketRoute.Use(middleware.JWTAuth())
+		{
+			marketRoute.GET("/search", handler.SearchMarketPackages)
+			marketRoute.GET("/package_details", handler.GetPackageDetails)
+			marketRoute.GET("/discover_env_vars", handler.DiscoverEnvVars)
+			marketRoute.GET("/installed", handler.GetInstalledServices)
+			marketRoute.GET("/installation_status", handler.GetInstallationStatus)
+
+			// Admin-only endpoints
+			adminMarketRoute := marketRoute.Group("/")
+			adminMarketRoute.Use(middleware.AdminAuth())
+			{
+				adminMarketRoute.POST("/install_or_add_service", handler.InstallOrAddService)
+				adminMarketRoute.POST("/uninstall", handler.UninstallService)
 			}
 		}
 

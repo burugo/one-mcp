@@ -37,5 +37,8 @@
   "client_template_not_found": "Config template for specified client not found",
   "template_parse_failed": "Template parsing failed",
   "template_render_failed": "Template rendering failed",
-  "get_template_failed": "Failed to get template"
+  "get_template_failed": "Failed to get template",
+  "register_service_failed": "Failed to register service",
+  "check_service_health_failed": "Failed to check service health",
+  "update_service_health_failed": "Failed to update service health status"
 }

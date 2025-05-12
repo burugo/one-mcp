@@ -2,21 +2,21 @@
     "cherry_studio": {
         "template_string": "{\"{{.Name}}-mcp\":{\"name\":\"{{.Name}}-mcp\",\"type\":\"{{.ClientExpectedProtocol}}\",\"isActive\":true,\"baseUrl\":\"{{.BaseUrl}}/mcp/{{.InstanceId}}\"}}",
         "client_expected_protocol": "streamableHttp",
-        "our_proxy_protocol_for_this_client": "streamable_http"
+        "display_name": "Cherry Studio"
     },
     "cursor_streamable": {
         "template_string": "{\"id\":\"{{.Name}}\",\"protocol\":\"{{.ClientExpectedProtocol}}\",\"endpoint\":\"{{.BaseUrl}}/mcp/{{.InstanceId}}\",\"enabled\":true}",
         "client_expected_protocol": "streamable_http",
-        "our_proxy_protocol_for_this_client": "streamable_http"
+        "display_name": "Cursor (Streamable)"
     },
     "cursor_sse": {
         "template_string": "{\"{{.Name}}\":{\"name\":\"{{.Name}}\",\"url\":\"{{.BaseUrl}}/sse/{{.InstanceId}}\"}}",
         "client_expected_protocol": "sse",
-        "our_proxy_protocol_for_this_client": "sse"
+        "display_name": "Cursor"
     },
     "cline": {
         "template_string": "{\"name\":\"{{.Name}}\",\"type\":\"{{.ClientExpectedProtocol}}\",\"endpoint\":\"{{.BaseUrl}}/{{.OurProxyProtocol}}/{{.InstanceId}}\"}",
         "client_expected_protocol": "sse",
-        "our_proxy_protocol_for_this_client": "sse"
+        "display_name": "C-Line"
     }
 }

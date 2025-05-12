@@ -6,6 +6,18 @@
 
 - [x] 3.1: 定义MCPService模型
 - [x] 3.2: 将MCPService添加到AutoMigrate
+- [x] 3.3: 实现MCPService模型的CRUD方法和API处理器
+    - **Note**: CRUD操作需支持新的 `RequiredEnvVarsJSON`, `PackageManager`, `SourcePackageName`, `InstalledVersion` 字段。
+    - GET API需返回这些新字段（尤其是 `RequiredEnvVarsJSON`）。
+    - POST/PUT API需允许管理员定义/编辑 `RequiredEnvVarsJSON`。
+- [x] 3.4: 实现toggle端点
+    - **Note**: 已实现在 `ToggleMCPService` 处理器中，切换服务的启用/禁用状态。
+    - 注册为 `POST /api/mcp_services/:id/toggle` 路由，仅管理员可访问。
+    - 使用 `model.ToggleServiceEnabled(id)` 实现状态切换。
+- [x] 3.5: 实现配置复制存根端点
+    - **Note**: 已实现在 `GetMCPServiceConfig` 处理器中，获取特定客户端的服务配置模板。
+    - 注册为 `GET /api/mcp_services/:id/config/:client` 路由，所有已认证用户可访问。
+    - 能够基于模板和动态数据生成客户端特定的配置。
 
 ## 进行中的任务
 
@@ -13,15 +25,16 @@
 
 ## 未来任务
 
-- [ ] 3.3: 实现MCPService模型的CRUD方法和API处理器
-    - **Note**: CRUD操作需支持新的 `RequiredEnvVarsJSON`, `PackageManager`, `SourcePackageName`, `InstalledVersion` 字段。
-    - GET API需返回这些新字段（尤其是 `RequiredEnvVarsJSON`）。
-    - POST/PUT API需允许管理员定义/编辑 `RequiredEnvVarsJSON`。
-- [ ] 3.4: 实现toggle端点
-- [ ] 3.5: 实现配置复制存根端点
-- [ ] 5.1: 在`library/proxy/`中定义基本服务结构
-- [ ] 5.2: 实现基本健康检查逻辑(占位符)
-- [ ] 5.3: 存储/更新健康状态(占位符，例如MCPService中的新字段)
+- [x] 5.1: 在`library/proxy/`中定义基本服务结构
+  - 已创建`service.go`定义服务接口和基本实现
+  - 已创建`health_checker.go`实现健康检查管理器
+  - 已创建`manager.go`实现服务管理器
+- [x] 5.2: 实现基本健康检查逻辑
+  - 实现了周期性健康检查
+  - 添加了健康状态更新和查询接口
+- [x] 5.3: 存储/更新健康状态
+  - 为MCPService模型添加了`HealthStatus`, `LastHealthCheck`, `HealthDetails`字段
+  - 实现了健康状态的存储和查询API
 
 ### Marketplace & Installation APIs (New Section for Future Tasks)
 - [ ] **MKT-1**: Design and Implement `GET /api/mcp_market/search` API `Task Type: New Feature`
@@ -65,6 +78,9 @@ type MCPService struct {
     InstalledVersion     string    `db:"installed_version" json:"installed_version,omitempty"` // Version installed from marketplace
     CreatedAt            time.Time `db:"created_at" json:"created_at"`
     UpdatedAt            time.Time `db:"updated_at" json:"updated_at"`
+    HealthStatus         string    `db:"health_status" json:"health_status,omitempty"`
+    LastHealthCheck      time.Time `db:"last_health_check" json:"last_health_check,omitempty"`
+    HealthDetails        string    `db:"health_details" json:"health_details,omitempty"`
 }
 ```
 
@@ -72,12 +88,12 @@ type MCPService struct {
 
 ### API处理器实现计划
 
-将为MCPService模型实现以下API处理器:
+已实现对MCPService模型的以下API处理器:
 
 1. GET `/api/services` - 获取所有服务(所有已认证用户可访问)
 2. GET `/api/services/:id` - 获取单个服务(所有已认证用户可访问)
-3. POST `/api/services` - 创建新服务(仅管理员可访问)
-4. PUT `/api/services/:id` - 更新服务(仅管理员可访问)
+3. POST `/api/services` - 创建新服务(仅管理员可访问)，支持定义环境变量和包管理器信息
+4. PUT `/api/services/:id` - 更新服务(仅管理员可访问)，支持修改环境变量定义和包管理器信息
 5. DELETE `/api/services/:id` - 删除服务(仅管理员可访问)
 6. PUT `/api/services/:id/toggle` - 切换服务状态(仅管理员可访问)
 7. GET `/api/services/:id/config/:client` - 复制服务配置(所有已认证用户可访问)
@@ -92,6 +108,44 @@ type MCPService struct {
 
 ## 相关文件
 
-- `backend/model/mcpservice.go` - MCPService模型定义
-- `backend/api/handler/service.go` (待实现) - 服务API处理器
-- `backend/infrastructure/proxy/` (待实现) - 服务核心功能 
+- `backend/model/mcp_service.go` - MCPService模型定义，已完善支持环境变量和包管理器信息
+- `backend/api/handler/mcp_service.go` - 服务API处理器，已实现
+- `backend/infrastructure/proxy/` (待实现) - 服务核心功能
+
+# MCP 服务管理与全局客户端管理器
+
+本文件跟踪 MCP 服务的安装、管理与全局客户端管理器的相关任务。
+
+## Completed Tasks
+
+- [x] 设计并实现全局 MCP 客户端管理器，支持服务注册、查询、卸载与进程管理 `Task Type: New Feature`
+- [x] 修改 ListMCPServerTools、InstallNPMPackage、UninstallNPMPackage 等方法以集成全局管理器 `Task Type: Refactoring (Structural)`
+- [x] 在 main.go 启动时自动加载数据库中已安装的 MCP 服务并注册到全局管理器 `Task Type: New Feature`
+- [x] 实现服务卸载时自动移除并关闭对应 MCP 客户端进程 `Task Type: Bug Fix`
+- [x] 为全局管理器添加单元测试，覆盖初始化、错误处理、移除等核心逻辑 `Task Type: New Feature`
+- [x] 修复 RemoveClient 对 nil client 的 panic 问题 `Task Type: Bug Fix`
+
+## In Progress Tasks
+
+- [ ] 集成测试：mock 或真实 MCP server 端到端验证（后续可选） `Task Type: New Feature`
+
+## Future Tasks
+
+- [ ] 性能优化与资源回收机制 `Task Type: Refactoring (Functional)`
+- [ ] 支持多种类型的 MCP 客户端（如 SSE/HTTP） `Task Type: New Feature`
+
+## Implementation Plan
+
+本阶段已完成：
+- 统一管理所有 MCP 客户端实例，避免重复进程与资源泄漏。
+- 支持服务的注册、查询、卸载与进程优雅关闭。
+- 通过依赖注入与 Mock，提升了单元测试的可测性。
+- 关键接口与主流程已通过测试验证。
+
+### Relevant Files
+
+- backend/library/market/client_manager.go - 全局 MCP 客户端管理器实现 ✅
+- backend/library/market/npm.go - 相关方法集成全局管理器 ✅
+- backend/library/market/installation.go - 服务状态更新与健康检查 ✅
+- main.go - 启动与优雅关闭集成 ✅
+- backend/library/market/client_manager_test.go - 单元测试 ✅ 

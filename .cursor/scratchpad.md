@@ -110,35 +110,20 @@ The system needs to support:
 
 ## Project Status Board
 
-- **Active Task File**: `.cursor/feature-service-management.md`
-- **Additional Task Files**:
-    - `.cursor/feature-mcp-setup-management.md` (Status: On Hold - awaiting service management completion)
-    - `.cursor/feature-mcp-installer-ui.md` (Status: Planned - conceptual design complete)
-- **Current Focus**: Implementation of core MCPService management APIs as per `.cursor/feature-service-management.md`.
+Active Task File: feature-service-management.md
 
-## Executor's Feedback or Assistance Requests
+- feature-service-management.md: 已完成全局 MCP 客户端管理器相关任务，主流程和单元测试全部通过。
+- feature-mcp-installer-ui.md: 暂未变动
 
-已完成以下结构性清理工作：
-- 删除了 backend/common/errors/code.go 文件（所有旧错误码常量）。
-- 从 locales/zh.json 和 locales/en.json 中移除了所有 ERR_ 开头、与 code.go 对应的 i18n key。
-- 运行全部测试，未发现失败。
-- 已完成 git commit。
+# Executor's Feedback or Assistance Requests
 
-本次为纯结构性清理，未影响任何业务逻辑。建议用户/Planner 验证无遗漏后再继续后续工作。
+本阶段已完成：
+- 全局 MCP 客户端管理器的架构与实现，支持服务注册、查询、卸载、进程管理。
+- 相关主流程代码全部通过编译与单元测试。
+- 关键接口已通过 Mock 测试覆盖。
+- 结构性重构与 bug 修复均已完成。
 
-已完成所有核心模型的定义与重构：
-1. 使用Thing ORM（非GORM）完成了`MCPService`模型的重构，添加了`Type`字段以区分不同类型的底层服务（stdio、sse、streamable_http），以及`ClientConfigTemplates`等关键字段。
-2. 完成了`ConfigService`模型重构，添加了完整的索引、关系和查询接口。
-3. 完成了`UserConfig`模型重构，适配了新的ORM系统。
-4. 更新了`InitDB`函数，支持所有模型的自动迁移。
-
-所有模型已适配项目用的自定义ORM系统（thing orm），包括：
-- 更改了字段标签从`gorm`到`db`
-- 使用`thing.BaseModel`代替原有的ID和时间字段
-- 重构了所有数据库访问方法，使用新ORM的API风格
-- 添加了处理新的`ClientConfigTemplates`JSON结构的辅助方法
-
-现在准备进入下一阶段实现Admin MCPService的CRUD API。建议优先开发新增和查询API，然后是更新和删除功能。
+如需集成测试或新功能开发，可在下一阶段继续。
 
 ## Lessons
 
@@ -153,6 +138,10 @@ The system needs to support:
     3. 目前项目未统一采用ToJSON，部分历史代码/习惯直接用encoding/json。
     4. 若后续需支持灵活字段导出、虚拟字段、嵌套关系等，建议优先用thing.ToJSON+WithFields DSL。
 *   thing ORM的ToJSON支持WithFields("field1,nested{subfield},-excluded")等灵活字段控制，适合API导出、前端定制等场景。
+*   MCP服务类型说明：
+    1. `ServiceTypeStdio` - 本地执行的服务，通过stdin/stdout与服务通信，通常通过包管理器（npm、pypi等）安装
+    2. `ServiceTypeSSE` 和 `ServiceTypeStreamableHTTP` - 均为远程服务类型，通过网络请求调用，不需要本地安装。前者使用SSE协议传输数据，后者使用支持流式传输的HTTP协议。
+    3. 由于SSE和StreamableHTTP本身即为远端服务类型，无需单独的`ServiceTypeRemote`类型。
 
 ## User Specified Lessons
 

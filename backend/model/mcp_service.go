@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/burugo/thing"
 )
@@ -29,9 +30,9 @@ const (
 
 // ClientTemplateDetail contains template info for a specific client type
 type ClientTemplateDetail struct {
-	TemplateString                string `json:"template_string"`
-	ClientExpectedProtocol        string `json:"client_expected_protocol"`
-	OurProxyProtocolForThisClient string `json:"our_proxy_protocol_for_this_client"`
+	TemplateString         string `json:"template_string"`
+	ClientExpectedProtocol string `json:"client_expected_protocol"`
+	DisplayName            string `json:"display_name"`
 }
 
 // EnvVarDefinition defines a required environment variable
@@ -65,6 +66,9 @@ type MCPService struct {
 	PackageManager           string          `db:"package_manager"`             // For marketplace services: npm, pypi
 	SourcePackageName        string          `db:"source_package_name"`         // For marketplace services: package name in the repository
 	InstalledVersion         string          `db:"installed_version"`           // For marketplace services: currently installed version
+	HealthStatus             string          `db:"health_status"`               // 健康状态: unknown, healthy, unhealthy, starting, stopped
+	LastHealthCheck          time.Time       `db:"last_health_check"`           // 最后健康检查时间
+	HealthDetails            string          `db:"health_details"`              // 健康详情的JSON字符串
 }
 
 // TableName sets the table name for the MCPService model

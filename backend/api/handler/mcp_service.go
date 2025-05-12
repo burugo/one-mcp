@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/common/i18n"
+	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
+	"os"
 	"strconv"
 	"text/template"
 
@@ -381,7 +382,8 @@ func GetMCPServiceConfig(c *gin.Context) {
 		"client_type":              clientType,
 		"template_string":          templateDetail.TemplateString,
 		"client_expected_protocol": templateDetail.ClientExpectedProtocol,
-		"our_proxy_protocol":       templateDetail.OurProxyProtocolForThisClient,
+		"our_proxy_protocol":       templateDetail.ClientExpectedProtocol,
+		"display_name":             templateDetail.DisplayName,
 	}
 
 	// 示例实例ID（用于演示）
@@ -404,7 +406,7 @@ func GetMCPServiceConfig(c *gin.Context) {
 		"InstanceId":             instanceID,
 		"BaseUrl":                baseURL,
 		"ClientExpectedProtocol": templateDetail.ClientExpectedProtocol,
-		"OurProxyProtocol":       templateDetail.OurProxyProtocolForThisClient,
+		"OurProxyProtocol":       templateDetail.ClientExpectedProtocol,
 	}
 
 	// 渲染模板
@@ -424,7 +426,7 @@ func GetMCPServiceConfig(c *gin.Context) {
 func loadClientTemplateFromConfig(clientType string) (*model.ClientTemplateDetail, error) {
 	// 读取配置文件
 	configPath := "config/client_templates.json"
-	data, err := ioutil.ReadFile(configPath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read client templates config: %w", err)
 	}
@@ -470,4 +472,121 @@ func validateRequiredEnvVarsJSON(envVarsJSON string) error {
 	}
 
 	return nil
+}
+
+// GetMCPServiceHealth godoc
+// @Summary 获取MCP服务的健康状态
+// @Description 获取指定MCP服务的健康状态信息
+// @Tags MCP Services
+// @Accept json
+// @Produce json
+// @Param id path int true "服务ID"
+// @Security ApiKeyAuth
+// @Success 200 {object} common.APIResponse
+// @Failure 400 {object} common.APIResponse
+// @Failure 404 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_services/{id}/health [get]
+func GetMCPServiceHealth(c *gin.Context) {
+	lang := c.GetString("lang")
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_service_id", lang), err)
+		return
+	}
+
+	// 获取服务信息
+	service, err := model.GetServiceByID(id)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
+		return
+	}
+
+	// 准备健康状态响应
+	healthData := map[string]interface{}{
+		"service_id":     service.ID,
+		"service_name":   service.Name,
+		"health_status":  service.HealthStatus,
+		"last_checked":   service.LastHealthCheck,
+		"health_details": nil,
+	}
+
+	// 如果有健康详情，解析并添加到响应中
+	if service.HealthDetails != "" {
+		var healthDetails map[string]interface{}
+		if err := json.Unmarshal([]byte(service.HealthDetails), &healthDetails); err == nil {
+			healthData["health_details"] = healthDetails
+		}
+	}
+
+	common.RespSuccess(c, healthData)
+}
+
+// CheckMCPServiceHealth godoc
+// @Summary 检查MCP服务的健康状态
+// @Description 强制检查指定MCP服务的健康状态，并返回最新结果
+// @Tags MCP Services
+// @Accept json
+// @Produce json
+// @Param id path int true "服务ID"
+// @Security ApiKeyAuth
+// @Success 200 {object} common.APIResponse
+// @Failure 400 {object} common.APIResponse
+// @Failure 404 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_services/{id}/health/check [post]
+func CheckMCPServiceHealth(c *gin.Context) {
+	lang := c.GetString("lang")
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_service_id", lang), err)
+		return
+	}
+
+	// 获取服务信息
+	service, err := model.GetServiceByID(id)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
+		return
+	}
+
+	// 获取服务管理器
+	serviceManager := proxy.GetServiceManager()
+
+	// 检查服务是否已经注册
+	_, err = serviceManager.GetService(id)
+	if err == proxy.ErrServiceNotFound {
+		// 服务尚未注册，尝试注册
+		ctx := c.Request.Context()
+		if err := serviceManager.RegisterService(ctx, service); err != nil {
+			common.RespError(c, http.StatusInternalServerError, i18n.Translate("register_service_failed", lang), err)
+			return
+		}
+	}
+
+	// 强制检查健康状态
+	health, err := serviceManager.ForceCheckServiceHealth(id)
+	if err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("check_service_health_failed", lang), err)
+		return
+	}
+
+	// 更新数据库中的健康状态
+	if err := serviceManager.UpdateMCPServiceHealth(id); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("update_service_health_failed", lang), err)
+		return
+	}
+
+	// 构建响应
+	healthData := map[string]interface{}{
+		"service_id":     service.ID,
+		"service_name":   service.Name,
+		"health_status":  string(health.Status),
+		"last_checked":   health.LastChecked,
+		"health_details": health,
+	}
+
+	common.RespSuccess(c, healthData)
 }
