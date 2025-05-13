@@ -54,6 +54,9 @@ The system needs to support:
 - **Marketplace Search Aggregation & UI**: Designing a user-friendly interface to search across multiple marketplaces (npm, PyPI) and display results effectively. Handling potential differences in package metadata.
 - **Installation State Management**: Tracking the installation status of servers and reflecting this in the UI and backend.
 - **Dependency Management**: Ensuring that installed servers and their dependencies do not conflict with the One MCP system or other installed servers. (This might be a longer-term consideration).
+- **Subtle Page Width Changes**: Investigating and resolving minor page width inconsistencies.
+    - **Initial thought**: Caused by scrollbar appearance/disappearance. Global fix `overflow-y-scroll` on `<main>` helped.
+    - **Current Hypothesis (Services Page Tabs)**: The width change when switching tabs (e.g., "All Services" vs "Active") on the `ServicesPage` might be due to the tab content's intrinsic width. If a tab's content is narrow (like a short paragraph in "Active"), its container might shrink, causing a perceived page width change, even with `w-full` on parent elements. The `TabsContent` for "All Services" (grid of cards) is wider and might set a different baseline.
 
 ## High-level Task Breakdown (Feature: MCP Setup Management & Export with Proxying)
 
@@ -111,15 +114,29 @@ The system needs to support:
 ### 8. UI Implementation for MCP Installer (Next Major Task)
     - **8.1**: See `.cursor/feature-mcp-installer-ui.md` for detailed UI implementation plan and tasks. `Task Type: New Feature`
 
+### 9. Frontend Routing and Structure Refactor (New Task)
+    - **9.1**: Refactor frontend to use `react-router-dom` and separate page components. `Task Type: ref-struct`
+        - Sub-tasks: Install `react-router-dom`, create `pages` directory, create page components, migrate content, set up routing in `App.tsx`, update navigation links, remove `currentPage` state.
+        - Success Criteria: Application uses URL-based routing, `App.tsx` is cleaner, page logic is modularized.
+    - **9.2**: Fix Services page tab width inconsistency. `Task Type: bug-fix`
+        - Sub-tasks:
+            - **Investigate Computed Widths**: Using browser dev tools, inspect computed widths of `<main>`, `ServicesPage` root div, `<Tabs>`, and `<TabsContent>` elements when switching between "All", "Active", and "Inactive" tabs. Note any changes.
+            - **Test with Wider "Active" Content**: Temporarily add wider content (e.g., a long paragraph or a copy of the service grid) to the "Active" tab's `TabsContent` to see if this stabilizes the width.
+            - **Test `w-full` on `TabsContent`**: Experimentally add `w-full` to `TabsContent` components to see if it forces them to occupy the full parent width.
+            - Implement a CSS or structural fix based on findings (e.g., `min-width` on `TabsContent` or ensuring `Tabs` component itself maintains a consistent width).
+        - Success Criteria: Page width remains consistent when switching tabs on the `ServicesPage`.
+
 ## Project Status Board
 
-Active Task File: feature-mcp-installer-ui.md
+Active Task File: .cursor/feature-routing-refactor.md
 
 - feature-service-management.md: 已完成全局 MCP 客户端管理器相关任务，主流程和单元测试全部通过。
-- feature-mcp-installer-ui.md: UI 实现为下一个活跃任务。
+- feature-mcp-installer-ui.md: UI 实现已完成，相关任务已移至归档或标记为完成。
+- .cursor/feature-routing-refactor.md: 新增，处理前端路由和结构重构。
 
 # Executor's Feedback or Assistance Requests
 
+**Previous Feedback (Archive - Pre UI Refactor):**
 本阶段已完成：
 - 全局 MCP 客户端管理器的架构与实现，支持服务注册、查询、卸载、进程管理。
 - 相关主流程代码全部通过编译与单元测试。
@@ -127,6 +144,20 @@ Active Task File: feature-mcp-installer-ui.md
 - 结构性重构与 bug 修复均已完成。
 
 如需集成测试或新功能开发，可在下一阶段继续。
+
+**Current (UI Routing Refactor & Jest Setup):**
+- Refactored `frontend/src/pages/ServicesPage.tsx` to use `useOutletContext` for `setIsOpen` and `useNavigate` for navigation.
+- Refactored `frontend/src/pages/DashboardPage.tsx` to use `useNavigate` for its "Quick Actions" navigation.
+- The `currentPage` state and `setCurrentPage` prop have now been fully removed from the application logic, with all navigation handled by `react-router-dom`.
+- Corrected import paths in `frontend/src/pages/MarketPage.tsx`.
+- Added `w-full` to the root `div` of all main page components.
+- Changed `overflow-y-auto` to `overflow-y-scroll` on the main content area in `App.tsx`, resolving the page width consistency issue.
+- Skeleton pages (`AnalyticsPage`, `ProfilePage`, `PreferencesPage`) have been connected to `PageOutletContext` for potential future use of shared context (e.g., `setIsOpen`).
+- **Successfully set up Jest for frontend testing**: Installed dependencies, configured Jest (including mocks for CSS, `TextEncoder`, `window.matchMedia`), and passed an initial smoke test for rendering `AppContent`.
+- The primary refactoring work for the `ref-struct` task (routing and page modularization) is now complete.
+- **Next Step: Write specific Jest tests** for routing and component interactions to fulfill the testing phase of the current feature. Then, perform comprehensive manual testing.
+- **Note on Testing**: Jest setup is complete. Automated tests will now be added.
+- **New Bug Reported**: User noted that on the `/services` page, clicking "All Services" and "Active" tabs causes a page width change. This needs investigation and planning.
 
 ## Lessons
 
