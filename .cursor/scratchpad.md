@@ -126,13 +126,17 @@ The system needs to support:
             - Implement a CSS or structural fix based on findings (e.g., `min-width` on `TabsContent` or ensuring `Tabs` component itself maintains a consistent width).
         - Success Criteria: Page width remains consistent when switching tabs on the `ServicesPage`.
 
+### 10. UI Polish and Bug Fixing (New Task)
+    - **10.1**: Address UI bugs and implement minor UI enhancements. See `.cursor/ui-polish-tasks.md` for details. `Task Type: bug-fix`
+
 ## Project Status Board
 
-Active Task File: .cursor/feature-routing-refactor.md
+Active Task File: .cursor/ui-polish-tasks.md
 
 - feature-service-management.md: 已完成全局 MCP 客户端管理器相关任务，主流程和单元测试全部通过。
 - feature-mcp-installer-ui.md: UI 实现已完成，相关任务已移至归档或标记为完成。
-- .cursor/feature-routing-refactor.md: 新增，处理前端路由和结构重构。
+- .cursor/feature-routing-refactor.md: 基本完成，剩余测试任务将后置。
+- .cursor/ui-polish-tasks.md: 新增，处理当前发现的UI bug和后续打磨。
 
 # Executor's Feedback or Assistance Requests
 
@@ -155,9 +159,13 @@ Active Task File: .cursor/feature-routing-refactor.md
 - Skeleton pages (`AnalyticsPage`, `ProfilePage`, `PreferencesPage`) have been connected to `PageOutletContext` for potential future use of shared context (e.g., `setIsOpen`).
 - **Successfully set up Jest for frontend testing**: Installed dependencies, configured Jest (including mocks for CSS, `TextEncoder`, `window.matchMedia`), and passed an initial smoke test for rendering `AppContent`.
 - The primary refactoring work for the `ref-struct` task (routing and page modularization) is now complete.
-- **Next Step: Write specific Jest tests** for routing and component interactions to fulfill the testing phase of the current feature. Then, perform comprehensive manual testing.
-- **Note on Testing**: Jest setup is complete. Automated tests will now be added.
-- **New Bug Reported**: User noted that on the `/services` page, clicking "All Services" and "Active" tabs causes a page width change. This needs investigation and planning.
+- **Code Cleanup**: Removed unused imports from `App.tsx` and `DashboardPage.tsx`, ensuring clean code across refactored files.
+- **Next Step**: Write specific Jest tests for routing and component interactions to fulfill the testing phase of the current feature.
+- **Progress Update**: All planned refactoring tasks for frontend routing and page structure have been completed successfully. Testing setup is in place and initial smoke tests are passing.
+
+**New UI Issues (Post CORS Fix & Login Success):**
+- **Login Navigation Not Updating**: After successful login, the top navigation bar still shows the "Login" button instead of updating to a user-specific view (e.g., avatar, logout button).
+- **Theme Switching Style Problem**: When the OS is in dark mode and the website theme is set to light mode, there are visual inconsistencies (e.g., mixed dark/light elements) as shown in the latest screenshot.
 
 ## Lessons
 
@@ -183,3 +191,5 @@ Active Task File: .cursor/feature-routing-refactor.md
 - Read the file before you try to edit it.
 - Always ask before using the -force git command
 - For multi-value config items (e.g., root_path), use JSON arrays for storage and ensure UI/template logic can handle them.
+
+- 已修复 AppContent 测试断言，允许页面上有多个 'One MCP' 元素，测试已通过并已提交。
