@@ -23,10 +23,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed web/build
+//go:embed frontend/dist
 var buildFS embed.FS
 
-//go:embed web/build/index.html
+//go:embed frontend/dist/index.html
 var indexPage []byte
 
 func main() {

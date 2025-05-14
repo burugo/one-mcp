@@ -16,21 +16,32 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "esModuleInterop": true,
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    /* Path Aliases */
+    /* Paths */
     "baseUrl": ".",
     "paths": {
       "@/*": [
-        "src/*"
+        "./src/*"
       ]
-    }
+    },
+    "types": [
+      "jest",
+      "node"
+    ]
   },
   "include": [
-    "src"
+    "src",
+    "**/*.test.tsx",
+    "**/*.test.ts",
+    "jest.setup.ts"
+  ],
+  "exclude": [
+    "node_modules"
   ],
   "references": [
     {

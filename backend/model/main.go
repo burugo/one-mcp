@@ -33,6 +33,10 @@ func createRootAccountIfNeed() error {
 			Role:        common.RoleRootUser,
 			Status:      common.UserStatusEnabled,
 			DisplayName: "Root User",
+			Email:       "root@localhost",
+			GitHubId:    "",
+			WeChatId:    "",
+			Token:       "",
 		}
 		err = userThing.Save(rootUser)
 		if err != nil {

@@ -1,8 +1,12 @@
 import { useState } from "react";
+import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent } from "./dialog";
 import { Input } from "./input";
 import { Button } from "./button";
 import { Eye, EyeOff } from "lucide-react";
+import { useToast } from '@/hooks/use-toast';
+import api, { APIResponse } from '@/utils/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface LoginDialogProps {
     isOpen: boolean;
@@ -10,13 +14,68 @@ interface LoginDialogProps {
 }
 
 export function LoginDialog({ isOpen, onClose }: LoginDialogProps) {
+    const navigate = useNavigate();
+    const { toast } = useToast();
     const [showPassword, setShowPassword] = useState(false);
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [loading, setLoading] = useState(false);
+    const { login: authLogin } = useAuth();
+
+    const handleSubmit = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+        if (e) e.preventDefault();
+        // Use 'email' as 'username' based on previous versions
+        if (!email || !password) {
+            toast({
+                variant: "destructive",
+                title: "输入错误",
+                description: "邮箱和密码不能为空。"
+            });
+            return;
+        }
+
+        setLoading(true);
+        try {
+            // api.post already returns APIResponse due to interceptor in api.ts
+            const apiResponse: APIResponse = await api.post('/auth/login', { username: email, password });
+
+            if (apiResponse && apiResponse.success && apiResponse.data?.access_token && apiResponse.data.user) {
+                authLogin(apiResponse.data.user, apiResponse.data.access_token);
+
+                if (apiResponse.data.refresh_token) {
+                    localStorage.setItem('refresh_token', apiResponse.data.refresh_token);
+                }
+
+                toast({
+                    title: "登录成功",
+                    description: "欢迎回来！"
+                });
+                onClose();
+                navigate('/');
+            } else {
+                const message = apiResponse?.message || "登录失败，请检查邮箱和密码。";
+                toast({
+                    variant: "destructive",
+                    title: "登录失败",
+                    description: message
+                });
+            }
+        } catch (error: any) {
+            // This catch block handles network errors or errors thrown by the interceptor before a response is received
+            const message = error?.response?.data?.message || error.message || "登录请求失败，请稍后重试。";
+            toast({
+                variant: "destructive",
+                title: "登录错误",
+                description: message
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-md p-0 gap-0 border-none">
+            <DialogContent className="sm:max-w-md p-0 gap-0 border-none bg-background">
                 <div className="p-6 pt-8 flex flex-col items-center">
                     <h2 className="text-2xl font-semibold text-center mb-2">Sign in to One MCP</h2>
                     <p className="text-muted-foreground text-center mb-8">Welcome back! Please sign in to continue</p>
@@ -60,7 +119,8 @@ export function LoginDialog({ isOpen, onClose }: LoginDialogProps) {
                             type="email"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
-                            className="bg-sky-50 border-sky-100 px-4 py-6 text-base"
+                            autoFocus
+                            className="h-12 px-4 text-base"
                             placeholder="your.email@example.com"
                         />
                     </div>
@@ -75,7 +135,7 @@ export function LoginDialog({ isOpen, onClose }: LoginDialogProps) {
                                 type={showPassword ? "text" : "password"}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="bg-sky-50 border-sky-100 px-4 py-6 text-base pr-10"
+                                className="h-12 px-4 text-base pr-10"
                             />
                             <button
                                 type="button"
@@ -87,8 +147,12 @@ export function LoginDialog({ isOpen, onClose }: LoginDialogProps) {
                         </div>
                     </div>
 
-                    <Button className="w-full py-6 text-base font-medium rounded-md">
-                        Continue <span className="ml-2">➔</span>
+                    <Button
+                        className="w-full h-12 text-base font-medium rounded-md"
+                        onClick={handleSubmit}
+                        disabled={loading}
+                    >
+                        {loading ? "登录中..." : "Continue"} <span className="ml-2">➔</span>
                     </Button>
 
                     <p className="mt-8 text-center text-muted-foreground">

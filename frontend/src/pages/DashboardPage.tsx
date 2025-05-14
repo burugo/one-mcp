@@ -1,14 +1,14 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Server, Activity, Clock, Database, AlertCircle, CheckCircle, Package, User, Settings } from 'lucide-react';
+import { Server, Activity, Clock, Database, AlertCircle, CheckCircle, Package, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export function DashboardPage() {
     const navigate = useNavigate();
 
     return (
-        <div className="w-full space-y-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 py-8">
             <h2 className="text-3xl font-bold tracking-tight mb-2">Dashboard</h2>
 
             {/* 欢迎卡片 */}

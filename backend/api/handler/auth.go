@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"time"
 
+	// "time" // No longer needed here as Logout logic is separate
+
+	// "one-mcp/backend/common" // No longer needed here if Redis logic is self-contained in Logout
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 	"one-mcp/backend/service"
@@ -17,11 +20,21 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// UserLoginResponseDTO REMOVED
+// type UserLoginResponseDTO struct {
+// 	ID          int64  `json:"id"`
+// 	Username    string `json:"username"`
+// 	DisplayName string `json:"display_name"`
+// 	Email       string `json:"email"`
+// 	Role        int    `json:"role"`
+// 	Status      int    `json:"status"`
+// }
+
 // LoginResponse represents the response for login
 type LoginResponse struct {
 	AccessToken  string      `json:"access_token"`
 	RefreshToken string      `json:"refresh_token"`
-	User         *model.User `json:"user"`
+	User         *model.User `json:"user"` // Changed back to *model.User
 }
 
 // Login handles user login and returns JWT tokens
@@ -35,7 +48,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Validate the user credentials
 	user := &model.User{
 		Username: req.Username,
 		Password: req.Password,
@@ -48,7 +60,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Generate tokens
 	accessToken, err := service.GenerateToken(user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -67,14 +78,13 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Return the tokens and user info
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "",
+		"message": "Login successful",
 		"data": LoginResponse{
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
-			User:         user,
+			User:         user, // Now directly using *model.User
 		},
 	})
 }
@@ -209,7 +219,6 @@ func Register(c *gin.Context) {
 	// 	}
 	// }
 
-	// Check if username or email is already taken
 	if model.IsUsernameAlreadyTaken(req.Username) {
 		c.JSON(http.StatusConflict, gin.H{
 			"success": false,
@@ -226,7 +235,6 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// Create the user
 	displayName := req.DisplayName
 	if displayName == "" {
 		displayName = req.Username
@@ -249,12 +257,11 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// Generate tokens
 	accessToken, err := service.GenerateToken(user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Failed to generate access token: " + err.Error(),
+			"message": "Failed to generate access token after registration: " + err.Error(),
 		})
 		return
 	}
@@ -263,19 +270,18 @@ func Register(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Failed to generate refresh token: " + err.Error(),
+			"message": "Failed to generate refresh token after registration: " + err.Error(),
 		})
 		return
 	}
 
-	// Return the tokens and user info
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Registration successful",
 		"data": LoginResponse{
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
-			User:         user,
+			User:         user, // Now directly using *model.User
 		},
 	})
 }

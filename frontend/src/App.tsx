@@ -1,12 +1,11 @@
-import { useState } from 'react'
-import './App.css'
-import { BrowserRouter, Routes, Route, Link, Outlet, useLocation } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Link, Outlet, useLocation, Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
-import { Settings, Search, User, Home, BarChart, PlusCircle, Globe, Menu, Package, Server, Activity, Clock, Database, AlertCircle, CheckCircle } from 'lucide-react'
+import { Settings, Search, User, Home, BarChart, Globe, Package } from 'lucide-react'
 import { LoginDialog } from './components/ui/login-dialog'
 import { ThemeToggle } from './components/ui/theme-toggle'
 import { MarketPage } from './pages/MarketPage'
@@ -15,6 +14,9 @@ import { ServicesPage } from './pages/ServicesPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PreferencesPage } from './pages/PreferencesPage'
+import Login from '@/pages/Login'
+import { toastEmitter } from '@/utils/api'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 
 // Props that might be passed down from AppLayout to pages via Outlet context
 export interface PageOutletContext {
@@ -23,9 +25,10 @@ export interface PageOutletContext {
 
 const AppLayout = () => {
   const { toast } = useToast()
-  const [isOpen, setIsOpen] = useState(false)
-  const [showLoginDialog, setShowLoginDialog] = useState(false)
+  const [isOpen, setIsOpen] = React.useState(false)
+  const [showLoginDialog, setShowLoginDialog] = React.useState(false)
   const location = useLocation()
+  const { currentUser, logout, isLoading } = useAuth()
 
   const NavLink = ({ to, children, isTopNav }: { to: string, children: React.ReactNode, isTopNav?: boolean }) => {
     const isActive = location.pathname === to || (to === '/' && location.pathname === '/dashboard')
@@ -44,10 +47,19 @@ const AppLayout = () => {
     )
   }
 
+  // Handle logout navigation
+  const handleLogout = () => {
+    logout()
+  }
+
+  if (isLoading) {
+    return <div>Loading application...</div>
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       <header className="border-b border-border bg-background sticky top-0 z-10">
-        <div className="flex items-center h-16 px-6">
+        <div className="container mx-auto flex items-center h-16 px-6">
           <Link to="/" className="flex items-center gap-2">
             <Globe className="h-6 w-6 text-primary" />
             <h1 className="text-xl font-semibold">One MCP</h1>
@@ -69,13 +81,20 @@ const AppLayout = () => {
               <NavLink to="/docs" isTopNav>Docs</NavLink>
             </nav>
             <ThemeToggle />
-            <Button
-              size="sm"
-              className="rounded-full transition-all duration-200 hover:opacity-90 bg-[#7c3aed] hover:bg-[#7c3aed]/90"
-              onClick={() => setShowLoginDialog(true)}
-            >
-              Login
-            </Button>
+            {currentUser ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{currentUser.displayName || currentUser.username}</span>
+                <Button variant="outline" size="sm" onClick={handleLogout}>Logout</Button>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="rounded-full transition-all duration-200 hover:opacity-90 bg-[#7c3aed] hover:bg-[#7c3aed]/90"
+                onClick={() => setShowLoginDialog(true)}
+              >
+                Login
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -109,8 +128,10 @@ const AppLayout = () => {
             </NavLink>
           </nav>
         </aside>
-        <main className="flex-1 p-6 overflow-y-scroll h-[calc(100vh-64px)] bg-background/50 max-w-7xl mx-auto w-full">
-          <Outlet context={{ setIsOpen }} />
+        <main className="flex-1 p-6 overflow-y-auto h-[calc(100vh-64px)] bg-background/50">
+          <div className="container mx-auto">
+            <Outlet context={{ setIsOpen }} />
+          </div>
         </main>
       </div>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -155,32 +176,68 @@ const AppLayout = () => {
 
 // New component for the routes content
 const AppContent = () => {
+  const { toast } = useToast()
+  const { isLoading: authIsLoading } = useAuth()
+
+  useEffect(() => {
+    // 订阅toast事件
+    const unsubscribe = toastEmitter.subscribe((toastData) => {
+      toast(toastData)
+    })
+
+    // 清理订阅
+    return () => {
+      unsubscribe()
+    }
+  }, [toast])
+
+  if (authIsLoading) {
+    return <div>Loading authentication...</div>
+  }
+
   return (
     <Routes>
-      <Route element={<AppLayout />}>
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="services" element={<ServicesPage />} />
-        <Route path="market" element={<MarketPage />} />
-        <Route path="analytics" element={<AnalyticsPage />} />
-        <Route path="profile" element={<ProfilePage />} />
-        <Route path="preferences" element={<PreferencesPage />} />
+        <Route path="dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
+        <Route path="services" element={<PrivateRoute><ServicesPage /></PrivateRoute>} />
+        <Route path="market" element={<PrivateRoute><MarketPage /></PrivateRoute>} />
+        <Route path="analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
+        <Route path="profile" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
+        <Route path="preferences" element={<PrivateRoute><PreferencesPage /></PrivateRoute>} />
         <Route path="api" element={<div>API Page Content</div>} />
         <Route path="models" element={<div>Models Page Content</div>} />
         <Route path="docs" element={<div>Docs Page Content</div>} />
       </Route>
     </Routes>
-  );
+  )
 }
+
+export { AppContent }
 
 function App() {
   return (
     <BrowserRouter>
-      <AppContent />
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
     </BrowserRouter>
-  );
+  )
 }
 
-export default App;
-// Export AppContent for testing purposes
-export { AppContent };
+export default App
+
+// 权限验证组件
+const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { token, isLoading } = useAuth()
+
+  if (isLoading) {
+    return <div>Loading...</div>
+  }
+
+  if (!token) {
+    return <Navigate to="/login" state={{ from: useLocation() }} replace />
+  }
+  return <>{children}</>
+}

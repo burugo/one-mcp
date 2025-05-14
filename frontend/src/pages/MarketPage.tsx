@@ -1,25 +1,29 @@
-import { useState } from 'react';
+import { useMarketStore } from '../store/marketStore';
 import { ServiceMarketplace } from '../components/market/ServiceMarketplace';
 import { ServiceDetails } from '../components/market/ServiceDetails';
 
 export function MarketPage() {
-    const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+    const {
+        selectedService,
+        selectService,
+        clearSelectedService
+    } = useMarketStore();
 
     // 查看服务详情
     const viewServiceDetails = (serviceId: string) => {
-        setSelectedServiceId(serviceId);
+        selectService(serviceId);
     };
 
     // 返回市场页面
     const goBackToMarketplace = () => {
-        setSelectedServiceId(null);
+        clearSelectedService();
     };
 
     // 根据是否选择了服务显示不同的组件
     return (
         <div className="w-full">
-            {selectedServiceId ? (
-                <ServiceDetails serviceId={selectedServiceId} onBack={goBackToMarketplace} />
+            {selectedService ? (
+                <ServiceDetails onBack={goBackToMarketplace} />
             ) : (
                 <ServiceMarketplace onSelectService={viewServiceDetails} />
             )}

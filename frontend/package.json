@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "rm -rf dist && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "jest"
@@ -30,7 +30,8 @@
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.5.3",
     "tailwind-merge": "^3.2.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "zustand": "^5.0.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",

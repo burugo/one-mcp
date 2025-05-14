@@ -2,17 +2,18 @@ package route
 
 import (
 	"embed"
-	"one-mcp/backend/common"
+	"net/http"
 	"one-mcp/backend/api/middleware"
+	"one-mcp/backend/common"
+
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 func setWebRouter(route *gin.Engine, buildFS embed.FS, indexPage []byte) {
 	route.Use(middleware.GlobalWebRateLimit())
 	route.Use(middleware.Cache())
-	route.Use(static.Serve("/", common.EmbedFolder(buildFS, "web/build")))
+	route.Use(static.Serve("/", common.EmbedFolder(buildFS, "frontend/dist")))
 	route.NoRoute(func(c *gin.Context) {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", indexPage)
 	})

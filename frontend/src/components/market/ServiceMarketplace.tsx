@@ -1,105 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
 import { Search, Package, Star, Download, Filter } from 'lucide-react';
-
-// 服务类型定义
-type ServiceType = {
-    id: string;
-    name: string;
-    description: string;
-    version: string;
-    source: 'npm' | 'pypi' | 'recommended';
-    author: string;
-    downloads: number;
-    stars: number;
-    icon?: React.ReactNode;
-};
-
-// 示例数据
-const mockServices: ServiceType[] = [
-    {
-        id: '1',
-        name: '@modelcontextprotocol/server-airtable',
-        description: 'MCP server for Airtable integration',
-        version: '1.0.4',
-        source: 'npm',
-        author: 'MCP Team',
-        downloads: 12540,
-        stars: 145,
-        icon: <Package className="w-6 h-6 text-primary" />
-    },
-    {
-        id: '2',
-        name: '@modelcontextprotocol/server-notion',
-        description: 'Connect your Notion workspace to AI models',
-        version: '0.9.2',
-        source: 'npm',
-        author: 'MCP Team',
-        downloads: 8720,
-        stars: 132,
-        icon: <Package className="w-6 h-6 text-primary" />
-    },
-    {
-        id: '3',
-        name: 'mcp-github-connector',
-        description: 'Browse and search GitHub repositories with AI',
-        version: '1.2.0',
-        source: 'npm',
-        author: 'Community',
-        downloads: 6940,
-        stars: 89,
-        icon: <Package className="w-6 h-6 text-primary" />
-    },
-    {
-        id: '4',
-        name: 'mcp-google-drive',
-        description: 'Access Google Drive documents with MCP',
-        version: '0.8.5',
-        source: 'recommended',
-        author: 'Official',
-        downloads: 15840,
-        stars: 201,
-        icon: <Package className="w-6 h-6 text-primary" />
-    },
-];
+import { useMarketStore, ServiceType } from '@/store/marketStore';
 
 export function ServiceMarketplace({ onSelectService }: { onSelectService: (serviceId: string) => void }) {
-    const { toast } = useToast();
-    const [services, setServices] = useState<ServiceType[]>(mockServices);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
 
-    // 搜索处理函数
-    const handleSearch = () => {
-        setIsLoading(true);
+    // 使用 Zustand store
+    const {
+        searchTerm,
+        searchResults,
+        isSearching,
+        activeTab,
+        installedServices,
+        setSearchTerm,
+        setActiveTab,
+        searchServices,
+        fetchInstalledServices
+    } = useMarketStore();
 
-        // 这里可以实现真实的API调用
-        setTimeout(() => {
-            const filteredServices = mockServices.filter(
-                service => service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    service.description.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-            setServices(filteredServices);
-            setIsLoading(false);
-        }, 500);
+    // 初始化加载
+    useEffect(() => {
+        // 立即加载搜索结果
+        searchServices();
+
+        // 始终预加载已安装服务数据，以便后续切换
+        fetchInstalledServices();
+    }, []);
+
+    // 处理标签页切换
+    const handleTabChange = (value: string) => {
+        setActiveTab(value as any);
+        searchServices();
     };
 
     // 处理搜索框按下回车
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
-            handleSearch();
+            searchServices();
         }
     };
 
-    // 查看服务详情
-    const viewServiceDetails = (serviceId: string) => {
-        // 调用传入的回调函数
-        onSelectService(serviceId);
-    };
+    // 将当前显示的服务列表计算出来
+    const displayedServices = activeTab === 'installed' ? installedServices : searchResults;
 
     return (
         <div className="flex-1 space-y-6">
@@ -124,8 +69,8 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                         onKeyDown={handleKeyDown}
                     />
                 </div>
-                <Button onClick={handleSearch} disabled={isLoading}>
-                    {isLoading ? 'Searching...' : 'Search'}
+                <Button onClick={() => searchServices()} disabled={isSearching}>
+                    {isSearching ? 'Searching...' : 'Search'}
                 </Button>
                 <Button variant="outline" className="flex items-center gap-2">
                     <Filter className="h-4 w-4" /> Filter
@@ -133,63 +78,69 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
             </div>
 
             {/* 选项卡分类 */}
-            <Tabs defaultValue="all" className="mb-6">
-                <TabsList className="w-full max-w-lg grid grid-cols-4 gap-4">
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
+                <TabsList className="w-full max-w-lg grid grid-cols-5 gap-4">
                     <TabsTrigger value="all" className="px-4">All</TabsTrigger>
                     <TabsTrigger value="npm" className="px-4">NPM</TabsTrigger>
                     <TabsTrigger value="pypi" className="px-4">PyPI</TabsTrigger>
                     <TabsTrigger value="recommended" className="px-4">Recommended</TabsTrigger>
+                    <TabsTrigger value="installed" className="px-4">Installed</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="all" className="mt-6">
                     <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                        {services.map(service => (
-                            <ServiceCard key={service.id} service={service} onViewDetails={viewServiceDetails} />
+                        {displayedServices.map(service => (
+                            <ServiceCard key={service.id} service={service} onViewDetails={onSelectService} />
                         ))}
-                    </div>
-                </TabsContent>
-
-                <TabsContent value="npm" className="mt-6">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                        {services
-                            .filter(service => service.source === 'npm')
-                            .map(service => (
-                                <ServiceCard key={service.id} service={service} onViewDetails={viewServiceDetails} />
-                            ))}
-                    </div>
-                </TabsContent>
-
-                <TabsContent value="pypi" className="mt-6">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                        {services
-                            .filter(service => service.source === 'pypi')
-                            .map(service => (
-                                <ServiceCard key={service.id} service={service} onViewDetails={viewServiceDetails} />
-                            ))}
-                        {services.filter(service => service.source === 'pypi').length === 0 && (
+                        {isSearching && (
+                            <div className="col-span-3 text-center py-8">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                                <p className="mt-4 text-muted-foreground">Searching for services...</p>
+                            </div>
+                        )}
+                        {!isSearching && displayedServices.length === 0 && (
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                <p>No PyPI services available yet.</p>
+                                <p>No services found. Try a different search term.</p>
                             </div>
                         )}
                     </div>
                 </TabsContent>
 
-                <TabsContent value="recommended" className="mt-6">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                        {services
-                            .filter(service => service.source === 'recommended')
-                            .map(service => (
-                                <ServiceCard key={service.id} service={service} onViewDetails={viewServiceDetails} />
-                            ))}
-                    </div>
-                </TabsContent>
+                {/* 其他标签页内容类似 */}
+                {['npm', 'pypi', 'recommended', 'installed'].map(tab => (
+                    <TabsContent value={tab} key={tab} className="mt-6">
+                        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                            {displayedServices
+                                .filter(service => tab === 'installed' ? service.isInstalled : service.source === tab)
+                                .map(service => (
+                                    <ServiceCard key={service.id} service={service} onViewDetails={onSelectService} />
+                                ))}
+                            {isSearching && (
+                                <div className="col-span-3 text-center py-8">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                                    <p className="mt-4 text-muted-foreground">Loading services...</p>
+                                </div>
+                            )}
+                            {!isSearching && displayedServices.filter(service =>
+                                tab === 'installed' ? service.isInstalled : service.source === tab
+                            ).length === 0 && (
+                                    <div className="col-span-3 text-center py-8 text-muted-foreground">
+                                        <p>{`No ${tab} services available.`}</p>
+                                    </div>
+                                )}
+                        </div>
+                    </TabsContent>
+                ))}
             </Tabs>
         </div>
     );
 }
 
 // 服务卡片组件
-function ServiceCard({ service, onViewDetails }: { service: ServiceType, onViewDetails: (id: string) => void }) {
+function ServiceCard({ service, onViewDetails }: {
+    service: ServiceType,
+    onViewDetails: (id: string) => void
+}) {
     return (
         <Card className="border-border shadow-sm hover:shadow transition-shadow duration-200">
             <CardHeader>
@@ -227,7 +178,11 @@ function ServiceCard({ service, onViewDetails }: { service: ServiceType, onViewD
             </CardContent>
             <CardFooter className="flex justify-between">
                 <Button variant="outline" size="sm" onClick={() => onViewDetails(service.id)}>Details</Button>
-                <Button size="sm">Install</Button>
+                {service.isInstalled ? (
+                    <Button size="sm" variant="outline">Installed</Button>
+                ) : (
+                    <Button size="sm" onClick={() => onViewDetails(service.id)}>Install</Button>
+                )}
             </CardFooter>
         </Card>
     );

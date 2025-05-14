@@ -1,7 +1,7 @@
 package model
 
 import (
-	"errors"
+	"errors" // Added for logging
 	"one-mcp/backend/common"
 
 	"github.com/burugo/thing"
@@ -27,16 +27,16 @@ const (
 // Sensitive fields like Password should not be included in API responses.
 type User struct {
 	thing.BaseModel
-	Username         string `json:"username" gorm:"uniqueIndex;size:12"`
-	Password         string `json:"-" gorm:"size:100;not null"`
-	DisplayName      string `json:"display_name" gorm:"index;size:20"`
-	Role             int    `json:"role" gorm:"type:int;default:1"`
-	Status           int    `json:"status" gorm:"type:int;default:1"`
-	Email            string `json:"email" gorm:"index;size:50"`
-	GitHubId         string `json:"-" gorm:"column:github_id;index"`
-	WeChatId         string `json:"-" gorm:"column:wechat_id;index"`
-	VerificationCode string `json:"verification_code" gorm:"-:all"`
-	Token            string `json:"token" gorm:"index"`
+	Username         string `json:"username" db:"username"`
+	Password         string `json:"-" db:"password"`
+	DisplayName      string `json:"display_name" db:"display_name"`
+	Role             int    `json:"role" db:"role"`
+	Status           int    `json:"status" db:"status"`
+	Email            string `json:"email" db:"email"`
+	GitHubId         string `json:"-" db:"github_id"`
+	WeChatId         string `json:"-" db:"wechat_id"`
+	VerificationCode string `json:"verification_code" db:"-"`
+	Token            string `json:"token" db:"token"`
 
 	// Fields from example, consider if needed later:
 	// LarkId           string `json:"lark_id" gorm:"column:lark_id;index"`
@@ -148,7 +148,9 @@ func (user *User) ValidateAndFill() error {
 		return errors.New("invalid_username_or_password")
 	}
 	found := users[0]
+
 	okay := common.ValidatePasswordAndHash(user.Password, found.Password)
+
 	if !okay || found.Status != common.UserStatusEnabled {
 		return errors.New("invalid_username_or_password")
 	}
