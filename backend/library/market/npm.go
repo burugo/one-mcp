@@ -9,9 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -99,12 +102,12 @@ type SearchPackageResult struct {
 	SourceURL      string   `json:"source_url"`
 	Homepage       string   `json:"homepage"`
 	License        string   `json:"license"`
-	IconURL        string   `json:"icon_url,omitempty"`
-	Stars          int      `json:"stars,omitempty"`
+	IconURL        string   `json:"icon_url"`
+	Stars          int      `json:"github_stars"`
 	Downloads      int      `json:"downloads,omitempty"`
 	LastUpdated    string   `json:"last_updated,omitempty"`
 	Keywords       []string `json:"keywords,omitempty"`
-	Score          float64  `json:"score,omitempty"`
+	Score          float64  `json:"score"`
 	IsInstalled    bool     `json:"is_installed"`
 }
 
@@ -258,12 +261,94 @@ func getReadmeFromRepository(ctx context.Context, repoURL, readmeFilename string
 	return "", nil
 }
 
+// parseGitHubRepo 解析GitHub仓库URL，返回owner, repo，若不是GitHub仓库返回空字符串
+func parseGitHubRepo(repoURL string) (string, string) {
+	re := regexp.MustCompile(`github\.com[:/]+([\w.-]+)/([\w.-]+)(?:\.git)?/?$`)
+	matches := re.FindStringSubmatch(repoURL)
+	if len(matches) == 3 {
+		owner := matches[1]
+		repo := matches[2]
+		// 去除 repo 名末尾的 .git
+		if strings.HasSuffix(repo, ".git") {
+			repo = strings.TrimSuffix(repo, ".git")
+		}
+		return owner, repo
+	}
+	return "", ""
+}
+
+// fetchGitHubStars 调用GitHub API获取stars，支持token，失败返回0
+func fetchGitHubStars(owner, repo string) int {
+	if owner == "" || repo == "" {
+		log.Printf("[stars] owner/repo 为空，owner=%s repo=%s", owner, repo)
+		return 0
+	}
+	cacheKey := fmt.Sprintf("github_stars:%s:%s", owner, repo)
+	ctx := context.Background()
+	if common.RedisEnabled && common.RDB != nil {
+		val, err := common.RDB.Get(ctx, cacheKey).Result()
+		if err == nil {
+			log.Printf("[stars] 命中 Redis 缓存 %s=%s", cacheKey, val)
+			stars, _ := strconv.Atoi(val)
+			return stars
+		}
+	}
+	apiURL := "https://api.github.com/repos/" + owner + "/" + repo
+	log.Printf("[stars] 请求 GitHub API: %s", apiURL)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		log.Printf("[stars] 创建请求失败: %v", err)
+		return 0
+	}
+	token := os.Getenv("GITHUB_TOKEN")
+	if token != "" {
+		log.Printf("[stars] 读取到 token，长度=%d，前5位=%s", len(token), token[:5])
+		req.Header.Set("Authorization", "token "+token)
+	} else {
+		log.Printf("[stars] 未读取到 GITHUB_TOKEN 环境变量")
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[stars] 请求 GitHub API 失败: %v", err)
+		return 0
+	}
+	defer resp.Body.Close()
+	log.Printf("[stars] GitHub API 响应状态码: %d", resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[stars] GitHub API 响应体: %s", string(body))
+	if resp.StatusCode != 200 {
+		return 0
+	}
+	var data struct {
+		Stars int `json:"stargazers_count"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		log.Printf("[stars] 解析响应失败: %v", err)
+		return 0
+	}
+	if common.RedisEnabled && common.RDB != nil {
+		common.RDB.Set(ctx, cacheKey, strconv.Itoa(data.Stars), 10*time.Minute)
+		log.Printf("[stars] 写入 Redis 缓存 %s=%d", cacheKey, data.Stars)
+	}
+	return data.Stars
+}
+
 // ConvertNPMToSearchResult 将npm搜索结果转换为统一格式
 func ConvertNPMToSearchResult(npmResult *NPMSearchResult, installedPackages map[string]bool) []SearchPackageResult {
 	results := make([]SearchPackageResult, 0, len(npmResult.Objects))
 
 	for _, obj := range npmResult.Objects {
 		pkg := obj.Package
+
+		stars := 0
+		repoURL := pkg.Links.Repository
+		if strings.Contains(repoURL, "github.com") {
+			owner, repo := parseGitHubRepo(repoURL)
+			if owner != "" && repo != "" {
+				stars = fetchGitHubStars(owner, repo)
+			}
+		}
 
 		result := SearchPackageResult{
 			Name:           pkg.Name,
@@ -276,6 +361,7 @@ func ConvertNPMToSearchResult(npmResult *NPMSearchResult, installedPackages map[
 			LastUpdated:    pkg.Date.Format(time.RFC3339),
 			Score:          obj.Score.Final,
 			IsInstalled:    installedPackages[pkg.Name],
+			Stars:          stars,
 		}
 
 		results = append(results, result)
