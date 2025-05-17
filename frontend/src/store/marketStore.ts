@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { ReactNode } from 'react';
+import api from '@/utils/api'; // Import the axios instance
 
 // 服务类型定义
 export interface ServiceType {
@@ -7,10 +8,11 @@ export interface ServiceType {
     name: string;
     description: string;
     version: string;
-    source: string;
+    source: string;  // package_manager (npm, pypi, etc.)
     author: string;
-    downloads: number;
-    stars: number;
+    stars?: number; // Preferably GitHub stars
+    npmScore?: number; // For npm-specific score, if no GitHub stars
+    homepageUrl?: string; // URL to GitHub page or official website
     icon?: ReactNode;
     isInstalled?: boolean;
 }
@@ -102,6 +104,13 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         const { searchTerm, activeTab } = get();
         set({ isSearching: true });
 
+        // If searchTerm is empty (original logic)
+        // and not looking at installed tab, clear results and stop.
+        if (!searchTerm && activeTab !== 'installed') { // Reverted to original searchTerm check
+            set({ searchResults: [], isSearching: false });
+            return;
+        }
+
         try {
             // 构建搜索来源参数
             let sources = '';
@@ -111,18 +120,46 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 default: sources = activeTab;
             }
 
-            // 调用搜索 API
-            const response = await fetch(`/api/mcp_market/search?query=${encodeURIComponent(searchTerm)}&sources=${sources}`);
+            const response = await api.get(`/mcp_market/search?query=${encodeURIComponent(searchTerm)}&sources=${sources}`);
 
-            if (!response.ok) {
-                throw new Error('Search failed');
-            }
+            if (response.success && response.data && Array.isArray(response.data)) {
+                // Map backend data to frontend ServiceType
+                const mappedResults: ServiceType[] = response.data.map((item: any) => {
+                    let author = item.author || 'Unknown Author';
+                    const homepageUrl = item.homepage;
 
-            const data = await response.json();
-            if (data.code === 0 && data.data) {
-                set({ searchResults: data.data });
+                    if ((!item.author || item.author.toLowerCase() === 'unknown') && homepageUrl && homepageUrl.includes('github.com')) {
+                        try {
+                            const url = new URL(homepageUrl);
+                            const pathParts = url.pathname.split('/').filter(part => part.length > 0);
+                            if (pathParts.length > 0) {
+                                author = pathParts[0]; // Usually the owner/org
+                            }
+                        } catch (e) {
+                            console.warn('Failed to parse homepage URL for author:', homepageUrl, e);
+                        }
+                    }
+
+                    return {
+                        id: item.name + '-' + item.package_manager, // Create a unique ID
+                        name: item.name || 'Unknown Name',
+                        description: item.description || '',
+                        version: item.version || '0.0.0',
+                        source: item.package_manager || 'unknown',
+                        author: author,
+                        stars: typeof item.github_stars === 'number' ? item.github_stars : undefined,
+                        npmScore: typeof item.score === 'number' ? item.score : undefined,
+                        homepageUrl: homepageUrl,
+                        isInstalled: item.is_installed || false,
+                    };
+                });
+                set({ searchResults: mappedResults });
+                console.log('Updated searchResults in store (mapped):', get().searchResults);
+            } else if (response.success && !Array.isArray(response.data)) {
+                console.warn('Search returned success but data is not an array:', response.data);
+                set({ searchResults: [] });
             } else {
-                throw new Error(data.msg || 'Failed to search services');
+                throw new Error(response.message || 'Failed to search services');
             }
         } catch (error) {
             console.error('Search error:', error);
@@ -136,24 +173,20 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         set({ isSearching: true });
 
         try {
-            const response = await fetch('/api/mcp_market/installed');
+            const response = await api.get('/mcp_market/installed');
 
-            if (!response.ok) {
-                throw new Error('Failed to fetch installed services');
-            }
-
-            const data = await response.json();
-            if (data.code === 0 && data.data) {
+            if (response.success && response.data) {
                 // 将已安装服务数据转换为 ServiceType 格式
-                const installedServices = Object.entries(data.data).map(([packageName, info]: [string, any]) => ({
+                const installedServices = Object.entries(response.data).map(([packageName, info]: [string, any]) => ({
                     id: info.id || packageName,
                     name: packageName,
                     description: info.description || `MCP Server: ${packageName}`,
                     version: info.version || 'unknown',
                     source: info.package_manager || 'unknown',
                     author: 'Installed',
-                    downloads: 0,
                     stars: 0,
+                    npmScore: undefined,
+                    homepageUrl: undefined,
                     isInstalled: true
                 }));
 
@@ -162,7 +195,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     searchResults: get().activeTab === 'installed' ? installedServices : get().searchResults
                 });
             } else {
-                throw new Error(data.msg || 'Failed to fetch installed services');
+                throw new Error(response.message || 'Failed to fetch installed services');
             }
         } catch (error) {
             console.error('Fetch installed services error:', error);
@@ -188,15 +221,10 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 throw new Error('Package name or manager not provided');
             }
 
-            const response = await fetch(`/api/mcp_market/package_details?package_name=${encodeURIComponent(packageName)}&package_manager=${packageManager}`);
+            const response = await api.get(`/mcp_market/package_details?package_name=${encodeURIComponent(packageName)}&package_manager=${packageManager}`);
 
-            if (!response.ok) {
-                throw new Error('Failed to fetch service details');
-            }
-
-            const data = await response.json();
-            if (data.code === 0 && data.data) {
-                const details = data.data;
+            if (response.success && response.data) {
+                const details = response.data;
 
                 // 将环境变量转换为前端格式
                 const envVars = details.env_vars.map((env: any) => ({
@@ -215,14 +243,15 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                         version: details.details.version,
                         source: packageManager,
                         author: details.details.author || 'Unknown',
-                        downloads: details.details.downloads || 0,
                         stars: details.details.stars || 0,
+                        npmScore: details.details.npm_score || undefined,
+                        homepageUrl: details.details.homepage_url || undefined,
                         readme: details.readme || '',
                         envVars
                     }
                 });
             } else {
-                throw new Error(data.msg || 'Failed to fetch service details');
+                throw new Error(response.message || 'Failed to fetch service details');
             }
         } catch (error) {
             console.error('Fetch service details error:', error);
@@ -246,67 +275,81 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     installService: async (serviceId, envVars) => {
-        const { selectedService } = get();
+        const { selectedService, activeTab } = get();
 
         if (!selectedService) return;
 
-        // 初始化安装任务状态
-        set({
+        // Determine source_type based on activeTab or other logic if needed
+        // For now, assuming all installs from here are 'marketplace'
+        const sourceType = 'marketplace'; // Or determine dynamically if other types are installed via this flow
+
+        const currentTaskState = get().installTasks[serviceId];
+        if (currentTaskState && currentTaskState.status === 'installing') {
+            console.warn(`Installation for ${serviceId} is already in progress.`);
+            return; // Prevent re-initiating installation
+        }
+
+        // Initialize or reset task state
+        set(state => ({
             installTasks: {
-                ...get().installTasks,
+                ...state.installTasks,
                 [serviceId]: {
                     serviceId,
                     status: 'installing',
-                    logs: ['Starting installation...']
+                    logs: ['Installation initiated...'],
+                    error: undefined,
+                    taskId: undefined,
                 }
             }
-        });
+        }));
 
         try {
-            // 发送安装请求
-            const response = await fetch('/api/mcp_market/install_or_add_service', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    source_type: 'marketplace',
-                    package_name: selectedService.name,
-                    package_manager: selectedService.source,
-                    env_vars: envVars
-                }),
-            });
+            const requestBody = {
+                source_type: sourceType,
+                package_name: selectedService.name,
+                package_manager: selectedService.source, // 'source' field in frontend maps to package_manager
+                version: selectedService.version,      // Add version
+                user_provided_env_vars: envVars,     // Use correct backend key
+                // Optional fields, can be added if available from selectedService or UI
+                display_name: selectedService.name,
+                service_description: selectedService.description,
+            };
 
-            const data = await response.json();
-            if (!response.ok || data.code !== 0) {
-                throw new Error(data.msg || 'Installation failed');
+            const response = await api.post('/mcp_market/install_or_add_service', requestBody);
+
+            if (!response.success || !response.data) {
+                throw new Error(response.message || 'Installation setup failed');
             }
 
-            // 获取安装任务 ID 和服务 ID
-            const { task_id } = data.data;
+            const { mcp_service_id, task_id, status } = response.data;
+            const effectiveTaskId = task_id || mcp_service_id; // Use mcp_service_id as taskId for polling if task_id is not present (e.g. for already installed adding instance)
 
-            // 更新任务 ID
-            set({
-                installTasks: {
-                    ...get().installTasks,
-                    [serviceId]: {
-                        ...get().installTasks[serviceId],
-                        taskId: task_id,
-                        logs: [...get().installTasks[serviceId].logs, 'Installation started on server...']
+            if (status === 'already_installed_instance_added') {
+                get().updateInstallStatus(serviceId, 'success', 'Service instance added successfully.');
+                get().fetchInstalledServices(); // Refresh installed list
+                // Potentially clear selected service or navigate
+                get().clearSelectedService();
+
+            } else if (effectiveTaskId) {
+                set(state => ({
+                    installTasks: {
+                        ...state.installTasks,
+                        [serviceId]: {
+                            ...state.installTasks[serviceId],
+                            taskId: effectiveTaskId, // Store the taskId from backend
+                            logs: [...(state.installTasks[serviceId]?.logs || []), `Installation task submitted (Task ID: ${effectiveTaskId}). Polling for status...`]
+                        }
                     }
-                }
-            });
+                }));
+                get().pollInstallationStatus(serviceId, effectiveTaskId);
+            } else {
+                throw new Error('No task_id or mcp_service_id received from backend to start polling.');
+            }
 
-            // 开始轮询安装状态
-            get().pollInstallationStatus(serviceId, task_id);
-
-        } catch (error) {
-            console.error('Installation error:', error);
-            get().updateInstallStatus(
-                serviceId,
-                'error',
-                error instanceof Error ? error.message : String(error)
-            );
+        } catch (error: any) {
+            console.error('Install service error:', error);
+            const errorMessage = error.message || 'An unknown error occurred during installation setup.';
+            get().updateInstallStatus(serviceId, 'error', errorMessage);
         }
     },
 
@@ -354,53 +397,82 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     pollInstallationStatus: (serviceId, taskId) => {
+        const intervalId = `poll-${serviceId}-${taskId}`;
+        // Clear any existing interval for this specific poll to avoid duplicates
+        const existingInterval = (window as any)[intervalId];
+        if (existingInterval) {
+            clearInterval(existingInterval);
+        }
+
         const interval = setInterval(async () => {
-            try {
-                // 检查任务状态是否已不再是"installing"
-                const currentTask = get().installTasks[serviceId];
-                if (!currentTask || currentTask.status !== 'installing') {
-                    clearInterval(interval);
-                    return;
-                }
-
-                const response = await fetch(`/api/mcp_market/installation_status?task_id=${taskId}`);
-                const data = await response.json();
-
-                if (data.code === 0 && data.data) {
-                    // 更新安装日志
-                    if (data.data.output) {
-                        get().updateInstallProgress(serviceId, data.data.output);
-                    }
-
-                    // 检查状态
-                    if (data.data.status === 'completed') {
-                        clearInterval(interval);
-                        get().updateInstallStatus(serviceId, 'success');
-                    } else if (data.data.status === 'failed') {
-                        clearInterval(interval);
-                        get().updateInstallStatus(serviceId, 'error', data.data.error);
-                    }
-                }
-            } catch (error) {
-                console.error('Status polling error:', error);
-                // 不要在这里设置错误状态，继续轮询
-            }
-        }, 1000); // 每秒轮询一次
-
-        // 设置超时，防止无限轮询
-        setTimeout(() => {
-            clearInterval(interval);
-
-            // 检查任务是否仍在安装中
             const currentTask = get().installTasks[serviceId];
-            if (currentTask && currentTask.status === 'installing') {
+            if (!currentTask || currentTask.status !== 'installing') {
+                clearInterval(interval);
+                delete (window as any)[intervalId]; // Clean up
+                return;
+            }
+
+            try {
+                // Use service_id for polling, as taskId from backend is mcp_service_id
+                const response = await api.get(`/mcp_market/installation_status?service_id=${taskId}`);
+
+                if (response.success && response.data) {
+                    const statusData = response.data;
+                    const { status, logs, error_message } = statusData;
+
+                    if (logs && Array.isArray(logs)) {
+                        logs.forEach((log: string) => get().updateInstallProgress(serviceId, log));
+                    } else if (typeof logs === 'string' && logs) { // Handle if logs is a single string
+                        get().updateInstallProgress(serviceId, logs);
+                    }
+
+                    if (status === 'completed' || status === 'success') {
+                        clearInterval(interval);
+                        delete (window as any)[intervalId];
+                        get().updateInstallStatus(serviceId, 'success');
+                        get().fetchInstalledServices(); // Refresh installed list
+                        // Potentially clear selected service or navigate
+                        get().clearSelectedService();
+                    } else if (status === 'failed' || status === 'error') {
+                        clearInterval(interval);
+                        delete (window as any)[intervalId];
+                        get().updateInstallStatus(serviceId, 'error', error_message || 'Installation failed.');
+                    } else if (status === 'installing' || status === 'pending' || status === 'running') {
+                        // Continue polling
+                        get().updateInstallProgress(serviceId, `Status: ${status}. Waiting for completion...`);
+                    } else {
+                        // Unknown status, log it but keep polling for a while
+                        console.warn('Status polling unknown status:', statusData);
+                        get().updateInstallProgress(serviceId, `Unknown status: ${status}. Waiting...`);
+                    }
+                } else {
+                    // API call was successful (2xx) but response.success is false or no response.data
+                    console.error('Status polling API error:', response.message || 'Request successful but no data or success:false');
+                    // Keep polling for a while, timeout will handle persistent issues.
+                    // get().updateInstallProgress(serviceId, `Polling data error: ${response.message || 'Unexpected data'}`);
+                }
+            } catch (error) { // This catch is mainly for api.get throwing an error (e.g. network, or interceptor rethrow)
+                console.error('Status polling fetch error:', error);
+                // If fetch itself fails (network issue), keep polling. Timeout will handle it.
+                // get().updateInstallProgress(serviceId, `Polling network error: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }, 2000); // Poll every 2 seconds
+
+        (window as any)[intervalId] = interval; // Store interval ID to manage it
+
+        // Set a timeout to prevent infinite polling
+        setTimeout(() => {
+            const currentTaskCheck = get().installTasks[serviceId];
+            if (currentTaskCheck && currentTaskCheck.status === 'installing') {
+                clearInterval(interval);
+                delete (window as any)[intervalId];
                 get().updateInstallStatus(
                     serviceId,
                     'error',
-                    'Installation timed out. Please check service status.'
+                    'Installation timed out. Please check service status manually.'
                 );
             }
-        }, 120000); // 2分钟超时
+        }, 180000); // Timeout after 3 minutes (180 seconds)
     },
 
     uninstallService: async (serviceId) => {
@@ -409,20 +481,15 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         if (!service) return;
 
         try {
-            const response = await fetch('/api/mcp_market/uninstall_service', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
+            const response = await api.post('/mcp_market/uninstall_service', {
+                data: {
                     package_name: service.name,
                     package_manager: service.source
-                }),
+                }
             });
 
-            const data = await response.json();
-            if (!response.ok || data.code !== 0) {
-                throw new Error(data.msg || 'Uninstallation failed');
+            if (!response.success || !response.data) {
+                throw new Error(response.message || 'Uninstallation failed');
             }
 
             // 刷新已安装服务列表

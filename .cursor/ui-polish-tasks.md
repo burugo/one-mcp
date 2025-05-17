@@ -5,13 +5,9 @@ This file tracks tasks related to fixing UI bugs and implementing minor UI enhan
 ## Completed Tasks
 
 - [x] 修复 AppContent 测试因多个 'One MCP' 元素导致的断言报错（test 修正） `bug-fix`
+- [x] **Fix Login Navigation Update Issue**: `bug-fix`
 
 ## In Progress Tasks
-
-- [ ] **Fix Login Navigation Update Issue**: `bug-fix`
-    - **Description**: After a user successfully logs in, the top navigation bar (specifically the areaManaged by `AppLayout` in `App.tsx`) does not update to reflect the logged-in state. It continues to show the "Login" button instead of, for example, a user avatar and a logout option.
-    - **Analysis**: This likely involves checking how the authentication state (e.g., presence of a token, user data from context or store) is being used to conditionally render the navigation elements in `AppLayout`. The logic might be missing, incorrect, or not re-rendering upon state change.
-    - **Success Criteria**: After login, the "Login" button is replaced with appropriate UI elements for a logged-in user (e.g., user avatar/dropdown, logout button).
 
 - [ ] **Fix Theme Switching Style Inconsistencies**: `bug-fix`
     - **Description**: When the operating system is set to dark mode, and the website theme is manually switched to light mode (or vice-versa), there are visual inconsistencies. For example, some elements might retain dark theme styles while the overall page is light, or vice-versa, leading to poor contrast and a disjointed look as seen in the screenshot (e.g., cards or backgrounds).

@@ -27,6 +27,7 @@ const (
 // InstallationTask 表示一个安装任务
 type InstallationTask struct {
 	ServiceID        int64                 // 服务ID
+	UserID           int64                 // 用户ID, 用于后续创建用户特定配置
 	PackageName      string                // 包名
 	PackageManager   string                // 包管理器
 	Version          string                // 版本
@@ -118,9 +119,19 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 	switch task.PackageManager {
 	case "npm":
 		serverInfo, err = InstallNPMPackage(ctx, task.PackageName, task.Version, "", task.EnvVars)
-		if serverInfo != nil {
-			output = fmt.Sprintf("初始化成功! 服务器名称: %s, 版本: %s, 协议版本: %s",
-				serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
+		if err == nil && serverInfo != nil {
+			output = fmt.Sprintf("NPM package %s initialized. Server: %s, Version: %s, Protocol: %s",
+				task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
+		} else if err == nil {
+			output = fmt.Sprintf("NPM package %s installed, but no MCP server info obtained.", task.PackageName)
+		}
+	case "pypi", "uv", "pip":
+		serverInfo, err = InstallPyPIPackage(ctx, task.PackageName, task.Version, "", task.EnvVars)
+		if err == nil && serverInfo != nil {
+			output = fmt.Sprintf("PyPI package %s initialized. Server: %s, Version: %s, Protocol: %s",
+				task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
+		} else if err == nil {
+			output = fmt.Sprintf("PyPI package %s installed, but no MCP server info obtained.", task.PackageName)
 		}
 	default:
 		err = fmt.Errorf("unsupported package manager: %s", task.PackageManager)
@@ -150,56 +161,93 @@ func (m *InstallationManager) updateServiceStatus(task *InstallationTask, server
 	// 获取服务
 	service, err := model.GetServiceByID(task.ServiceID)
 	if err != nil {
-		log.Printf("Failed to get service (ID: %d): %v", task.ServiceID, err)
+		log.Printf("[InstallationManager] Failed to get service (ID: %d) for status update: %v", task.ServiceID, err)
 		return
 	}
 
 	// 更新服务状态
 	service.Enabled = true
-	service.HealthStatus = "healthy" // 初始健康状态设为健康，因为我们成功初始化了
+	service.HealthStatus = "healthy"
 
-	// 如果是新安装的包，设置版本信息
 	if task.Version != "" {
 		service.InstalledVersion = task.Version
 	}
 
-	// 如果有 MCP 服务器信息，保存到 HealthDetails
 	if serverInfo != nil {
-		// 创建健康详情
 		healthDetails := map[string]interface{}{
 			"mcpServer": serverInfo,
 			"lastCheck": time.Now().Format(time.RFC3339),
 			"status":    "healthy",
-			"message":   "MCP server initialized successfully",
+			"message":   fmt.Sprintf("Package %s (v%s) initialized. Server: %s, Protocol: %s", task.PackageName, task.Version, serverInfo.Name, serverInfo.ProtocolVersion),
 		}
 
-		// 将健康详情转换为 JSON
 		healthDetailsJSON, err := json.Marshal(healthDetails)
 		if err != nil {
-			log.Printf("Failed to marshal health details: %v", err)
+			log.Printf("[InstallationManager] Failed to marshal health details for service ID %d: %v", task.ServiceID, err)
 		} else {
 			service.HealthDetails = string(healthDetailsJSON)
 		}
 
-		// 更新最后健康检查时间
+		service.LastHealthCheck = time.Now()
+	} else {
+		// Even if serverInfo is nil (e.g. not an MCP server, just a utility package)
+		// we should still log successful installation.
+		healthDetails := map[string]interface{}{
+			"lastCheck": time.Now().Format(time.RFC3339),
+			"status":    "healthy", // Consider a different status if not an MCP server?
+			"message":   fmt.Sprintf("Package %s (v%s) installed successfully. No MCP server info obtained.", task.PackageName, task.Version),
+		}
+
+		healthDetailsJSON, err := json.Marshal(healthDetails)
+		if err != nil {
+			log.Printf("[InstallationManager] Failed to marshal basic health details for service ID %d: %v", task.ServiceID, err)
+		} else {
+			service.HealthDetails = string(healthDetailsJSON)
+		}
+
 		service.LastHealthCheck = time.Now()
 	}
 
-	// 保存到数据库
 	if err := model.UpdateService(service); err != nil {
-		log.Printf("Failed to update service status (ID: %d): %v", task.ServiceID, err)
-		return
+		log.Printf("[InstallationManager] Failed to update MCPService status in DB (ID: %d): %v", task.ServiceID, err)
+		// Continue to attempt UserConfig saving if applicable
 	}
 
-	// 添加到客户端管理器
+	// Save UserConfig entries for the provided EnvVars if UserID is valid
+	if task.UserID != 0 && len(task.EnvVars) > 0 {
+		for key, value := range task.EnvVars {
+			// Find the ConfigService entry (it should have been created by InstallOrAddService)
+			configOption, err := model.GetConfigOptionByKey(task.ServiceID, key)
+			if err != nil {
+				log.Printf("[InstallationManager] Failed to get ConfigOption for key '%s', ServiceID %d (UserID %d): %v. Skipping UserConfig save for this key.", key, task.ServiceID, task.UserID, err)
+				continue // Skip this env var if its ConfigService definition is not found
+			}
+
+			userConfig := model.UserConfig{
+				UserID:    task.UserID,
+				ServiceID: task.ServiceID,
+				ConfigID:  configOption.ID,
+				Value:     value,
+			}
+			if err := model.SaveUserConfig(&userConfig); err != nil {
+				log.Printf("[InstallationManager] Failed to save UserConfig for key '%s', ServiceID %d, UserID %d: %v", key, task.ServiceID, task.UserID, err)
+			} else {
+				log.Printf("[InstallationManager] Successfully saved UserConfig for key '%s', ServiceID %d, UserID %d", key, task.ServiceID, task.UserID)
+			}
+		}
+	} else if task.UserID == 0 && len(task.EnvVars) > 0 {
+		log.Printf("[InstallationManager] UserID is 0 for ServiceID %d, skipping UserConfig save for %d env vars.", task.ServiceID, len(task.EnvVars))
+	}
+
+	// Add to client manager if it's an stdio service
 	if service.Type == model.ServiceTypeStdio && service.SourcePackageName != "" {
 		manager := GetMCPClientManager()
 		if err := manager.InitializeClient(service.SourcePackageName, service.ID); err != nil {
-			log.Printf("Warning: Failed to initialize client for %s: %v", service.SourcePackageName, err)
+			log.Printf("[InstallationManager] Warning: Failed to initialize client for %s (ID: %d): %v", service.SourcePackageName, service.ID, err)
 		}
 	}
 
-	log.Printf("Service installed successfully (ID: %d, Name: %s)", service.ID, service.Name)
+	log.Printf("[InstallationManager] Service processing completed for ID: %d, Name: %s", service.ID, service.Name)
 }
 
 // CleanupTask 清理任务

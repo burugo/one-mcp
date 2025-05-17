@@ -35,6 +35,14 @@ func init() {
 	if os.Getenv("UPLOAD_PATH") != "" {
 		UploadPath = os.Getenv("UPLOAD_PATH")
 	}
+	if os.Getenv("JWT_SECRET") != "" {
+		JWTSecret = os.Getenv("JWT_SECRET")
+	}
+	if os.Getenv("JWT_REFRESH_SECRET") != "" {
+		JWTRefreshSecret = os.Getenv("JWT_REFRESH_SECRET")
+	} else if os.Getenv("JWT_SECRET") != "" {
+		JWTRefreshSecret = os.Getenv("JWT_SECRET")
+	}
 	if *LogDir != "" {
 		var err error
 		*LogDir, err = filepath.Abs(*LogDir)

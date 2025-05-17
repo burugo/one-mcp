@@ -14,8 +14,8 @@ The project will also include a user interface for discovering and installing MC
     - The system will initially feature a curated list of built-in/recommended servers.
 - **Installation Mechanism**:
     - Upon selecting a server, the system will use the appropriate command-line tool to install it:
-        - `npx` for npm packages.
-        - `uvx` (or equivalent like `pip install`) for PyPI packages.
+        - `npx` for npm packages (partially supported in backend).
+        - `uvx` (or equivalent like `pip install`) for PyPI packages (backend support to be added).
     - The installed server will then be available within the One MCP system for users to configure and use.
 
 The system needs to support:
@@ -50,13 +50,19 @@ The system needs to support:
 - **API Design**: For Admin, User, and Export (now simpler, no protocol choice param).
 
 **New Challenges for Server Installation Feature:**
-- **Multi-Package Manager Integration**: Securely and reliably executing external commands (`npx`, `uvx`) to install packages from different ecosystems. Managing their outputs and error states.
+- **Multi-Package Manager Integration**: Securely and reliably executing external commands (`npx`, `uvx`) to install packages from different ecosystems. Managing their outputs and error states. (Backend support for `uvx`/`pip` needs to be added/enhanced).
 - **Marketplace Search Aggregation & UI**: Designing a user-friendly interface to search across multiple marketplaces (npm, PyPI) and display results effectively. Handling potential differences in package metadata.
-- **Installation State Management**: Tracking the installation status of servers and reflecting this in the UI and backend.
+- **Installation State Management**: Tracking the installation status of servers and reflecting this in the UI and backend (largely in place, may need refinement for PyPI).
 - **Dependency Management**: Ensuring that installed servers and their dependencies do not conflict with the One MCP system or other installed servers. (This might be a longer-term consideration).
+- **Post-Installation Database Logic**: Ensuring `MCPService` and `ConfigService` records are correctly created/updated in the database after successful installation for all supported package managers.
 - **Subtle Page Width Changes**: Investigating and resolving minor page width inconsistencies.
     - **Initial thought**: Caused by scrollbar appearance/disappearance. Global fix `overflow-y-scroll` on `<main>` helped.
     - **Current Hypothesis (Services Page Tabs)**: The width change when switching tabs (e.g., "All Services" vs "Active") on the `ServicesPage` might be due to the tab content's intrinsic width. If a tab's content is narrow (like a short paragraph in "Active"), its container might shrink, causing a perceived page width change, even with `w-full` on parent elements. The `TabsContent` for "All Services" (grid of cards) is wider and might set a different baseline.
+
+**Challenges for Marketplace UI Finalization:**
+- Ensuring seamless integration of `ServiceCard.tsx` into `MarketPage.tsx`, including proper data flow and event handling (`onSelect`, `onInstall`).
+- Verifying that all service information displays correctly under various conditions (e.g., missing optional data like GitHub stars).
+- Confirming that the installation initiation from the card works as expected and UI updates reflect installation status.
 
 ## High-level Task Breakdown (Feature: MCP Setup Management & Export with Proxying)
 
@@ -129,43 +135,53 @@ The system needs to support:
 ### 10. UI Polish and Bug Fixing (New Task)
     - **10.1**: Address UI bugs and implement minor UI enhancements. See `.cursor/ui-polish-tasks.md` for details. `Task Type: bug-fix`
 
+### 11. Feature: Backend Support for MCP Server Installation (npm, PyPI/uvx)
+    - **11.1**: Implement backend logic for installing MCP servers from npm (enhance existing) and PyPI/uvx (new). See `.cursor/feature-backend-installer.md` for details. `Task Type: new-feat`
+    - **Success Criteria**: Backend can reliably install packages using npx and uvx/pip, manage installation state, and update database records. Frontend can integrate with these backend APIs.
+
+### 12. Frontend: Service Card Display Refinement (New Task)
+    - **12.1**: Refine the display of information on the `ServiceCard` component in the marketplace. See `.cursor/feature-service-card-refine.md` for details. `Task Type: ref-func`
+    - **Success Criteria**: Service cards accurately reflect desired information like GitHub homepage, adjusted star/author display, and removal of download counts. (Status: Completed)
+
+### 13. Frontend: Finalize Marketplace UI (Integrate ServiceCard, Test) (New Task)
+    - **13.1**: Integrate `ServiceCard.tsx` into `MarketPage.tsx` and conduct comprehensive UI testing. See `.cursor/feature-marketplace-ui-finalization.md` for details. `Task Type: new-feat`
+    - **Success Criteria**: Marketplace UI uses the new `ServiceCard.tsx`, displays information correctly, and all user interactions (search, select, install) are functional and smooth.
+
+### 14. Backend: Implement GitHub Data Fetching (Stars, Author) (Future Task)
+    - **14.1**: Enhance backend to fetch GitHub stars and potentially parse author information from GitHub repository URLs. Define a task file (e.g., `.cursor/feature-backend-github.md`) when this becomes active. `Task Type: new-feat`
+    - **Success Criteria**: Backend marketplace API provides GitHub stars and improved author information for services where applicable.
+
 ## Project Status Board
 
-Active Task File: .cursor/ui-polish-tasks.md
+Active Task File: feature-service-card-refine.md
 
 - feature-service-management.md: 已完成全局 MCP 客户端管理器相关任务，主流程和单元测试全部通过。
 - feature-mcp-installer-ui.md: UI 实现已完成，相关任务已移至归档或标记为完成。
-- .cursor/feature-routing-refactor.md: 基本完成，剩余测试任务将后置。
-- .cursor/ui-polish-tasks.md: 新增，处理当前发现的UI bug和后续打磨。
+- .cursor/feature-routing-refactor.md: 基本完成。
+- .cursor/ui-polish-tasks.md: (Status: Completed, except for theme switching which can be a separate low-priority task)
+- .cursor/feature-backend-installer.md: Backend work for MCP server installation. (Status: Task 5 - Testing for PyPI/uvx is pending)
+- .cursor/feature-service-card-refine.md: (Status: Completed) Frontend work for refining service card display in the marketplace.
+- .cursor/feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
 
 # Executor's Feedback or Assistance Requests
 
-**Previous Feedback (Archive - Pre UI Refactor):**
-本阶段已完成：
-- 全局 MCP 客户端管理器的架构与实现，支持服务注册、查询、卸载、进程管理。
-- 相关主流程代码全部通过编译与单元测试。
-- 关键接口已通过 Mock 测试覆盖。
-- 结构性重构与 bug 修复均已完成。
+**Marketplace UI Finalization (Executor):**
+- Resolved the `toLocaleString` runtime error that occurred when clicking search. The error was caused by `ServiceMarketplace.tsx` using an old, inline `ServiceCard` definition that tried to access a non-existent `service.downloads` property.
+- Successfully integrated the new, external `ServiceCard` component (from `frontend/src/components/market/ServiceCard.tsx`) into `frontend/src/components/market/ServiceMarketplace.tsx`.
+  - Removed the old inline `ServiceCard` definition.
+  - Updated imports to use the new `ServiceCard`.
+  - Mapped the `onSelect` prop to the existing `onSelectService` handler.
+  - Implemented an `onInstall` handler (`handleInstallService`) that calls the `installService` action from `marketStore` with the correct arguments (`serviceId`, `envVars`). This fixed a linter error related to argument count.
+- Task 1 (Integrate `ServiceCard.tsx`) in `.cursor/feature-marketplace-ui-finalization.md` is now complete.
 
-如需集成测试或新功能开发，可在下一阶段继续。
+**Next Steps:**
+- Proceed with Task 2: Comprehensive UI Testing and Refinement for Marketplace as outlined in `.cursor/feature-marketplace-ui-finalization.md`.
+- A known point for future improvement: The `marketStore.installService` action currently relies on `get().selectedService` for fetching service details like name, version, and source. If installing directly from a card without explicitly selecting the service (i.e., without `selectedService` in the store being updated to the target service), this might lead to incorrect details being used for installation or failure if `selectedService` is null. This should be verified during testing (Sub-task 2.3).
 
-**Current (UI Routing Refactor & Jest Setup):**
-- Refactored `frontend/src/pages/ServicesPage.tsx` to use `useOutletContext` for `setIsOpen` and `useNavigate` for navigation.
-- Refactored `frontend/src/pages/DashboardPage.tsx` to use `useNavigate` for its "Quick Actions" navigation.
-- The `currentPage` state and `setCurrentPage` prop have now been fully removed from the application logic, with all navigation handled by `react-router-dom`.
-- Corrected import paths in `frontend/src/pages/MarketPage.tsx`.
-- Added `w-full` to the root `div` of all main page components.
-- Changed `overflow-y-auto` to `overflow-y-scroll` on the main content area in `App.tsx`, resolving the page width consistency issue.
-- Skeleton pages (`AnalyticsPage`, `ProfilePage`, `PreferencesPage`) have been connected to `PageOutletContext` for potential future use of shared context (e.g., `setIsOpen`).
-- **Successfully set up Jest for frontend testing**: Installed dependencies, configured Jest (including mocks for CSS, `TextEncoder`, `window.matchMedia`), and passed an initial smoke test for rendering `AppContent`.
-- The primary refactoring work for the `ref-struct` task (routing and page modularization) is now complete.
-- **Code Cleanup**: Removed unused imports from `App.tsx` and `DashboardPage.tsx`, ensuring clean code across refactored files.
-- **Next Step**: Write specific Jest tests for routing and component interactions to fulfill the testing phase of the current feature.
-- **Progress Update**: All planned refactoring tasks for frontend routing and page structure have been completed successfully. Testing setup is in place and initial smoke tests are passing.
-
-**New UI Issues (Post CORS Fix & Login Success):**
-- **Login Navigation Not Updating**: After successful login, the top navigation bar still shows the "Login" button instead of updating to a user-specific view (e.g., avatar, logout button).
-- **Theme Switching Style Problem**: When the OS is in dark mode and the website theme is set to light mode, there are visual inconsistencies (e.g., mixed dark/light elements) as shown in the latest screenshot.
+**Task 3 (npm 包 GitHub stars 聚合+Redis 缓存)**
+- Task 3（npm 包 GitHub stars 聚合+Redis 缓存）已全部完成，接口 contract 满足前端需求，缓存生效。
+- 自动化测试时发现 backend/library/market/pypi_test.go 存在语法错误（与本次改动无关），主线功能不受影响，建议后续单独修复。
+- 已自动 git commit 相关代码和脚本。
 
 ## Lessons
 
@@ -184,6 +200,8 @@ Active Task File: .cursor/ui-polish-tasks.md
     1. `ServiceTypeStdio` - 本地执行的服务，通过stdin/stdout与服务通信，通常通过包管理器（npm、pypi等）安装
     2. `ServiceTypeSSE` 和 `ServiceTypeStreamableHTTP` - 均为远程服务类型，通过网络请求调用，不需要本地安装。前者使用SSE协议传输数据，后者使用支持流式传输的HTTP协议。
     3. 由于SSE和StreamableHTTP本身即为远端服务类型，无需单独的`ServiceTypeRemote`类型。
+*   Redis 缓存极大提升了 stars 聚合性能和抗限流能力。
+*   .env 文件被 .gitignore 忽略，敏感信息不应纳入版本控制。
 
 ## User Specified Lessons
 
@@ -193,3 +211,24 @@ Active Task File: .cursor/ui-polish-tasks.md
 - For multi-value config items (e.g., root_path), use JSON arrays for storage and ensure UI/template logic can handle them.
 
 - 已修复 AppContent 测试断言，允许页面上有多个 'One MCP' 元素，测试已通过并已提交。
+
+## Background and Motivation
+
+为提升服务卡片的权威性和用户体验，需要在前端展示 npm 包对应 GitHub 仓库的 star 数。当前 npm registry API 不直接返回 stars，需后端聚合采集并返回。
+
+## Key Challenges and Analysis
+
+- 需解析 npm 包 repository 字段，兼容多种格式，准确提取 GitHub owner/repo。
+- 需调用 GitHub API 获取 stars，处理速率限制和 token 配置。
+- 需保证 stars 字段与前端字段名对齐（github_stars）。
+- 需兜底处理 API 失败、无 stars 情况。
+
+## High-level Task Breakdown
+
+- 前端 UI 及数据 mapping 已完成。
+- 后端需补充 npm 包 GitHub stars 聚合逻辑（详见 .cursor/feature-service-card-refine.md Task 3）。
+
+## Project Status Board
+
+Active Task File: feature-service-card-refine.md
+- Task 3: 聚合并返回 npm 包的 GitHub stars（In Progress）

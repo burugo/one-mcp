@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/common/i18n"
@@ -230,204 +232,143 @@ func DiscoverEnvVars(c *gin.Context) {
 // @Router /api/mcp_market/install_or_add_service [post]
 func InstallOrAddService(c *gin.Context) {
 	lang := c.GetString("lang")
-	var requestBody map[string]interface{}
+	var requestBody struct {
+		SourceType          string                 `json:"source_type" binding:"required"`
+		MCServiceID         int64                  `json:"mcp_service_id"`         // For predefined
+		PackageName         string                 `json:"package_name"`           // For marketplace
+		PackageManager      string                 `json:"package_manager"`        // For marketplace (npm, pypi, uv, pip)
+		Version             string                 `json:"version"`                // For marketplace
+		UserProvidedEnvVars map[string]interface{} `json:"user_provided_env_vars"` // Interface to handle potential type issues from UI, convert to string later.
+		DisplayName         string                 `json:"display_name"`           // Optional: for creating MCPService
+		ServiceDescription  string                 `json:"service_description"`    // Optional: for creating MCPService
+		ServiceIconURL      string                 `json:"service_icon_url"`       // Optional: for creating MCPService
+		Category            model.ServiceCategory  `json:"category"`               // Optional: for creating MCPService
+	}
 
 	if err := c.ShouldBindJSON(&requestBody); err != nil {
 		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_request_data", lang), err)
 		return
 	}
 
-	// 获取参数
-	sourceType, _ := requestBody["source_type"].(string)
-
-	if sourceType == "" {
-		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("source_type_required", lang))
+	userID := getUserIDFromContext(c)
+	if userID == 0 && requestBody.SourceType != "predefined" { // Predefined might be admin setup
+		common.RespErrorStr(c, http.StatusUnauthorized, i18n.Translate("user_not_authenticated", lang))
 		return
 	}
 
-	// 如果是marketplace类型，先检查npx是否可用
-	if sourceType == "marketplace" {
-		if !market.CheckNPXAvailable() {
-			common.RespErrorStr(c, http.StatusInternalServerError, i18n.Translate("npx_not_available", lang))
-			return
-		}
-	}
+	envVarsForTask := convertEnvVarsMap(requestBody.UserProvidedEnvVars)
 
-	// 获取安装管理器
-	installationManager := market.GetInstallationManager()
-
-	// 处理预定义服务
-	if sourceType == "predefined" {
-		// 获取服务ID
-		mcpServiceIDFloat, ok := requestBody["mcp_service_id"].(float64)
-		if !ok {
+	if requestBody.SourceType == "predefined" {
+		if requestBody.MCServiceID == 0 {
 			common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("mcp_service_id_required", lang))
 			return
 		}
-		mcpServiceID := int64(mcpServiceIDFloat)
-
-		// 获取用户提供的环境变量
-		userProvidedEnvVars, _ := requestBody["user_provided_env_vars"].(map[string]interface{})
-
-		// 为用户添加服务实例
-		err := addServiceInstanceForUser(c, mcpServiceID, userProvidedEnvVars)
-		if err != nil {
+		// For predefined, userID might be 0 if it's an admin setting up global defaults or if auth is handled differently.
+		// The addServiceInstanceForUser function should be robust enough or this path needs specific logic for userID=0.
+		// For now, we pass the userID obtained. If it's 0, addServiceInstanceForUser might need to handle it.
+		if err := addServiceInstanceForUser(c, userID, requestBody.MCServiceID, requestBody.UserProvidedEnvVars); err != nil {
 			common.RespError(c, http.StatusInternalServerError, i18n.Translate("add_service_instance_failed", lang), err)
 			return
 		}
-
 		common.RespSuccessStr(c, i18n.Translate("service_added_successfully", lang))
 		return
-	}
-
-	// 处理市场服务
-	if sourceType == "marketplace" {
-		// 获取包信息
-		packageName, _ := requestBody["package_name"].(string)
-		packageManager, _ := requestBody["package_manager"].(string)
-		version, _ := requestBody["version"].(string)
-		userProvidedEnvVars, _ := requestBody["user_provided_env_vars"].(map[string]interface{})
-
-		if packageName == "" {
-			common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("package_name_required", lang))
+	} else if requestBody.SourceType == "marketplace" {
+		if requestBody.PackageName == "" || requestBody.PackageManager == "" {
+			common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("package_name_and_manager_required", lang))
 			return
 		}
 
-		if packageManager == "" {
-			common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("package_manager_required", lang))
+		// Check tool availability
+		if requestBody.PackageManager == "npm" && !market.CheckNPXAvailable() {
+			common.RespErrorStr(c, http.StatusInternalServerError, i18n.Translate("npx_not_available", lang))
+			return
+		}
+		if (requestBody.PackageManager == "pypi" || requestBody.PackageManager == "uv" || requestBody.PackageManager == "pip") && !market.CheckUVXAvailable() {
+			// Assuming "pip" also uses "uv" for now or this check is sufficient
+			common.RespErrorStr(c, http.StatusInternalServerError, i18n.Translate("uv_not_available", lang))
 			return
 		}
 
-		// 检查包是否已安装
-		services, err := model.GetServicesByPackageDetails(packageManager, packageName)
-		if err == nil && len(services) > 0 {
-			// 包已安装，直接为用户添加服务实例
-			err = addServiceInstanceForUser(c, services[0].ID, userProvidedEnvVars)
-			if err != nil {
+		existingServices, err := model.GetServicesByPackageDetails(requestBody.PackageManager, requestBody.PackageName)
+		if err == nil && len(existingServices) > 0 {
+			mcpServiceID := existingServices[0].ID
+			if err := addServiceInstanceForUser(c, userID, mcpServiceID, requestBody.UserProvidedEnvVars); err != nil {
 				common.RespError(c, http.StatusInternalServerError, i18n.Translate("add_service_instance_failed", lang), err)
 				return
 			}
-
-			common.RespSuccessStr(c, i18n.Translate("service_added_successfully", lang))
+			common.RespSuccess(c, gin.H{
+				"message":        i18n.Translate("service_instance_added_successfully", lang),
+				"mcp_service_id": mcpServiceID,
+				"status":         "already_installed_instance_added",
+			})
 			return
 		}
 
-		// 包未安装，创建MCPService记录
-		ctx := c.Request.Context()
+		// New package, create MCPService, then submit installation task
+		displayName := requestBody.DisplayName
+		if displayName == "" {
+			displayName = requestBody.PackageName
+		}
 
-		// 获取包详情
-		details, err := market.GetNPMPackageDetails(ctx, packageName)
-		if err != nil {
-			common.RespError(c, http.StatusInternalServerError, i18n.Translate("get_npm_package_details_failed", lang), err)
+		newService := model.MCPService{
+			Name:                  requestBody.PackageName,
+			DisplayName:           displayName,
+			Description:           requestBody.ServiceDescription,
+			Category:              requestBody.Category,
+			Icon:                  requestBody.ServiceIconURL,
+			Type:                  model.ServiceTypeStdio,
+			PackageManager:        requestBody.PackageManager,
+			SourcePackageName:     requestBody.PackageName,
+			ClientConfigTemplates: "{}",
+			Enabled:               false,
+			HealthStatus:          string(market.StatusPending),
+		}
+		if newService.Category == "" {
+			newService.Category = model.CategoryAI
+		}
+
+		if err := model.CreateService(&newService); err != nil {
+			common.RespError(c, http.StatusInternalServerError, i18n.Translate("create_mcp_service_failed", lang), err)
 			return
 		}
 
-		// 获取README内容
-		readme, err := market.GetNPMPackageReadme(ctx, packageName)
-		if err != nil {
-			// 获取README失败不是致命错误，只记录日志
-			common.SysLog("Error getting README for " + packageName + ": " + err.Error())
-		}
-
-		// 尝试从README中提取MCP配置
-		mcpConfig, _ := market.ExtractMCPConfig(details, readme)
-
-		// 发现环境变量
-		var envVars []string
-
-		// 首先从MCP配置中提取环境变量
-		if mcpConfig != nil {
-			envVars = market.GetEnvVarsFromMCPConfig(mcpConfig)
-		}
-
-		// 如果MCP配置中没有找到环境变量，则从README中猜测
-		if len(envVars) == 0 {
-			envVars = market.GuessMCPEnvVarsFromReadme(readme)
-		}
-
-		// 创建环境变量定义
-		var envVarDefinitions []model.EnvVarDefinition
-		for _, env := range envVars {
-			definition := model.EnvVarDefinition{
-				Name:        env,
-				Description: "Auto discovered from package",
-				IsSecret:    strings.Contains(strings.ToLower(env), "token") || strings.Contains(strings.ToLower(env), "key") || strings.Contains(strings.ToLower(env), "secret"),
-				Optional:    false,
+		for envName := range envVarsForTask {
+			configServiceEntry := model.ConfigService{
+				ServiceID:   newService.ID,
+				Key:         envName,
+				DisplayName: envName,
+				Description: fmt.Sprintf("Environment variable %s for %s", envName, newService.DisplayName),
+				Type:        model.ConfigTypeString,
+				Required:    true,
 			}
-			envVarDefinitions = append(envVarDefinitions, definition)
-		}
-
-		// 创建MCPService
-		service := &model.MCPService{
-			Name:              packageName,
-			DisplayName:       details.Name,
-			Description:       details.Description,
-			Category:          model.CategoryUtil, // 默认分类
-			Type:              model.ServiceTypeStdio,
-			Enabled:           false, // 初始状态为禁用，安装成功后再启用
-			DefaultOn:         true,
-			PackageManager:    packageManager,
-			SourcePackageName: packageName,
-			InstalledVersion:  "installing", // 标记为正在安装
-			HealthStatus:      "unknown",    // 使用字符串字面量
-		}
-
-		// 设置环境变量
-		if len(envVarDefinitions) > 0 {
-			if err := service.SetRequiredEnvVars(envVarDefinitions); err != nil {
-				common.RespError(c, http.StatusInternalServerError, i18n.Translate("set_env_vars_failed", lang), err)
-				return
+			if strings.Contains(strings.ToLower(envName), "token") || strings.Contains(strings.ToLower(envName), "key") || strings.Contains(strings.ToLower(envName), "secret") {
+				configServiceEntry.Type = model.ConfigTypeSecret
+			}
+			if err := model.CreateConfigOption(&configServiceEntry); err != nil {
+				log.Printf("Error creating ConfigService for %s (MCPService ID %d): %v", envName, newService.ID, err)
 			}
 		}
 
-		// 保存服务
-		if err := model.CreateService(service); err != nil {
-			common.RespError(c, http.StatusInternalServerError, i18n.Translate("create_service_failed", lang), err)
-			return
+		installationTask := market.InstallationTask{
+			ServiceID:      newService.ID,
+			UserID:         userID,
+			PackageName:    requestBody.PackageName,
+			PackageManager: requestBody.PackageManager,
+			Version:        requestBody.Version,
+			EnvVars:        envVarsForTask,
 		}
 
-		// 为用户添加服务实例
-		err = addServiceInstanceForUser(c, service.ID, userProvidedEnvVars)
-		if err != nil {
-			common.RespError(c, http.StatusInternalServerError, i18n.Translate("add_service_instance_failed", lang), err)
-			return
-		}
+		market.GetInstallationManager().SubmitTask(installationTask)
 
-		// 收集用户提供的环境变量
-		envVarsForInstall := make(map[string]string)
-		if userProvidedEnvVars != nil {
-			for key, value := range userProvidedEnvVars {
-				if strValue, ok := value.(string); ok {
-					envVarsForInstall[key] = strValue
-				}
-			}
-		}
-
-		// 创建安装任务
-		task := market.InstallationTask{
-			ServiceID:      service.ID,
-			PackageName:    packageName,
-			PackageManager: packageManager,
-			Version:        version,
-			EnvVars:        envVarsForInstall,
-		}
-
-		// 提交安装任务
-		installationManager.SubmitTask(task)
-
-		// 构建响应
-		response := map[string]interface{}{
-			"message":      i18n.Translate("service_installation_started", lang),
-			"service_id":   service.ID,
-			"service_name": service.Name,
-			"status":       "installing",
-		}
-
-		common.RespSuccess(c, response)
-		return
+		common.RespSuccess(c, gin.H{
+			"message":        i18n.Translate("installation_submitted", lang),
+			"mcp_service_id": newService.ID,
+			"task_id":        newService.ID,
+			"status":         market.StatusPending,
+		})
+	} else {
+		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("invalid_source_type", lang))
 	}
-
-	common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("invalid_source_type", lang))
 }
 
 // GetInstallationStatus godoc
@@ -592,11 +533,88 @@ func UninstallService(c *gin.Context) {
 
 // 辅助函数
 
-// addServiceInstanceForUser 为用户添加服务实例
-func addServiceInstanceForUser(c *gin.Context, serviceID int64, userProvidedEnvVars map[string]interface{}) error {
-	// TODO: 实现为用户添加服务实例的逻辑
-	// 这里需要等待UserConfig和ConfigService模型实现
+// addServiceInstanceForUser adds or updates UserConfig entries for a given user and MCPService.
+// It now also ensures that ConfigService entries exist for each provided environment variable.
+func addServiceInstanceForUser(c *gin.Context, userID int64, serviceID int64, userProvidedEnvVars map[string]interface{}) error {
+	lang := c.GetString("lang")
+	if userID == 0 {
+		// If userID is 0, it could be an admin setting up a predefined service without a specific user context,
+		// or an unauthenticated call that shouldn't have reached here for marketplace type.
+		// For now, if no user, we can't save UserConfig. This might need further role-based handling.
+		// If serviceID is for a predefined service, maybe no UserConfig is needed, or it's a global setting.
+		// This function's primary role is for user-specific instances. If userID is 0, perhaps it should skip UserConfig creation.
+		// However, the call from "predefined" path passes userID which might be 0 for admin actions.
+		// Let's assume for now that if userID is 0, we don't save UserConfigs.
+		// A more robust solution would be to check roles or have separate functions.
+		log.Printf("addServiceInstanceForUser called with userID 0 for serviceID %d. No UserConfig will be saved.", serviceID)
+		// We still might want to ensure ConfigService entries exist if that's a general setup step.
+		// For now, let's return nil if userID is 0, implying no user-specific action is taken.
+		return nil // Or handle as an error if UserConfig is always expected.
+	}
+
+	mcpService, err := model.GetServiceByID(serviceID)
+	if err != nil {
+		return errors.New(i18n.Translate("service_not_found", lang))
+	}
+
+	convertedEnvVars := convertEnvVarsMap(userProvidedEnvVars)
+
+	for key, value := range convertedEnvVars {
+		configOption, err := model.GetConfigOptionByKey(serviceID, key)
+		if err != nil {
+			if err.Error() == model.ErrRecordNotFound.Error() || err.Error() == "config_service_not_found" || strings.Contains(err.Error(), "not found") {
+				newConfigOption := model.ConfigService{
+					ServiceID:   serviceID,
+					Key:         key,
+					DisplayName: key,
+					Description: fmt.Sprintf("Environment variable %s for %s", key, mcpService.DisplayName),
+					Type:        model.ConfigTypeString,
+					Required:    true,
+				}
+				if strings.Contains(strings.ToLower(key), "token") || strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "secret") {
+					newConfigOption.Type = model.ConfigTypeSecret
+				}
+				if errCreate := model.CreateConfigOption(&newConfigOption); errCreate != nil {
+					log.Printf("Failed to create ConfigService for key %s, serviceID %d: %v", key, serviceID, errCreate)
+					return fmt.Errorf(i18n.Translate("failed_to_create_config_option_for_env", lang)+": %s", key)
+				}
+				configOption = &newConfigOption
+			} else {
+				log.Printf("Error fetching ConfigService for key %s, serviceID %d: %v", key, serviceID, err)
+				return fmt.Errorf(i18n.Translate("failed_to_get_config_option_for_env", lang)+": %s", key)
+			}
+		}
+
+		userConfig := model.UserConfig{
+			UserID:    userID,
+			ServiceID: serviceID,
+			ConfigID:  configOption.ID,
+			Value:     value,
+		}
+		if err := model.SaveUserConfig(&userConfig); err != nil {
+			log.Printf("Failed to save UserConfig for key %s, serviceID %d, userID %d: %v", key, serviceID, userID, err)
+			return fmt.Errorf(i18n.Translate("failed_to_save_user_config_for_env", lang)+": %s", key)
+		}
+	}
 	return nil
+}
+
+// convertEnvVarsMap converts map[string]interface{} to map[string]string
+// This is a temporary helper. Ideally, types should align.
+func convertEnvVarsMap(input map[string]interface{}) map[string]string {
+	output := make(map[string]string)
+	if input == nil {
+		return output
+	}
+	for key, value := range input {
+		if strValue, ok := value.(string); ok {
+			output[key] = strValue
+		} else {
+			// Handle or log cases where conversion isn't straightforward if necessary
+			log.Printf("Warning: Could not convert env var %s to string", key)
+		}
+	}
+	return output
 }
 
 // getInstalledPackages 获取已安装的包列表
@@ -662,12 +680,18 @@ func contains(slice []string, s string) bool {
 // @Router /api/mcp_market/search [get]
 func SearchMCPMarket(c *gin.Context) {
 	ctx := c.Request.Context()
-	query := c.Query("query")
+	originalQuery := c.Query("query") // Get original query
 	sources := c.DefaultQuery("sources", "npm")
 	pageStr := c.Query("page")
 	sizeStr := c.Query("size")
 	page := 1
 	size := 20
+
+	finalQuery := strings.TrimSpace(originalQuery)
+	if finalQuery != "" { // Check if original query (after trim) is not empty
+		finalQuery = finalQuery + " mcp"
+	}
+
 	if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
 		page = p
 	}
@@ -680,7 +704,8 @@ func SearchMCPMarket(c *gin.Context) {
 
 	// 目前仅实现 npm，后续可扩展 pypi/recommended
 	if strings.Contains(sources, "npm") {
-		npmResult, e := market.SearchNPMPackages(ctx, query, size, page)
+		// Use finalQuery for searching
+		npmResult, e := market.SearchNPMPackages(ctx, finalQuery, size, page)
 		if e != nil {
 			err = e
 		} else {
