@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { ReactNode } from 'react';
-import api from '@/utils/api'; // Import the axios instance
+import api, { APIResponse } from '@/utils/api'; // 引入 APIResponse 类型
 
 // 服务类型定义
 export interface ServiceType {
@@ -75,7 +75,7 @@ interface MarketState {
 
     updateEnvVar: (serviceId: string, envVarName: string, value: string) => void;
 
-    installService: (serviceId: string, envVars: { [key: string]: string }) => Promise<void>;
+    installService: (serviceId: string, envVars: { [key: string]: string }) => Promise<any>;
     updateInstallProgress: (serviceId: string, log: string) => void;
     updateInstallStatus: (serviceId: string, status: InstallStatus, error?: string) => void;
     pollInstallationStatus: (serviceId: string, taskId: string) => void;
@@ -120,44 +120,44 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 default: sources = activeTab;
             }
 
-            const response = await api.get(`/mcp_market/search?query=${encodeURIComponent(searchTerm)}&sources=${sources}`);
+            const response = await api.get(`/mcp_market/search?query=${encodeURIComponent(searchTerm)}&sources=${sources}`) as APIResponse<any>;
 
-            if (response.success && response.data && Array.isArray(response.data)) {
-                // Map backend data to frontend ServiceType
-                const mappedResults: ServiceType[] = response.data.map((item: any) => {
-                    let author = item.author || 'Unknown Author';
-                    const homepageUrl = item.homepage;
+            if (response.success) {
+                if (Array.isArray(response.data)) {
+                    // Map backend data to frontend ServiceType
+                    const mappedResults: ServiceType[] = response.data.map((item: any) => {
+                        let author = item.author || 'Unknown Author';
+                        const homepageUrl = item.homepage;
 
-                    if ((!item.author || item.author.toLowerCase() === 'unknown') && homepageUrl && homepageUrl.includes('github.com')) {
-                        try {
-                            const url = new URL(homepageUrl);
-                            const pathParts = url.pathname.split('/').filter(part => part.length > 0);
-                            if (pathParts.length > 0) {
-                                author = pathParts[0]; // Usually the owner/org
+                        if ((!item.author || item.author.toLowerCase() === 'unknown') && homepageUrl && homepageUrl.includes('github.com')) {
+                            try {
+                                const url = new URL(homepageUrl);
+                                const pathParts = url.pathname.split('/').filter(part => part.length > 0);
+                                if (pathParts.length > 0) {
+                                    author = pathParts[0]; // Usually the owner/org
+                                }
+                            } catch (e) {
+                                console.warn('Failed to parse homepage URL for author:', homepageUrl, e);
                             }
-                        } catch (e) {
-                            console.warn('Failed to parse homepage URL for author:', homepageUrl, e);
                         }
-                    }
 
-                    return {
-                        id: item.name + '-' + item.package_manager, // Create a unique ID
-                        name: item.name || 'Unknown Name',
-                        description: item.description || '',
-                        version: item.version || '0.0.0',
-                        source: item.package_manager || 'unknown',
-                        author: author,
-                        stars: typeof item.github_stars === 'number' ? item.github_stars : undefined,
-                        npmScore: typeof item.score === 'number' ? item.score : undefined,
-                        homepageUrl: homepageUrl,
-                        isInstalled: item.is_installed || false,
-                    };
-                });
-                set({ searchResults: mappedResults });
-                console.log('Updated searchResults in store (mapped):', get().searchResults);
-            } else if (response.success && !Array.isArray(response.data)) {
-                console.warn('Search returned success but data is not an array:', response.data);
-                set({ searchResults: [] });
+                        return {
+                            id: item.name + '-' + item.package_manager, // Create a unique ID
+                            name: item.name || 'Unknown Name',
+                            description: item.description || '',
+                            version: item.version || '0.0.0',
+                            source: item.package_manager || 'unknown',
+                            author: author,
+                            stars: typeof item.github_stars === 'number' ? item.github_stars : undefined,
+                            npmScore: typeof item.score === 'number' ? item.score : undefined,
+                            homepageUrl: homepageUrl,
+                            isInstalled: item.is_installed || false,
+                        };
+                    });
+                    set({ searchResults: mappedResults });
+                } else {
+                    set({ searchResults: [] });
+                }
             } else {
                 throw new Error(response.message || 'Failed to search services');
             }
@@ -173,7 +173,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         set({ isSearching: true });
 
         try {
-            const response = await api.get('/mcp_market/installed');
+            const response = await api.get('/mcp_market/installed') as APIResponse<any>;
 
             if (response.success && response.data) {
                 // 将已安装服务数据转换为 ServiceType 格式
@@ -221,7 +221,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 throw new Error('Package name or manager not provided');
             }
 
-            const response = await api.get(`/mcp_market/package_details?package_name=${encodeURIComponent(packageName)}&package_manager=${packageManager}`);
+            const response = await api.get(`/mcp_market/package_details?package_name=${encodeURIComponent(packageName)}&package_manager=${packageManager}`) as APIResponse<any>;
 
             if (response.success && response.data) {
                 const details = response.data;
@@ -274,7 +274,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         }
     },
 
-    installService: async (serviceId, envVars) => {
+    installService: async (serviceId, envVars): Promise<any> => {
         const { searchResults, installedServices, activeTab } = get();
 
         // 直接从 searchResults 或 installedServices 查找 service 信息
@@ -314,8 +314,11 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 display_name: service.name,
                 service_description: service.description,
             };
-
-            const response = await api.post('/mcp_market/install_or_add_service', requestBody);
+            const response = await api.post('/mcp_market/install_or_add_service', requestBody) as APIResponse<any>;
+            // RESTful: 如果需要补充 env vars，直接返回 response（完整 APIResponse）
+            if (response.success === true && response.data && Array.isArray(response.data.required_env_vars) && response.data.required_env_vars.length > 0) {
+                return response;
+            }
 
             if (!response.success || !response.data) {
                 throw new Error(response.message || 'Installation setup failed');
@@ -341,13 +344,15 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 }));
                 get().pollInstallationStatus(serviceId, effectiveTaskId);
             } else {
+                // 如果没有 task_id 或 mcp_service_id，且不是 required_env_vars，说明后端有问题
                 throw new Error('No task_id or mcp_service_id received from backend to start polling.');
             }
 
         } catch (error: any) {
+            const errorMessage = error?.response?.message || error.message || '';
             console.error('Install service error:', error);
-            const errorMessage = error.message || 'An unknown error occurred during installation setup.';
-            get().updateInstallStatus(serviceId, 'error', errorMessage);
+            get().updateInstallStatus(serviceId, 'error', errorMessage || 'An unknown error occurred during installation setup.');
+            throw error;
         }
     },
 
@@ -412,7 +417,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 
             try {
                 // Use service_id for polling, as taskId from backend is mcp_service_id
-                const response = await api.get(`/mcp_market/installation_status?service_id=${taskId}`);
+                const response = await api.get(`/mcp_market/installation_status?service_id=${taskId}`) as APIResponse<any>;
 
                 if (response.success && response.data) {
                     const statusData = response.data;
@@ -484,7 +489,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     package_name: service.name,
                     package_manager: service.source
                 }
-            });
+            }) as APIResponse<any>;
 
             if (!response.success || !response.data) {
                 throw new Error(response.message || 'Uninstallation failed');

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -657,33 +658,21 @@ func GetEnvVarsFromMCPConfig(config *MCPConfig) []string {
 
 // CheckNPXAvailable 检查npx命令是否可用
 func CheckNPXAvailable() bool {
-	// 使用mark3labs/mcp-go客户端检查npx是否可用
-	mcpClient, err := client.NewStdioMCPClient("npx", os.Environ(), "--version")
+	log.Printf("[CheckNPXAvailable] PATH: %s", os.Getenv("PATH"))
+	path, err := exec.LookPath("npx")
 	if err != nil {
+		log.Printf("[CheckNPXAvailable] exec.LookPath error: %v", err)
 		return false
 	}
-	defer mcpClient.Close()
-
-	// 设置上下文和超时
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// 启动客户端
-	if err := mcpClient.Start(ctx); err != nil {
+	log.Printf("[CheckNPXAvailable] npx found at: %s", path)
+	cmd := exec.Command("npx", "--version")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[CheckNPXAvailable] exec.Command error: %v, output: %s", err, string(output))
 		return false
 	}
-
-	// 初始化客户端
-	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "one-mcp",
-		Version: "1.0.0",
-	}
-	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
-
-	_, err = mcpClient.Initialize(ctx, initRequest)
-	return err == nil
+	log.Printf("[CheckNPXAvailable] npx --version output: %s", string(output))
+	return true
 }
 
 // ListMCPServerTools 列出 MCP 服务器提供的工具

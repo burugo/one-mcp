@@ -102,6 +102,7 @@ func (m *InstallationManager) SubmitTask(task InstallationTask) {
 
 // runInstallationTask 运行安装任务
 func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
+	log.Printf("[InstallTask] 开始安装任务: ServiceID=%d, UserID=%d, Package=%s, Manager=%s, Version=%s", task.ServiceID, task.UserID, task.PackageName, task.PackageManager, task.Version)
 	// 更新任务状态为安装中
 	m.tasksMutex.Lock()
 	task.Status = StatusInstalling
@@ -115,26 +116,30 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 	var output string
 	var serverInfo *MCPServerInfo
 
-	// 根据包管理器类型安装包
 	switch task.PackageManager {
 	case "npm":
+		log.Printf("[InstallTask] 调用 InstallNPMPackage: %s@%s", task.PackageName, task.Version)
 		serverInfo, err = InstallNPMPackage(ctx, task.PackageName, task.Version, "", task.EnvVars)
 		if err == nil && serverInfo != nil {
-			output = fmt.Sprintf("NPM package %s initialized. Server: %s, Version: %s, Protocol: %s",
-				task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
+			output = fmt.Sprintf("NPM package %s initialized. Server: %s, Version: %s, Protocol: %s", task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
 		} else if err == nil {
 			output = fmt.Sprintf("NPM package %s installed, but no MCP server info obtained.", task.PackageName)
+		} else {
+			output = fmt.Sprintf("InstallNPMPackage error: %v", err)
 		}
 	case "pypi", "uv", "pip":
+		log.Printf("[InstallTask] 调用 InstallPyPIPackage: %s@%s", task.PackageName, task.Version)
 		serverInfo, err = InstallPyPIPackage(ctx, task.PackageName, task.Version, "", task.EnvVars)
 		if err == nil && serverInfo != nil {
-			output = fmt.Sprintf("PyPI package %s initialized. Server: %s, Version: %s, Protocol: %s",
-				task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
+			output = fmt.Sprintf("PyPI package %s initialized. Server: %s, Version: %s, Protocol: %s", task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
 		} else if err == nil {
 			output = fmt.Sprintf("PyPI package %s installed, but no MCP server info obtained.", task.PackageName)
+		} else {
+			output = fmt.Sprintf("InstallPyPIPackage error: %v", err)
 		}
 	default:
 		err = fmt.Errorf("unsupported package manager: %s", task.PackageManager)
+		output = fmt.Sprintf("不支持的包管理器: %s", task.PackageManager)
 	}
 
 	// 更新任务状态
@@ -145,8 +150,10 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 	if err != nil {
 		task.Status = StatusFailed
 		task.Error = err.Error()
+		log.Printf("[InstallTask] 任务失败: ServiceID=%d, Error=%v", task.ServiceID, err)
 	} else {
 		task.Status = StatusCompleted
+		log.Printf("[InstallTask] 任务完成: ServiceID=%d, Output=%s", task.ServiceID, output)
 		// 更新数据库中的服务状态
 		go m.updateServiceStatus(task, serverInfo)
 	}

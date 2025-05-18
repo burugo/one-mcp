@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Search, Package, Star, Download, Filter } from 'lucide-react';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceCard from './ServiceCard';
+import EnvVarInputModal from './EnvVarInputModal';
+import { useToast } from '@/hooks/use-toast';
 
 export function ServiceMarketplace({ onSelectService }: { onSelectService: (serviceId: string) => void }) {
 
@@ -20,17 +22,26 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
         setActiveTab,
         searchServices,
         fetchInstalledServices,
-        installService
+        installService,
+        updateInstallStatus
     } = useMarketStore();
+
+    const { toast } = useToast();
+
+    // 新增：环境变量 Modal 相关 state
+    const [envModalVisible, setEnvModalVisible] = useState(false);
+    const [missingVars, setMissingVars] = useState<string[]>([]);
+    const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
+    const [pendingEnvVars, setPendingEnvVars] = useState<Record<string, string>>({});
 
     // 初始化加载
     useEffect(() => {
-        // 立即加载搜索结果
-        searchServices();
-
-        // 始终预加载已安装服务数据，以便后续切换
-        fetchInstalledServices();
-    }, [searchServices, fetchInstalledServices]);
+        if (activeTab === 'installed') {
+            fetchInstalledServices();
+        } else {
+            searchServices();
+        }
+    }, [activeTab, searchServices, fetchInstalledServices]);
 
     // 处理标签页切换
     const handleTabChange = (value: string) => {
@@ -46,29 +57,46 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
     };
 
     // 安装服务处理函数
-    const handleInstallService = (serviceId: string) => {
-        // Call the store's installService, which expects (serviceId, envVars)
-        // It internally uses get().selectedService for other details.
-        // UI flow might need to ensure selectedService is set before this, 
-        // e.g., by requiring user to view details first, or if this component sets it.
-        // For now, just pass the correct arguments to satisfy the current store signature.
-
-        // It's crucial that `selectedService` in the store is the one corresponding to `serviceId`
-        // when `installService` is executed internally by the store.
-        // A robust solution might involve changing installService store action signature later.
-        const store = useMarketStore.getState();
-        // If the service to be installed is not the currently selected one in the store,
-        // we might need to select it first. This can have UI implications (e.g. navigating to details).
-        // For now, we assume that if installService is called, the selection context is already handled
-        // or installService itself is robust enough if selectedService is not the target (it currently is not, it uses whatever is selected).
-        // This is a simplification to fix the linter error. The actual install logic might need refinement.
-        if (store.selectedService?.id !== serviceId) {
-            // console.warn(`Attempting to install service ${serviceId} which is not the currently selected service (${store.selectedService?.id}). This might lead to unexpected behavior if installService relies on selectedService details.`);
-            // To make this work reliably with current store.installService, we'd have to ensure selection:
-            // store.selectService(serviceId); // This fetches details and then sets selectedService. Async.
-            // For a quick fix for the linter and a basic attempt:
+    const handleInstallService = async (serviceId: string, extraEnvVars: Record<string, string> = {}) => {
+        setPendingServiceId(serviceId);
+        let envVars = { ...extraEnvVars };
+        while (true) {
+            const response = await installService(serviceId, envVars);
+            if (response && response.data && Array.isArray(response.data.required_env_vars) && response.data.required_env_vars.length > 0) {
+                setMissingVars(response.data.required_env_vars);
+                setEnvModalVisible(true);
+                setPendingEnvVars(envVars);
+                return; // 等待用户输入
+            }
+            // 安装成功或已提交任务，关闭 Modal 并重置
+            setEnvModalVisible(false);
+            setMissingVars([]);
+            setPendingEnvVars({});
+            setPendingServiceId(null);
+            break;
         }
-        installService(serviceId, {});
+    };
+
+    // Modal 提交回调
+    const handleEnvModalSubmit = (userInputVars: Record<string, string>) => {
+        if (!pendingServiceId) return;
+        const merged = { ...pendingEnvVars, ...userInputVars };
+        setEnvModalVisible(false);
+        setMissingVars([]);
+        updateInstallStatus(pendingServiceId, 'idle');
+        handleInstallService(pendingServiceId, merged);
+    };
+
+    // Modal 取消回调
+    const handleEnvModalCancel = () => {
+        setEnvModalVisible(false);
+        setMissingVars([]);
+        setPendingEnvVars({});
+        if (pendingServiceId) {
+            // 关键：重置 installTasks 状态为 idle
+            updateInstallStatus(pendingServiceId, 'idle');
+        }
+        setPendingServiceId(null);
     };
 
     // 将当前显示的服务列表计算出来
@@ -170,6 +198,12 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                     </TabsContent>
                 ))}
             </Tabs>
+            <EnvVarInputModal
+                open={envModalVisible}
+                missingVars={missingVars}
+                onSubmit={handleEnvModalSubmit}
+                onCancel={handleEnvModalCancel}
+            />
         </div>
     );
 } 

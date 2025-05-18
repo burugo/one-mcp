@@ -160,7 +160,7 @@ Active Task File: feature-service-card-refine.md
 - .cursor/feature-routing-refactor.md: 基本完成。
 - .cursor/ui-polish-tasks.md: (Status: Completed, except for theme switching which can be a separate low-priority task)
 - .cursor/feature-backend-installer.md: Backend work for MCP server installation. (Status: Task 5 - Testing for PyPI/uvx is pending)
-- .cursor/feature-service-card-refine.md: (Status: Completed) Frontend work for refining service card display in the marketplace.
+- .cursor/feature-service-card-refine.md: (Status: Completed) 后端 stars 聚合与缓存链路打通，接口 contract 满足需求，全部任务已完成。
 - .cursor/feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
 
 # Executor's Feedback or Assistance Requests
@@ -174,9 +174,9 @@ Active Task File: feature-service-card-refine.md
   - Implemented an `onInstall` handler (`handleInstallService`) that calls the `installService` action from `marketStore` with the correct arguments (`serviceId`, `envVars`). This fixed a linter error related to argument count.
 - Task 1 (Integrate `ServiceCard.tsx`) in `.cursor/feature-marketplace-ui-finalization.md` is now complete.
 
-**Next Steps:**
-- Proceed with Task 2: Comprehensive UI Testing and Refinement for Marketplace as outlined in `.cursor/feature-marketplace-ui-finalization.md`.
-- A known point for future improvement: The `marketStore.installService` action currently relies on `get().selectedService` for fetching service details like name, version, and source. If installing directly from a card without explicitly selecting the service (i.e., without `selectedService` in the store being updated to the target service), this might lead to incorrect details being used for installation or failure if `selectedService` is null. This should be verified during testing (Sub-task 2.3).
+**2024-05-18 新进展：**
+已修复 installService 依赖 selectedService 的问题，ServiceCard 卡片点击安装现已健壮。Task 2.3 已完成，准备继续推进 UI 其他细节测试。
++已修复 ServiceCard stars/npmScore 显示逻辑，score 字段现在能在 stars 缺失或为 0 时正确 fallback 显示，UI 体验更合理。
 
 **Task 3 (npm 包 GitHub stars 聚合+Redis 缓存)**
 - Task 3（npm 包 GitHub stars 聚合+Redis 缓存）已全部完成，接口 contract 满足前端需求，缓存生效。
@@ -232,3 +232,73 @@ Active Task File: feature-service-card-refine.md
 
 Active Task File: feature-service-card-refine.md
 - Task 3: 聚合并返回 npm 包的 GitHub stars（In Progress）
+
+### 🎉 服务卡片 GitHub stars 聚合与缓存链路——验收总结
+
+1. **核心目标达成**
+   - 后端已实现 npm 包 GitHub stars 字段自动聚合，优先用 Redis 缓存，极大提升了性能和抗限流能力。
+   - 前端/后端接口 contract 完全对齐字段名和 contract 满足 UI 需求。
+   - stars 字段能稳定返回真实 star 数，重复请求命中缓存，接口高性能、低延迟。
+
+2. **用户体验优化**
+   - 只需设置 JWT_SECRET，重启后端不会导致前端登录态丢失，用户体验大幅提升。
+
+3. **代码与文档**
+   - 相关代码已自动 commit，文档、lessons、任务板均已同步更新。
+
+4. **遗留问题与建议**
+   - backend/library/market/pypi_test.go 存在语法错误，建议后续单独修复。
+   - Redis dump.rdb 文件出现在根目录，属正常现象，可通过配置调整。
+   - 若需进一步优化缓存策略、支持多用户 token、前端 token 配置等，可后续补充。
+
+# MCP Service Marketplace Enhancements & Fixes
+
+## Background and Motivation
+The project aims to enhance the service marketplace UI/UX, particularly around service installation involving environment variables.
+Key requirements:
+1.  If backend API `/mcp_market/install_or_add_service` indicates missing environment variables (e.g., `FIRECRAWL_API_KEY`), the frontend should display a modal for the user to input these variables, rather than just showing a toast message.
+2.  The backend API was updated to return `{ success: true, data: { required_env_vars: [...] } }` (HTTP 200) when env vars are missing, instead of a 400 error.
+3.  Frontend should handle this response by showing an `EnvVarInputModal`.
+4.  Users should be able to cancel the modal, and the install button should reset to an "Install" state (not get stuck on "Installing...").
+5.  When users submit the modal with entered variables, these variables must be correctly included in the subsequent installation API request.
+
+## Key Challenges and Analysis
+- **API Contract Synchronization:** Ensuring frontend and backend agree on response structures for missing env vars. (Initially an issue, now backend returns 200 with `required_env_vars` in `data`).
+- **State Management for Modal:** Correctly managing visibility (`envModalVisible`), missing variable names (`missingVars`), and temporarily held variables (`pendingEnvVars`, `pendingServiceId`) in `ServiceMarketplace.tsx`.
+- **Store State for Installation Task:** The `installTasks` in `marketStore.ts` (Zustand) tracks the status of each installation. This status (`installing`, `success`, `error`, `idle`) dictates UI elements like button states.
+- **Recursive Installation Flow:** When the modal is submitted, `handleEnvModalSubmit` calls `handleInstallService` again. This recursive call needs to:
+    - Have its installation status correctly reset (e.g., to 'idle' in `installTasks`) before the recursive call to avoid "already in progress" errors from the store.
+    - Correctly carry forward both previously accumulated `pendingEnvVars` and the new `userInputVars` from the modal.
+- **Variable Propagation:** Ensuring the variables entered by the user in the modal (`userInputVars`) are correctly merged with any `pendingEnvVars` and passed through `handleInstallService` to the `installService` action in the store, and finally included in the `user_provided_env_vars` field of the API request body. The user reported an issue where newly entered variables were not appearing in the submission.
+
+## High-level Task Breakdown
+1.  **Feature: Environment Variable Input Modal** - Task File: `.cursor/feature-env-var-modal.md` (Largely completed)
+    *   Backend API adjustment for env var responses.
+    *   Frontend `EnvVarInputModal` component creation.
+    *   Logic in `ServiceMarketplace.tsx` to show modal.
+    *   Type and data flow fixes in `marketStore.ts` and API calls.
+2.  **BugFix: Install Button Stuck on "Installing..." after Modal Cancel** - Task File: `.cursor/bugfix-install-button-stuck.md` (Completed)
+    *   Reset `installTasks[serviceId].status` to 'idle' when modal is cancelled.
+3.  **BugFix: Variables Not Submitted After Modal Input** - Task File: `.cursor/fix-env-var-submission.md` (Active)
+    *   Verify variable capture in Modal.
+    *   Verify variable merging and passing in `ServiceMarketplace.tsx`.
+    *   Verify variable reception and usage in `marketStore.ts`.
+    *   Ensure the HTTP request payload is correct.
+
+## Project Status Board
+- **Active Task File:** `.cursor/fix-env-var-submission.md`
+- `feature-env-var-modal.md`: Completed
+- `bugfix-install-button-stuck.md`: Completed
+
+## Executor's Feedback or Assistance Requests
+- Waiting for approval to apply logging and fixes for env var submission.
+
+## Lessons
+- Axios interceptors can alter the shape of API responses; ensure store actions and component logic are consistent with the actual data structure returned by the API client.
+- When dealing with multi-step operations (like install -> input env -> re-install), carefully manage and reset intermediate states (e.g., installation task status) to allow the flow to proceed correctly.
+- Explicitly log data at each step of a complex flow to verify propagation.
+
+## User Specified Lessons
+- Include info useful for debugging in the program output.
+- Read the file before you try to edit it.
+- Always ask before using the -force git command

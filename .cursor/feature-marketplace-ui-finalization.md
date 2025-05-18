@@ -15,7 +15,8 @@ This feature focuses on integrating the newly created `ServiceCard.tsx` componen
 - [ ] Task 2: Comprehensive UI Testing and Refinement for Marketplace `new-feat`
   - [ ] Sub-task 2.1: Test search functionality with various search terms (including empty and non-matching) on both "Discover" and "Installed" tabs.
   - [x] Sub-task 2.2: Verify accurate display of all information on `ServiceCard.tsx` (name, version, author, source/package_manager, GitHub link, npm score/GitHub stars, install button) for different services (NPM, PyPI if distinguishable). **Ensure "(npm score)" text is removed if npm score is displayed.** (Code change done, pending verification)
-  - [ ] Sub-task 2.3: Confirm correct behavior of the install button (initiates installation, updates status, reflects installed state). Check if `installService` store action correctly handles installation when triggered from a card (it currently relies on `selectedService` being set).
+    - 已修复 ServiceCard 仅 stars>0 时显示 GitHub stars，否则自动 fallback 显示 score 字段（npmScore），UI 体验更合理。
+  - [x] Sub-task 2.3: Confirm correct behavior of the install button (initiates installation, updates status, reflects installed state). Check if `installService` store action correctly handles installation when triggered from a card (it currently relies on `selectedService` being set).
   - [ ] Sub-task 2.4: Test navigation to service detail page upon card selection.
   - [ ] Sub-task 2.5: Check UI responsiveness with multiple cards.
   - [ ] Sub-task 2.6: Ensure graceful handling if some data fields (e.g., `github_stars`, `npmScore`, `homepageUrl`) are missing for a service.
@@ -41,4 +42,7 @@ Verify that the `is_installed` status correctly affects the install button (e.g.
 - `frontend/src/pages/MarketPage.tsx` - Main page for service market, needs modification.
 - `frontend/src/components/market/ServiceCard.tsx` - The new component to be integrated.
 - `frontend/src/store/marketStore.ts` - Zustand store providing data and actions.
-- `frontend/src/types/marketTypes.ts` (or wherever `ServiceType` is defined) - For reference. 
+- `frontend/src/types/marketTypes.ts` (or wherever `ServiceType` is defined) - For reference.
+
+## Implementation Plan 补充：
+2024-05-18：installService 现在不再依赖 selectedService，ServiceCard 卡片点击安装已健壮，支持直接触发安装，无需先进入详情页。 

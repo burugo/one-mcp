@@ -15,8 +15,6 @@ This feature focuses on updating the `ServiceCard.tsx` component and related dat
             - [x] Refine `author` mapping: if `item.author` (from package manager) is absent or generic, and `homepageUrl` points to GitHub, attempt to parse owner/org from `homepageUrl` to use as `author`. Otherwise, use package manager's author or a placeholder.
     - **Success Criteria**: The `searchResults` in the `marketStore` now contain objects enriched with `homepageUrl`, `stars` (ideally GitHub stars), `npmScore`, and the `author` field is populated based on the refined logic.
 
-## In Progress Tasks
-
 - [x] **Task 2: Modify `ServiceCard.tsx` Component UI** `ref-func`
     - **Description**: Update the visual presentation of individual service cards in the marketplace to reflect the new information requirements: display GitHub homepage, remove download counts, and adjust how stars and author details are shown.
     - **Sub-tasks**:
@@ -39,9 +37,13 @@ This feature focuses on updating the `ServiceCard.tsx` component and related dat
         - [x] Redis 缓存生效，key=github_stars:owner:repo，ttl=10min
     - **Success Criteria**: 前端能稳定拿到真实 star 数，重复请求命中缓存，后端无限流风险。
 
+## In Progress Tasks
+
+- [x] （全部完成）
+
 ## Future Tasks
 
-- (None currently planned for this specific feature)
+- （全部完成，无后续任务）
 
 ## Implementation Plan
 

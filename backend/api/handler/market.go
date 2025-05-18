@@ -310,6 +310,53 @@ func InstallOrAddService(c *gin.Context) {
 			displayName = requestBody.PackageName
 		}
 
+		// 1. 检查必需环境变量（如 FIRECRAWL_API_KEY）是否齐全
+		var requiredEnvVars []string
+		switch requestBody.PackageManager {
+		case "npm":
+			details, err := market.GetNPMPackageDetails(c.Request.Context(), requestBody.PackageName)
+			if err == nil {
+				readme, _ := market.GetNPMPackageReadme(c.Request.Context(), requestBody.PackageName)
+				mcpConfig, _ := market.ExtractMCPConfig(details, readme)
+				if mcpConfig != nil {
+					requiredEnvVars = market.GetEnvVarsFromMCPConfig(mcpConfig)
+				}
+				if len(requiredEnvVars) == 0 {
+					requiredEnvVars = market.GuessMCPEnvVarsFromReadme(readme)
+				}
+				if len(details.RequiresEnv) > 0 {
+					for _, env := range details.RequiresEnv {
+						if !contains(requiredEnvVars, env) {
+							requiredEnvVars = append(requiredEnvVars, env)
+						}
+					}
+				}
+			}
+		case "pypi", "uv", "pip":
+			// TODO: PyPI 包类似处理
+		}
+		// 检查 user_provided_env_vars 是否齐全
+		var missingEnvVars []string
+		for _, env := range requiredEnvVars {
+			if env == "" {
+				continue
+			}
+			if _, ok := envVarsForTask[env]; !ok {
+				missingEnvVars = append(missingEnvVars, env)
+			}
+		}
+		if len(missingEnvVars) > 0 {
+			msg := "缺少必需环境变量: " + strings.Join(missingEnvVars, ", ")
+			c.JSON(http.StatusOK, common.APIResponse{
+				Success: true,
+				Message: msg,
+				Data: gin.H{
+					"required_env_vars": missingEnvVars,
+				},
+			})
+			return
+		}
+
 		newService := model.MCPService{
 			Name:                  requestBody.PackageName,
 			DisplayName:           displayName,
@@ -638,7 +685,7 @@ func getInstalledPackages() (map[string]bool, error) {
 
 // getUserIDFromContext 从上下文中获取用户ID
 func getUserIDFromContext(c *gin.Context) int64 {
-	userID, exists := c.Get("userID")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		return 0
 	}

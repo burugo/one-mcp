@@ -4,7 +4,8 @@
 if [ -f .env ]; then
   export $(cat .env | xargs)
 fi
-
+# 确保 PATH 包含 /usr/local/bin
+export PATH=$PATH:/usr/local/bin
 # 杀掉占用 3000 端口的进程
 lsof -ti:3000 | xargs kill -9 2>/dev/null
 
