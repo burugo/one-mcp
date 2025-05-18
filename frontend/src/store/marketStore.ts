@@ -275,13 +275,14 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     installService: async (serviceId, envVars) => {
-        const { selectedService, activeTab } = get();
+        const { searchResults, installedServices, activeTab } = get();
 
-        if (!selectedService) return;
+        // 直接从 searchResults 或 installedServices 查找 service 信息
+        const service = [...searchResults, ...installedServices].find(s => s.id === serviceId);
+        if (!service) return;
 
         // Determine source_type based on activeTab or other logic if needed
-        // For now, assuming all installs from here are 'marketplace'
-        const sourceType = 'marketplace'; // Or determine dynamically if other types are installed via this flow
+        const sourceType = 'marketplace';
 
         const currentTaskState = get().installTasks[serviceId];
         if (currentTaskState && currentTaskState.status === 'installing') {
@@ -306,13 +307,12 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         try {
             const requestBody = {
                 source_type: sourceType,
-                package_name: selectedService.name,
-                package_manager: selectedService.source, // 'source' field in frontend maps to package_manager
-                version: selectedService.version,      // Add version
-                user_provided_env_vars: envVars,     // Use correct backend key
-                // Optional fields, can be added if available from selectedService or UI
-                display_name: selectedService.name,
-                service_description: selectedService.description,
+                package_name: service.name,
+                package_manager: service.source,
+                version: service.version,
+                user_provided_env_vars: envVars,
+                display_name: service.name,
+                service_description: service.description,
             };
 
             const response = await api.post('/mcp_market/install_or_add_service', requestBody);
@@ -322,21 +322,19 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             }
 
             const { mcp_service_id, task_id, status } = response.data;
-            const effectiveTaskId = task_id || mcp_service_id; // Use mcp_service_id as taskId for polling if task_id is not present (e.g. for already installed adding instance)
+            const effectiveTaskId = task_id || mcp_service_id;
 
             if (status === 'already_installed_instance_added') {
                 get().updateInstallStatus(serviceId, 'success', 'Service instance added successfully.');
-                get().fetchInstalledServices(); // Refresh installed list
-                // Potentially clear selected service or navigate
+                get().fetchInstalledServices();
                 get().clearSelectedService();
-
             } else if (effectiveTaskId) {
                 set(state => ({
                     installTasks: {
                         ...state.installTasks,
                         [serviceId]: {
                             ...state.installTasks[serviceId],
-                            taskId: effectiveTaskId, // Store the taskId from backend
+                            taskId: effectiveTaskId,
                             logs: [...(state.installTasks[serviceId]?.logs || []), `Installation task submitted (Task ID: ${effectiveTaskId}). Polling for status...`]
                         }
                     }
