@@ -41,6 +41,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
     };
 
     const authorDisplay = getAuthorDisplay();
+    const isGithub = !!(service.homepageUrl && service.homepageUrl.includes('github.com'));
 
     return (
         <div className="bg-card border border-border rounded-lg p-4 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-200 group">
@@ -74,16 +75,16 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
             </p>
 
             <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
-                {/* GitHub Stars Display (仅 stars 有效且大于 0 时显示) */}
-                {Number.isFinite(service.stars) && service.stars > 0 && (
+                {/* GitHub Stars Display (仅主页为 GitHub 且 stars>0 时显示) */}
+                {isGithub && Number.isFinite(service.stars) && service.stars > 0 && (
                     <div className="flex items-center gap-1" title={`${service.stars} GitHub Stars`}>
                         <Star size={14} className="text-yellow-400 fill-yellow-400" />
                         <span>{service.stars.toLocaleString()}</span>
                     </div>
                 )}
 
-                {/* npm Score Display (stars 无效或为 0 时 fallback) */}
-                {(!(Number.isFinite(service.stars) && service.stars > 0)) && Number.isFinite(service.npmScore) && (
+                {/* npm Score Display (有值就显示) */}
+                {Number.isFinite(service.npmScore) && (
                     <div className="flex items-center gap-1" title={`${service.npmScore} npm Score`}>
                         <TrendingUp size={14} className="text-blue-500" />
                         <span>{service.npmScore.toLocaleString()}</span>
