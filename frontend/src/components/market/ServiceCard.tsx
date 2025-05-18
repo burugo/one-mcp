@@ -74,16 +74,16 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
             </p>
 
             <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
-                {/* GitHub Stars Display (replaces old downloads section) */}
-                {typeof service.stars === 'number' && (
+                {/* GitHub Stars Display (仅 stars 有效且大于 0 时显示) */}
+                {Number.isFinite(service.stars) && service.stars > 0 && (
                     <div className="flex items-center gap-1" title={`${service.stars} GitHub Stars`}>
                         <Star size={14} className="text-yellow-400 fill-yellow-400" />
                         <span>{service.stars.toLocaleString()}</span>
                     </div>
                 )}
 
-                {/* npm Score Display (replaces old stars section IF GitHub stars are not available) */}
-                {typeof service.stars !== 'number' && typeof service.npmScore === 'number' && (
+                {/* npm Score Display (stars 无效或为 0 时 fallback) */}
+                {(!(Number.isFinite(service.stars) && service.stars > 0)) && Number.isFinite(service.npmScore) && (
                     <div className="flex items-center gap-1" title={`${service.npmScore} npm Score`}>
                         <TrendingUp size={14} className="text-blue-500" />
                         <span>{service.npmScore.toLocaleString()}</span>
