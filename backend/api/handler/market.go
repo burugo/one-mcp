@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -784,10 +785,87 @@ func SearchMCPMarket(c *gin.Context) {
 // @Failure 500 {object} common.APIResponse
 // @Router /api/mcp_market/installed [get]
 func ListInstalledMCPServices(c *gin.Context) {
-	installed, err := market.GetInstalledMCPServersFromDB()
+	// 获取所有已启用服务
+	services, err := model.GetEnabledServices()
 	if err != nil {
 		common.RespError(c, 500, "list_installed_failed", err)
 		return
 	}
-	common.RespSuccess(c, installed)
+
+	userID := int64(0)
+	if uid, exists := c.Get("user_id"); exists {
+		userID, _ = uid.(int64)
+	}
+
+	var result []map[string]interface{}
+	for _, svc := range services {
+		// 获取所有环境变量定义
+		configs, _ := model.GetConfigOptionsForService(svc.ID)
+		// 获取用户配置（如有）
+		userConfigs, _ := model.GetUserConfigsForService(userID, svc.ID)
+		userConfigMap := map[int64]string{}
+		for _, uc := range userConfigs {
+			userConfigMap[uc.ConfigID] = uc.Value
+		}
+		// 组装 env_vars
+		envVars := map[string]string{}
+		for _, cfg := range configs {
+			val := cfg.DefaultValue
+			if v, ok := userConfigMap[cfg.ID]; ok && v != "" {
+				val = v
+			}
+			envVars[cfg.Key] = val
+		}
+		// 转为 map[string]interface{}，并加上 env_vars 字段
+		svcMap := map[string]interface{}{}
+		b, _ := json.Marshal(svc)
+		_ = json.Unmarshal(b, &svcMap)
+		svcMap["env_vars"] = envVars
+		result = append(result, svcMap)
+	}
+	common.RespSuccess(c, result)
+}
+
+// PatchEnvVar godoc
+// @Summary 单独保存服务环境变量
+// @Description 更新指定服务的单个环境变量
+// @Tags Market
+// @Accept json
+// @Produce json
+// @Param body body map[string]interface{} true "请求体"
+// @Security ApiKeyAuth
+// @Success 200 {object} common.APIResponse
+// @Failure 400 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_market/env_var [patch]
+func PatchEnvVar(c *gin.Context) {
+	lang := c.GetString("lang")
+	var req struct {
+		ServiceID int64  `json:"service_id" binding:"required"`
+		VarName   string `json:"var_name" binding:"required"`
+		VarValue  string `json:"var_value" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_request_data", lang), err)
+		return
+	}
+	userID := getUserIDFromContext(c)
+	// 查找变量定义
+	configOpt, err := model.GetConfigOptionByKey(req.ServiceID, req.VarName)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("config_option_not_found", lang), err)
+		return
+	}
+	// 查找/保存 UserConfig
+	userConfig := &model.UserConfig{
+		UserID:    userID,
+		ServiceID: req.ServiceID,
+		ConfigID:  configOpt.ID,
+		Value:     req.VarValue,
+	}
+	if err := model.SaveUserConfig(userConfig); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("save_user_config_failed", lang), err)
+		return
+	}
+	common.RespSuccessStr(c, i18n.Translate("env_var_saved_successfully", lang))
 }

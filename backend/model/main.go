@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/gob"
 	"one-mcp/backend/common"
 
 	"github.com/burugo/thing"
@@ -10,6 +11,10 @@ import (
 
 // 全局变量用于兼容旧代码，后续可逐步移除
 // var DB *gorm.DB
+
+func init() {
+	gob.Register(ServiceCategory(""))
+}
 
 func createRootAccountIfNeed() error {
 	// 检查是否有用户，无则创建 root 用户

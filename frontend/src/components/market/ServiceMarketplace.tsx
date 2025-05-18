@@ -36,16 +36,12 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
 
     // 初始化加载
     useEffect(() => {
-        if (activeTab === 'installed') {
-            fetchInstalledServices();
-        } else {
-            searchServices();
-        }
-    }, [activeTab, searchServices, fetchInstalledServices]);
+        searchServices();
+    }, [activeTab, searchServices]);
 
     // 处理标签页切换
     const handleTabChange = (value: string) => {
-        setActiveTab(value as 'all' | 'npm' | 'pypi' | 'recommended' | 'installed');
+        setActiveTab(value as 'all' | 'npm');
         searchServices();
     };
 
@@ -100,7 +96,7 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
     };
 
     // 将当前显示的服务列表计算出来
-    const displayedServices = activeTab === 'installed' ? installedServices : searchResults;
+    const displayedServices = searchResults;
 
     return (
         <div className="flex-1 space-y-6">
@@ -135,14 +131,10 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
 
             {/* 选项卡分类 */}
             <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
-                <TabsList className="w-full max-w-lg grid grid-cols-5 gap-4">
+                <TabsList className="w-full max-w-lg grid grid-cols-2 gap-4">
                     <TabsTrigger value="all" className="px-4">All</TabsTrigger>
                     <TabsTrigger value="npm" className="px-4">NPM</TabsTrigger>
-                    <TabsTrigger value="pypi" className="px-4">PyPI</TabsTrigger>
-                    <TabsTrigger value="recommended" className="px-4">Recommended</TabsTrigger>
-                    <TabsTrigger value="installed" className="px-4">Installed</TabsTrigger>
                 </TabsList>
-
                 <TabsContent value="all" className="mt-6">
                     <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                         {displayedServices.map(service => (
@@ -166,37 +158,29 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                         )}
                     </div>
                 </TabsContent>
-
-                {/* 其他标签页内容类似 */}
-                {['npm', 'pypi', 'recommended', 'installed'].map(tab => (
-                    <TabsContent value={tab} key={tab} className="mt-6">
-                        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                            {displayedServices
-                                .filter(service => tab === 'installed' ? service.isInstalled : service.source === tab)
-                                .map(service => (
-                                    <ServiceCard
-                                        key={service.id}
-                                        service={service}
-                                        onSelect={onSelectService}
-                                        onInstall={handleInstallService}
-                                    />
-                                ))}
-                            {isSearching && (
-                                <div className="col-span-3 text-center py-8">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                                    <p className="mt-4 text-muted-foreground">Loading services...</p>
-                                </div>
-                            )}
-                            {!isSearching && displayedServices.filter(service =>
-                                tab === 'installed' ? service.isInstalled : service.source === tab
-                            ).length === 0 && (
-                                    <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                        <p>{`No ${tab} services available.`}</p>
-                                    </div>
-                                )}
-                        </div>
-                    </TabsContent>
-                ))}
+                <TabsContent value="npm" className="mt-6">
+                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                        {displayedServices.filter(service => service.source === 'npm').map(service => (
+                            <ServiceCard
+                                key={service.id}
+                                service={service}
+                                onSelect={onSelectService}
+                                onInstall={handleInstallService}
+                            />
+                        ))}
+                        {isSearching && (
+                            <div className="col-span-3 text-center py-8">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                                <p className="mt-4 text-muted-foreground">Searching for services...</p>
+                            </div>
+                        )}
+                        {!isSearching && displayedServices.filter(service => service.source === 'npm').length === 0 && (
+                            <div className="col-span-3 text-center py-8 text-muted-foreground">
+                                <p>No npm services available.</p>
+                            </div>
+                        )}
+                    </div>
+                </TabsContent>
             </Tabs>
             <EnvVarInputModal
                 open={envModalVisible}

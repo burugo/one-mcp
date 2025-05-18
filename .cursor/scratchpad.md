@@ -162,6 +162,7 @@ Active Task File: feature-service-card-refine.md
 - .cursor/feature-backend-installer.md: Backend work for MCP server installation. (Status: Task 5 - Testing for PyPI/uvx is pending)
 - .cursor/feature-service-card-refine.md: (Status: Completed) 后端 stars 聚合与缓存链路打通，接口 contract 满足需求，全部任务已完成。
 - .cursor/feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
+- feature-marketplace-services-split.md: 环境变量编辑功能已完成并通过验收，PATCH /api/mcp_market/env_var 路由已注册，前后端联调通过。
 
 # Executor's Feedback or Assistance Requests
 
@@ -302,3 +303,53 @@ Key requirements:
 - Include info useful for debugging in the program output.
 - Read the file before you try to edit it.
 - Always ask before using the -force git command
+
+### 服务市场与服务管理分工、环境变量配置与权限机制（2024-05-XX 补充）
+
+本阶段目标是实现服务市场（Service Marketplace）与服务管理（Services）页面的分工重构，以及环境变量配置弹窗、后端接口与权限机制的完善。具体包括：
+- Service Marketplace 仅做"发现/安装"，移除"已安装""PyPI""Recommended"tab，仅保留 All/NPM。
+- Services 页面专注"管理/配置/统计"，数据源切换为 store 的 fetchInstalledServices，支持"全部/Active/Inactive"tab，按服务状态过滤。
+- 安装服务时，若后端返回缺少环境变量，前端弹出 EnvVarInputModal 让用户补全。
+- 新增 ServiceConfigModal 组件，支持展示/编辑所有环境变量、逐项保存、SSE/HTTP endpoint 展示与一键复制。
+- 后端接口 /api/mcp_market/installed 返回 env_vars 字段，PATCH /api/mcp_market/env_var 支持单独保存服务环境变量。
+- 环境变量无默认值，只有"管理员共享"与"用户私有"两种模式，权限与数据流同步调整。
+
+## Key Challenges and Analysis
+
+### 服务市场/服务管理分工与环境变量权限机制（2024-05-XX 补充）
+
+- 前后端需严格区分"发现/安装"与"管理/配置"两大页面的数据流和交互，避免混淆。
+- 环境变量配置需支持"管理员共享"与"用户私有"两级，无默认值，优先级为：用户私有 > 管理员共享 > 空。
+- 仅管理员可切换共享状态，普通用户只能填写自己的值，不能更改共享状态。
+- 后端需在 ConfigService 增加 is_shared 字段，接口查询/保存时需做权限校验。
+- 前端 ServiceConfigModal 需根据权限渲染锁图标、只读/可编辑状态。
+- 多用户场景下需确保数据隔离与权限安全。
+- UI 需优化弹窗、按钮、endpoint 复制等细节，提升交互体验。
+
+## High-level Task Breakdown
+
+### 服务市场/服务管理分工与环境变量权限机制（2024-05-XX 补充）
+
+- Marketplace 页面重构，仅保留 All/NPM tab，聚焦服务发现与安装。
+- Services 页面重构，数据源切换为 store 的 fetchInstalledServices，支持按状态过滤。
+- 环境变量弹窗与配置：
+    - 安装服务时缺少变量弹 EnvVarInputModal。
+    - Services 页面支持 ServiceConfigModal，展示/编辑所有变量，逐项保存。
+    - 支持 endpoint 一键复制与反馈。
+- 后端接口调整：
+    - /api/mcp_market/installed 返回 env_vars 字段。
+    - PATCH /api/mcp_market/env_var 支持单独保存变量，参数 service_id, var_name, var_value。
+    - ConfigService 增加 is_shared 字段，权限校验与优先级逻辑。
+- 权限与共享机制：
+    - 管理员可切换变量共享状态，普通用户只能填写私有值。
+    - 查询优先级：用户私有 > 管理员共享 > 空。
+    - 前端 UI 按权限渲染交互。
+- 任务文档与状态同步，便于后续迭代。
+
+## Project Status Board
+
+Active Task File: feature-marketplace-services-split.md
+
+- feature-marketplace-services-split.md: 服务市场/服务管理分工与环境变量权限机制重构，进行中。
+
+- 服务环境变量编辑功能已完成，PATCH /api/mcp_market/env_var 路由已注册，前端 UI/交互/保存均已通过验收。

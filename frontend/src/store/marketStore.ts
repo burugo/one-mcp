@@ -175,19 +175,25 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         try {
             const response = await api.get('/mcp_market/installed') as APIResponse<any>;
 
-            if (response.success && response.data) {
-                // 将已安装服务数据转换为 ServiceType 格式
-                const installedServices = Object.entries(response.data).map(([packageName, info]: [string, any]) => ({
-                    id: info.id || packageName,
-                    name: packageName,
-                    description: info.description || `MCP Server: ${packageName}`,
-                    version: info.version || 'unknown',
-                    source: info.package_manager || 'unknown',
+            if (response.success && Array.isArray(response.data)) {
+                // 直接用后端返回的数组，保留所有字段
+                const installedServices = response.data.map((info: any) => ({
+                    ...info,
+                    id: info.id || info.Name || info.name, // 兼容各种 id 字段
+                    name: info.Name || info.name,
+                    display_name: info.DisplayName || info.display_name || info.Name || info.name,
+                    description: info.Description || info.description || '',
+                    version: info.InstalledVersion || info.version || 'unknown',
+                    source: info.PackageManager || info.package_manager || 'unknown',
                     author: 'Installed',
                     stars: 0,
                     npmScore: undefined,
                     homepageUrl: undefined,
-                    isInstalled: true
+                    isInstalled: true,
+                    env_vars: info.env_vars || {},
+                    health_status: info.HealthStatus || info.health_status || '',
+                    health_details: info.HealthDetails || info.health_details || '',
+                    enabled: typeof info.Enabled === 'boolean' ? info.Enabled : undefined,
                 }));
 
                 set({
