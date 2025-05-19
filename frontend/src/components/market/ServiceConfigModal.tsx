@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
+import { useServerAddress } from '@/hooks/useServerAddress';
 
 interface ServiceConfigModalProps {
     open: boolean;
@@ -22,6 +23,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
     const [saving, setSaving] = useState<string | null>(null);
     const [copied, setCopied] = useState<{ [k: string]: boolean }>({});
     const [error, setError] = useState<string | null>(null);
+    const serverAddress = useServerAddress();
 
     React.useEffect(() => {
         setEnvValues(getEnvVars(service));
@@ -51,8 +53,8 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
     };
 
     // 生成 endpoint
-    const sseEndpoint = `/api/sse/${service?.name || ''}`;
-    const httpEndpoint = `/api/http/${service?.name || ''}`;
+    const sseEndpoint = serverAddress ? `${serverAddress}/api/sse/${service?.name || ''}` : '';
+    const httpEndpoint = serverAddress ? `${serverAddress}/api/http/${service?.name || ''}` : '';
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
@@ -98,22 +100,24 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                 <div className="mt-6 space-y-3">
                     <div className="flex items-center gap-2">
                         <span className="w-28 text-sm font-medium">SSE Endpoint</span>
-                        <Input value={sseEndpoint} readOnly className="flex-1" />
+                        <Input value={sseEndpoint} readOnly className="flex-1" placeholder={!serverAddress ? '未配置服务器地址' : ''} />
                         <Button
                             size="icon"
                             variant="ghost"
                             onClick={() => handleCopy('sse', sseEndpoint)}
+                            disabled={!sseEndpoint}
                         >
                             {copied['sse'] ? <Check className="text-green-500 w-5 h-5" /> : <Copy className="w-5 h-5" />}
                         </Button>
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="w-28 text-sm font-medium">HTTP Endpoint</span>
-                        <Input value={httpEndpoint} readOnly className="flex-1" />
+                        <Input value={httpEndpoint} readOnly className="flex-1" placeholder={!serverAddress ? '未配置服务器地址' : ''} />
                         <Button
                             size="icon"
                             variant="ghost"
                             onClick={() => handleCopy('http', httpEndpoint)}
+                            disabled={!httpEndpoint}
                         >
                             {copied['http'] ? <Check className="text-green-500 w-5 h-5" /> : <Copy className="w-5 h-5" />}
                         </Button>

@@ -590,3 +590,62 @@ func CheckMCPServiceHealth(c *gin.Context) {
 
 	common.RespSuccess(c, healthData)
 }
+
+// RestartMCPService godoc
+// @Summary 重启MCP服务
+// @Description 重启一个MCP服务
+// @Tags MCP Services
+// @Accept json
+// @Produce json
+// @Param id path int true "服务ID"
+// @Security ApiKeyAuth
+// @Success 200 {object} common.APIResponse
+// @Failure 400 {object} common.APIResponse
+// @Failure 404 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_services/{id}/restart [post]
+func RestartMCPService(c *gin.Context) {
+	lang := c.GetString("lang")
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_service_id", lang), err)
+		return
+	}
+
+	// 获取服务信息
+	service, err := model.GetServiceByID(id)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
+		return
+	}
+
+	// 获取服务管理器
+	serviceManager := proxy.GetServiceManager()
+
+	// 检查服务是否已经注册
+	_, err = serviceManager.GetService(id)
+	if err == proxy.ErrServiceNotFound {
+		// 服务尚未注册，尝试注册
+		ctx := c.Request.Context()
+		if err := serviceManager.RegisterService(ctx, service); err != nil {
+			common.RespError(c, http.StatusInternalServerError, i18n.Translate("register_service_failed", lang), err)
+			return
+		}
+	}
+
+	// 重启服务
+	ctx := c.Request.Context()
+	if err := serviceManager.RestartService(ctx, id); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("restart_service_failed", lang), err)
+		return
+	}
+
+	// 更新数据库中的健康状态
+	if err := serviceManager.UpdateMCPServiceHealth(id); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("update_service_health_failed", lang), err)
+		return
+	}
+
+	common.RespSuccessStr(c, i18n.Translate("service_restarted_successfully", lang))
+}

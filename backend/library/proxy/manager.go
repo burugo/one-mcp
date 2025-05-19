@@ -56,6 +56,9 @@ func (m *ServiceManager) Initialize(ctx context.Context) error {
 	// 启动健康检查
 	m.healthChecker.Start()
 
+	// 启动自动重启守护线程
+	m.StartDaemon()
+
 	// 加载并注册所有启用的服务
 	services, err := model.GetEnabledServices()
 	if err != nil {
@@ -309,4 +312,40 @@ func (m *ServiceManager) UpdateMCPServiceHealth(serviceID int64) error {
 	}
 
 	return nil
+}
+
+// StartDaemon starts the daemon thread for auto-restarting stopped services
+func (m *ServiceManager) StartDaemon() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			m.mutex.RLock()
+			services := make([]Service, 0, len(m.services))
+			for _, service := range m.services {
+				services = append(services, service)
+			}
+			m.mutex.RUnlock()
+
+			for _, service := range services {
+				// 检查服务状态
+				health, err := m.ForceCheckServiceHealth(service.ID())
+				if err != nil {
+					continue
+				}
+
+				// 如果服务已停止，尝试重启
+				if health.Status == StatusStopped {
+					ctx := context.Background()
+					if err := m.RestartService(ctx, service.ID()); err != nil {
+						// 记录错误但继续处理其他服务
+						log.Printf("Failed to auto-restart service %d: %v", service.ID(), err)
+						continue
+					}
+					log.Printf("Auto-restarted stopped service: %s (ID: %d)", service.Name(), service.ID())
+				}
+			}
+		}
+	}()
 }

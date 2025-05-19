@@ -13,7 +13,7 @@ import api from '@/utils/api';
 export function ServicesPage() {
     const { toast } = useToast();
     const navigate = useNavigate();
-    const { installedServices, fetchInstalledServices } = useMarketStore();
+    const { installedServices, fetchInstalledServices, restartService } = useMarketStore();
     const [configModalOpen, setConfigModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<any>(null);
 

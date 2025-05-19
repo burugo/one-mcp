@@ -54,3 +54,23 @@ func OptionInit() error {
 	}
 	return nil
 }
+
+// InitOptionMapFromDB loads all options from the database into OptionMap
+func InitOptionMapFromDB() error {
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
+	if OptionMap == nil {
+		OptionMap = make(map[string]string)
+	}
+	if OptionDB == nil {
+		return nil // OptionDB not initialized
+	}
+	options, err := OptionDB.All()
+	if err != nil {
+		return err
+	}
+	for _, opt := range options {
+		OptionMap[opt.Key] = opt.Value
+	}
+	return nil
+}

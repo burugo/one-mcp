@@ -2,27 +2,24 @@ package handler
 
 import (
 	"encoding/json"
+	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 	"one-mcp/backend/service"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"strings"
 )
 
 func GetOptions(c *gin.Context) {
-	var options []*model.Option
-	common.OptionMapRWMutex.Lock()
-	for k, v := range common.OptionMap {
-		if strings.Contains(k, "Token") || strings.Contains(k, "Secret") {
-			continue
-		}
-		options = append(options, &model.Option{
-			Key:   k,
-			Value: common.Interface2String(v),
+	options, err := model.OptionDB.All()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+			"data":    nil,
 		})
+		return
 	}
-	common.OptionMapRWMutex.Unlock()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

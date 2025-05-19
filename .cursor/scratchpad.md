@@ -203,6 +203,7 @@ Active Task File: feature-service-card-refine.md
     3. 由于SSE和StreamableHTTP本身即为远端服务类型，无需单独的`ServiceTypeRemote`类型。
 *   Redis 缓存极大提升了 stars 聚合性能和抗限流能力。
 *   .env 文件被 .gitignore 忽略，敏感信息不应纳入版本控制。
+*   Go 单元测试用 SQLite 内存数据库时，ORM 全局和 model 层必须共用同一个 dbAdapter，不能多次 new，避免 :memory: 连接隔离。推荐在测试用例里只 new 一次 dbAdapter，并传给 ORM 和 model，所有表结构和数据操作都在同一连接下完成。
 
 ## User Specified Lessons
 

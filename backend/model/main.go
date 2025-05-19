@@ -14,8 +14,10 @@ import (
 
 func init() {
 	gob.Register(ServiceCategory(""))
+	gob.Register(ServiceType(""))
+	gob.Register(EnvVarDefinition{})
+	gob.Register(ClientTemplateDetail{})
 }
-
 func createRootAccountIfNeed() error {
 	// 检查是否有用户，无则创建 root 用户
 	userThing, err := thing.Use[*User]()
@@ -71,6 +73,9 @@ func InitDB() (err error) {
 		return err
 	}
 	if err := OptionInit(); err != nil {
+		return err
+	}
+	if err := InitOptionMapFromDB(); err != nil {
 		return err
 	}
 	if err := MCPServiceInit(); err != nil {
