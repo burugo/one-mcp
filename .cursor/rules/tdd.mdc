@@ -13,4 +13,76 @@ Always use: `go test -v ./tests | grep FAIL`
 **Recommended Alternatives:**
 *   **Specific Tests:** `go test -v ./... -run ^TestSpecificFunction$` (Fastest for pinpointing).
 *   **Filter Full Output:** `go test -v ./... > test_output.log && grep -E '--- FAIL:|FAIL:' test_output.log` (Simple & portable for full runs).
-     
+    
+# 项目结构与技术栈说明
+
+## 目录结构
+
+```
+/one-mcp
+├── backend/           # @backend 后端代码目录
+│   ├── api/           # API 路由与 handler
+│   ├── common/        # 通用工具/中间件
+│   ├── config/        # 配置相关
+│   ├── data/          # 数据访问层
+│   ├── library/       # 第三方库集成
+│   ├── model/         # 数据模型
+│   ├── service/       # 业务逻辑
+│   └── main.go        # 启动入口 main.go
+├── frontend/          # @frontend 前端代码目录
+│   ├── src/           # 前端源码
+│   ├── dist/          # 构建产物
+│   ├── public/        # 静态资源
+│   └── ...            # 其它前端相关文件
+├── run.sh             # @run.sh 启动脚本（加载.env，启动后端 main.go）
+└── ...                # 其它项目文件
+```
+
+## 技术栈
+
+- **后端（@backend）**：
+  - 语言：Go (Golang)
+  - 主要入口：`main.go`
+  - 目录结构分层：api（路由/handler）、service（业务）、model（数据结构）、data（数据访问）、common（工具/中间件）、config（配置）、library（第三方集成）
+  - 启动方式：`run.sh` 脚本自动加载 .env 并运行 main.go
+
+- **前端（@frontend）**：
+  - 语言/框架：TypeScript + React
+  - 构建工具：Vite
+  - UI 组件：shadcn/ui, lucide-react
+  - 状态管理：Zustand
+  - 目录结构：src（源码）、dist（构建产物）、public（静态资源）
+
+- **启动脚本**：
+  - `run.sh`：自动加载 .env，确保 PATH，杀死 3000 端口进程，后台启动 Go 后端，日志输出到 backend.log
+
+---
+
+如需详细子目录结构或技术细节，可进一步补充。
+
+# RESTful 接口返回规范
+
+- 业务流程需要补充信息（如缺少环境变量）时：
+  - 返回：
+    - `success: true`
+    - `data: { required_env_vars: ["ENV1", "ENV2", ...] }`
+    - `message` 可选
+    - HTTP 200
+- 业务失败（如参数非法、权限不足、系统错误）时：
+  - 返回：
+    - `success: false`
+    - `message: "错误描述"`
+    - HTTP 4xx/5xx
+- 成功时：
+  - 返回：
+    - `success: true`
+    - `data: ...`
+    - HTTP 200
+- 推荐所有接口遵循统一的 APIResponse 结构：
+  ```json
+  {
+    "success": true/false,
+    "message": "可选的提示信息",
+    "data": { ... 可选的业务数据 ... }
+  }
+  ```
