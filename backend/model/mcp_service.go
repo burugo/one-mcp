@@ -47,7 +47,7 @@ type EnvVarDefinition struct {
 // MCPService represents an MCP service that can be enabled or configured
 type MCPService struct {
 	thing.BaseModel
-	Name                     string          `db:"name,unique"`
+	Name                     string          `db:"name"`
 	DisplayName              string          `db:"display_name"`
 	Description              string          `db:"description"`
 	Category                 ServiceCategory `db:"category"`

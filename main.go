@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"one-mcp/backend/api/middleware"
@@ -97,6 +98,16 @@ func main() {
 	}
 
 	route.SetRouter(server, buildFS, indexPage)
+	server.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(404, gin.H{
+				"success": false,
+				"message": "API route not found",
+			})
+		} else {
+			c.File("./frontend/dist/index.html")
+		}
+	})
 	var port = os.Getenv("PORT")
 	if port == "" {
 		port = strconv.Itoa(*common.Port)

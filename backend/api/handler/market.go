@@ -434,8 +434,14 @@ func InstallOrAddService(c *gin.Context) {
 // @Router /api/mcp_market/installation_status [get]
 func GetInstallationStatus(c *gin.Context) {
 	lang := c.GetString("lang")
-	serviceIDStr := c.Query("service_id")
-
+	serviceIDStr := c.Param("id")
+	if serviceIDStr == "" {
+		serviceIDStr = c.Query("service_id")
+	}
+	if serviceIDStr == "" {
+		common.RespErrorStr(c, http.StatusNotFound, "service_id required")
+		return
+	}
 	serviceID, err := strconv.ParseInt(serviceIDStr, 10, 64)
 	if err != nil {
 		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_service_id", lang), err)
