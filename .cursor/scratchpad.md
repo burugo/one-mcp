@@ -210,6 +210,45 @@ Relevant Task Files:
 *   feature-service-card-refine.md: (Status: Completed)
 *   feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
 
+## Executor's Feedback or Assistance Requests
+
+- **Updated visual feedback for service installation (as per Task 3.4 in `.cursor/feature-uninstall-service-tasks.md` and user request):**
+    - Removed "installing" toast from `frontend/src/store/marketStore.ts`.
+    - Implemented a loading spinner animation (semi-transparent overlay with `Loader2` icon) in `frontend/src/components/market/ServiceCard.tsx` that shows when `installTask.status` is 'installing'.
+    - The existing "installed" success checkmark animation in `ServiceCard.tsx` will now show *after* the loading spinner disappears, if installation is successful.
+    - **User Action Required (Still applies for success animation)**: Add the following CSS to your global styles for the success checkmark animation:
+      ```css
+      @keyframes success-tick-kf {
+        0% { opacity: 0; transform: scale(0.5); }
+        30% { opacity: 1; transform: scale(1.1); }
+        80% { opacity: 1; transform: scale(1); }
+        100% { opacity: 0; transform: scale(1); }
+      }
+      .animate-success-tick {
+        animation: success-tick-kf 2s ease-out forwards;
+      }
+      ```
+- **Completed Task 3.1 (Add Uninstall button to ServiceCard):**
+    - `ServiceCard.tsx` now shows an 'Uninstall' button for installed services.
+    - This was a `ref-struct` task and user verification was implicitly received by the request to continue.
+
+- **Completed Task 3.2 (Create ConfirmDialog component):**
+    - Created `frontend/src/components/ui/ConfirmDialog.tsx` based on `shadcn/ui AlertDialog`.
+    - **User Action Required**: Ensure `alert-dialog` base component from `shadcn/ui` is installed in the project (e.g., via `npx shadcn-ui@latest add alert-dialog`).
+
+- **Completed Task 3.3 (Integrate Uninstallation Flow in `ServiceCard.tsx`):**
+    - Modified `ServiceCard.tsx` to use `ConfirmDialog` when the 'Uninstall' button is clicked.
+    - The `ConfirmDialog` will then trigger the `uninstallService` action from `marketStore` upon user confirmation.
+
+- **Error Encountered (Vite import analysis - User Reported):**
+    - **Error Message**: `Failed to resolve import "@/components/ui/alert-dialog" from "src/components/ui/ConfirmDialog.tsx". Does the file exist?`
+    - **Reason**: The base `alert-dialog` component from `shadcn/ui` is likely missing from `frontend/src/components/ui/`.
+    - **Solution Provided to User**: Advised user to run `npx shadcn-ui@latest add alert-dialog` in the project terminal to add the missing component, then retry.
+
+- **Next Suggested Steps:**
+    - Await user confirmation that the `alert-dialog` component has been added and the import error is resolved.
+    - If resolved, continue with Task 3.4 (visual feedback for uninstallation).
+
 ## Lessons
 
 *   `ClientConfigTemplates` design is crucial. Simplifying it by linking `client_type` directly to `our_proxy_protocol_for_this_client` makes the export process more deterministic and easier to manage if clients have fixed protocol preferences. Templates then need to use this to construct protocol-specific proxy URLs.
@@ -380,3 +419,27 @@ Active Task File: feature-marketplace-services-split.md
 - feature-marketplace-services-split.md: 服务市场/服务管理分工与环境变量权限机制重构，进行中。
 
 - 服务环境变量编辑功能已完成，PATCH /api/mcp_market/env_var 路由已注册，前端 UI/交互/保存均已通过验收。
+
+## Background and Motivation
+
+近期发现服务卸载功能异常，表现为前端发起卸载请求时页面卡在 loading，返回 HTML 而非 JSON。经分析，原因是前端请求的卸载 API 路由（DELETE /api/mcp_market/services/{serviceId}/uninstall）与后端实际注册的 handler 路由（POST /api/mcp_market/uninstall）不一致，导致请求未命中后端 handler，被 Vite fallback 到前端 SPA。
+
+## Key Challenges and Analysis
+
+- 前端和后端卸载接口路由风格不一致，前端采用 RESTful DELETE 路径参数，后端采用 POST + JSON body。
+- 其他接口均正常，是因为路由和 handler 注册一致。
+- 需统一前后端卸载接口的路由和方法，推荐前端适配后端。
+
+## High-level Task Breakdown
+
+- [ ] 修复前端卸载接口调用方式，确保与后端 handler 对齐。
+- [ ] 测试卸载流程，确保 UI/状态/反馈正常。
+
+## Project Status Board
+
+Active Task File: `.cursor/feature-uninstall-service-tasks.md`
+
+Relevant Task Files:
+*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature (Active).
+
+---

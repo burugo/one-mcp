@@ -3,22 +3,28 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, BarChart, User, PlusCircle } from 'lucide-react';
+import { Search, BarChart, User, PlusCircle, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore } from '@/store/marketStore';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
 import api from '@/utils/api';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export function ServicesPage() {
     const { toast } = useToast();
     const navigate = useNavigate();
-    const { installedServices, fetchInstalledServices, restartService } = useMarketStore();
+    const { installedServices, fetchInstalledServices, restartService, uninstallService, setInstalledServices } = useMarketStore();
     const [configModalOpen, setConfigModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<any>(null);
+    const [uninstallDialogOpen, setUninstallDialogOpen] = useState(false);
+    const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
+    const [removingIds, setRemovingIds] = useState<string[]>([]);
 
     useEffect(() => {
-        fetchInstalledServices();
+        fetchInstalledServices().then(() => {
+            setInstalledServices(useMarketStore.getState().installedServices);
+        });
     }, [fetchInstalledServices]);
 
     // 过滤逻辑
@@ -41,6 +47,24 @@ export function ServicesPage() {
         } else {
             throw new Error(res.message || '保存失败');
         }
+    };
+
+    const handleUninstallClick = (serviceId: string) => {
+        setPendingUninstallId(serviceId);
+        setUninstallDialogOpen(true);
+    };
+    const handleUninstallConfirm = async () => {
+        if (!pendingUninstallId) return;
+        setUninstallDialogOpen(false);
+        try {
+            await uninstallService(pendingUninstallId);
+            toast({ title: '卸载成功', description: '服务已成功卸载', variant: 'success' });
+            // 本地立即移除卡片
+            setInstalledServices(prev => prev.filter(s => s.id !== pendingUninstallId));
+        } catch (e: any) {
+            toast({ title: '卸载失败', description: e?.message || '未知错误', variant: 'destructive' });
+        }
+        setPendingUninstallId(null);
     };
 
     return (
@@ -67,7 +91,7 @@ export function ServicesPage() {
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
                                 <p>No installed services.</p>
                             </div>
-                        ) : allServices.map(service => (
+                        ) : allServices.filter(s => !removingIds.includes(s.id)).map(service => (
                             <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
@@ -88,6 +112,13 @@ export function ServicesPage() {
                                                 </CardDescription>
                                             </div>
                                         </div>
+                                        <button
+                                            className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
+                                            onClick={() => handleUninstallClick(service.id)}
+                                            title="卸载服务"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
                                     </div>
                                 </CardHeader>
                                 <CardContent>
@@ -116,7 +147,7 @@ export function ServicesPage() {
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
                                 <p>No active services.</p>
                             </div>
-                        ) : activeServices.map(service => (
+                        ) : activeServices.filter(s => !removingIds.includes(s.id)).map(service => (
                             <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
@@ -133,6 +164,13 @@ export function ServicesPage() {
                                                 </CardDescription>
                                             </div>
                                         </div>
+                                        <button
+                                            className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
+                                            onClick={() => handleUninstallClick(service.id)}
+                                            title="卸载服务"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
                                     </div>
                                 </CardHeader>
                                 <CardContent>
@@ -161,7 +199,7 @@ export function ServicesPage() {
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
                                 <p>No inactive services.</p>
                             </div>
-                        ) : inactiveServices.map(service => (
+                        ) : inactiveServices.filter(s => !removingIds.includes(s.id)).map(service => (
                             <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
@@ -178,6 +216,13 @@ export function ServicesPage() {
                                                 </CardDescription>
                                             </div>
                                         </div>
+                                        <button
+                                            className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
+                                            onClick={() => handleUninstallClick(service.id)}
+                                            title="卸载服务"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
                                     </div>
                                 </CardHeader>
                                 <CardContent>
@@ -234,6 +279,17 @@ export function ServicesPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            <ConfirmDialog
+                isOpen={uninstallDialogOpen}
+                onOpenChange={setUninstallDialogOpen}
+                title="确认卸载"
+                description="确定要卸载该服务吗？此操作不可撤销。"
+                confirmText="卸载"
+                cancelText="取消"
+                confirmButtonVariant="destructive"
+                onConfirm={handleUninstallConfirm}
+            />
         </div>
     );
 } 

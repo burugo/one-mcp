@@ -140,3 +140,30 @@ button:focus-visible {
     @apply bg-background text-foreground;
   }
 }
+
+/* Animation for successful installation checkmark */
+@keyframes success-tick-kf {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  30% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+
+  80% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+.animate-success-tick {
+  animation: success-tick-kf 2s ease-out forwards;
+}

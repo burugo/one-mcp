@@ -294,14 +294,18 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 
         // 直接从 searchResults 或 installedServices 查找 service 信息
         const service = [...searchResults, ...installedServices].find(s => s.id === serviceId);
-        if (!service) return;
+        if (!service) {
+            console.error(`Service with ID ${serviceId} not found for installation.`);
+            toastEmitter.emit({ variant: "destructive", title: "错误", description: `未能找到ID为 ${serviceId} 的服务。` });
+            return;
+        }
 
         // Determine source_type based on activeTab or other logic if needed
         const sourceType = 'marketplace';
 
         const currentTaskState = get().installTasks[serviceId];
         if (currentTaskState && currentTaskState.status === 'installing') {
-            console.warn(`Installation for ${serviceId} is already in progress.`);
+            console.warn(`Installation for ${service.name} (${serviceId}) is already in progress.`);
             return; // Prevent re-initiating installation
         }
 
@@ -310,7 +314,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             installTasks: {
                 ...state.installTasks,
                 [serviceId]: {
-                    serviceId,
+                    serviceId, // Store serviceId which is the unique ID
                     status: 'installing',
                     logs: ['Installation initiated...'],
                     error: undefined,
@@ -403,6 +407,10 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     pollInstallationStatus: async (serviceId, taskId) => {
         // Implementation for polling installation status
         // This is a simplified version, actual implementation might need more robust logic
+        const { searchResults, installedServices } = get();
+        const service = [...searchResults, ...installedServices].find(s => s.id === serviceId);
+        const serviceDisplayName = service?.name || serviceId; // Use service name if found, else fallback to serviceId
+
         try {
             const response = await api.get(`/mcp_market/install_status/${taskId}`) as APIResponse<any>;
             if (response.success && response.data) {
@@ -410,69 +418,85 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 logs.forEach((log: string) => get().updateInstallProgress(serviceId, log));
                 if (status === 'completed') {
                     get().updateInstallStatus(serviceId, 'success');
-                    toastEmitter.emit({ title: "Installation Complete", description: `${serviceId} installed successfully.` });
+                    toastEmitter.emit({ title: "安装完成", description: `${serviceDisplayName} 已成功安装。` });
                     get().fetchInstalledServices(); // Refresh installed list
                 } else if (status === 'failed') {
                     get().updateInstallStatus(serviceId, 'error', error_message || 'Installation failed');
-                    toastEmitter.emit({ variant: "destructive", title: "Installation Failed", description: error_message || `Failed to install ${serviceId}.` });
+                    toastEmitter.emit({ variant: "destructive", title: "安装失败", description: error_message || `未能安装 ${serviceDisplayName}。` });
                 } else if (status === 'pending' || status === 'running') {
                     // Continue polling
                     setTimeout(() => get().pollInstallationStatus(serviceId, taskId), 5000);
                 }
             } else {
-                // throw new Error(response.message || 'Failed to poll installation status');
-                // If polling fails, show an error but don't necessarily stop an active installation process
-                // Potentially retry polling a few times with backoff
                 console.warn("Failed to poll installation status, or no data:", response.message);
                 get().updateInstallStatus(serviceId, 'error', 'Polling failed. Check server logs.');
-                toastEmitter.emit({ variant: "destructive", title: "Polling Error", description: `Could not get installation status for ${serviceId}.` });
+                toastEmitter.emit({ variant: "destructive", title: "轮询错误", description: `无法获取 ${serviceDisplayName} 的安装状态。` });
             }
         } catch (error) {
             console.error('Polling error:', error);
             get().updateInstallStatus(serviceId, 'error', 'Failed to poll installation status.');
-            toastEmitter.emit({ variant: "destructive", title: "Polling Error", description: `Error polling installation status for ${serviceId}.` });
+            toastEmitter.emit({ variant: "destructive", title: "轮询错误", description: `轮询 ${serviceDisplayName} 安装状态时出错。` });
         }
     },
 
     uninstallService: async (serviceId: string) => {
+        const { searchResults, installedServices } = get();
+        const service = [...searchResults, ...installedServices].find(s => s.id === serviceId);
+        const serviceDisplayName = service?.name || serviceId;
+        const packageName = service?.name || serviceId;
+        const packageManager = service?.source || '';
+
         set(state => ({
             uninstallTasks: {
                 ...state.uninstallTasks,
                 [serviceId]: { status: 'uninstalling', error: undefined },
             },
         }));
+        toastEmitter.emit({ title: "正在卸载", description: `服务 ${serviceDisplayName} 正在卸载中...` });
+
         try {
-            // Assuming serviceId can be directly used in the URL as per API design
-            const response = await api.delete(`/mcp_market/services/${serviceId}/uninstall`) as APIResponse<any>;
+            // 修正为 POST /api/mcp_market/uninstall，body 传 package_name, package_manager
+            const response = await api.post('/mcp_market/uninstall', {
+                package_name: packageName,
+                package_manager: packageManager,
+            }) as APIResponse<any>;
             if (response.success) {
-                set(state => ({
-                    uninstallTasks: {
-                        ...state.uninstallTasks,
-                        [serviceId]: { status: 'idle', error: undefined },
-                    },
-                }));
-                toastEmitter.emit({ title: "Uninstall Successful", description: `Service ${serviceId} uninstalled.` });
-                get().fetchInstalledServices(); // Refresh the list of installed services
-                get().searchServices(); // Also refresh search results if on 'all' tab, as isInstalled might change
+                set(state => {
+                    const updatedSearchResults = state.searchResults.map(s =>
+                        s.id === serviceId ? { ...s, isInstalled: false } : s
+                    );
+                    // 清理 installTasks[serviceId]
+                    const { [serviceId]: _, ...restInstallTasks } = state.installTasks;
+                    return {
+                        uninstallTasks: {
+                            ...state.uninstallTasks,
+                            [serviceId]: { status: 'idle', error: undefined },
+                        },
+                        installTasks: restInstallTasks,
+                        searchResults: updatedSearchResults,
+                    };
+                });
+                toastEmitter.emit({ title: "卸载成功", description: `服务 ${serviceDisplayName} 已卸载。` });
+                // get().searchServices(); // 可选：如需强制刷新
             } else {
-                const errorMsg = response.message || `Failed to uninstall ${serviceId}.`;
+                const errorMsg = response.message || `Failed to uninstall ${serviceDisplayName}.`;
                 set(state => ({
                     uninstallTasks: {
                         ...state.uninstallTasks,
                         [serviceId]: { status: 'error', error: errorMsg },
                     },
                 }));
-                toastEmitter.emit({ variant: "destructive", title: "Uninstall Failed", description: errorMsg });
+                toastEmitter.emit({ variant: "destructive", title: "卸载失败", description: errorMsg });
             }
         } catch (error: any) {
-            const errorMsg = error.response?.data?.message || error.message || `An unknown error occurred while uninstalling ${serviceId}.`;
+            const errorMsg = error.response?.data?.message || error.message || `An unknown error occurred while uninstalling ${serviceDisplayName}.`;
             set(state => ({
                 uninstallTasks: {
                     ...state.uninstallTasks,
                     [serviceId]: { status: 'error', error: errorMsg },
                 },
             }));
-            toastEmitter.emit({ variant: "destructive", title: "Uninstall Error", description: errorMsg });
+            toastEmitter.emit({ variant: "destructive", title: "卸载错误", description: errorMsg });
         }
     },
 })); 

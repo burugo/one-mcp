@@ -50,17 +50,17 @@ Implement the ability for users to uninstall services from the marketplace.
 
 ### Phase 3: Frontend UI & Integration
 
-- [ ] **Task 3.1: Add "Uninstall" Button to `ServiceCard.tsx`** `ref-struct`
+- [x] **Task 3.1: Add "Uninstall" Button to `ServiceCard.tsx`** `ref-struct`
     - **Objective**: For services that are installed, display an "Uninstall" button instead of or in addition to "Installed" / "Details".
     - **Logic**: Button should be visible if `service.isInstalled` (or similar flag) is true and `uninstallTasks[service.id]?.status` is not `'uninstalling'`.
     - **Interaction**: Clicking "Uninstall" should trigger the display of a confirmation dialog.
     - **Success Criteria**: "Uninstall" button appears correctly on installed service cards.
 
-- [ ] **Task 3.2: Implement Uninstall Confirmation Dialog** `new-feat`
+- [x] **Task 3.2: Implement Uninstall Confirmation Dialog** `new-feat`
     - **Objective**: Create or reuse a generic confirmation dialog component (`ConfirmDialog.tsx`).
     - **Content**: "Are you sure you want to uninstall [Service Name]? This action cannot be undone." Buttons: "Cancel", "Uninstall".
     - **Invocation**: `ServiceCard` will show this dialog before calling the `uninstallService` store action.
-    - **Success Criteria**: Confirmation dialog functions correctly and is displayed before uninstallation.
+    - **Success Criteria**: Confirmation dialog functions correctly and is displayed before uninstallation. (Component created, integration pending in Task 3.3)
 
 - [ ] **Task 3.3: Integrate Uninstallation Flow in `ServiceCard.tsx`** `new-feat`
     - **Objective**: Wire up the "Uninstall" button, confirmation dialog, and the `uninstallService` store action.
@@ -70,8 +70,26 @@ Implement the ability for users to uninstall services from the marketplace.
     - **Success Criteria**: Full uninstallation flow is working from the `ServiceCard`, including confirmation and visual feedback.
 
 - [ ] **Task 3.4: Visual Feedback for Installation/Uninstallation** `new-feat`
-    - **Objective**: Implement the "installing" toast, and the "installed" large semi-transparent checkmark animation (fading out over the card center) as previously discussed. Apply similar feedback for "uninstalling" (toast) and "uninstalled" (card reverts to install state).
+    - **Objective**: Implement the "installing" toast, and the "installed" large semi-transparent checkmark animation (fading out over the card center) as previously discussed. Apply similar feedback for "uninstalling" (toast) and "uninstalled" (card reverts to install state). (Installation part DONE, loading spinner + success checkmark implemented)
     - **Success Criteria**: Enhanced visual feedback improves user experience for both install and uninstall operations.
+
+- [ ] **Task 3.5 (BUG): Incorrect `isInstalled` status in marketplace search results** `bug-fix`
+    - **Objective**: Ensure services shown in search results accurately reflect their installation status.
+    - **Investigation**: Check `marketStore.ts` `searchServices` logic and backend API `/mcp_market/services` response.
+    - **Success Criteria**: Search results always show correct installation status.
+
+- [ ] **Task 3.6 (BUG): Uninstall API (`/api/mcp_market/services/{serviceId}/uninstall`) fails** `bug-fix`
+    - **Objective**: Ensure successful service uninstallation via the API.
+    - **Investigation**: Check frontend request in `marketStore.ts` `uninstallService`, check backend API logs/implementation for the uninstall endpoint. Request error details from user.
+    - **Success Criteria**: Uninstall API call succeeds, and service is uninstalled.
+
+- [ ] **Task 3.7: Fix uninstall API route mismatch (前后端卸载接口路由不一致)** `bug-fix`
+    - **Objective**: Align frontend uninstallService API call with backend handler.
+    - **Steps**:
+        1. Update `marketStore.ts` uninstallService to use `POST /api/mcp_market/uninstall` with body `{ package_name, package_manager }`.
+        2. Ensure correct data is passed from service object.
+        3. Test uninstall flow, UI, and feedback.
+    - **Success Criteria**: Uninstall works, returns JSON, UI/UX correct.
 
 ### Phase 4: Testing
 

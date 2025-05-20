@@ -563,12 +563,12 @@ func UninstallService(c *gin.Context) {
 		return
 	}
 
-	// 标记服务为禁用
+	// 标记服务为软删除
 	service, err := model.GetServiceByID(serviceID)
 	if err != nil {
 		log.Printf("Warning: Could not get service with ID %d: %v", serviceID, err)
 	} else {
-		service.Enabled = false
+		service.Deleted = true
 		service.HealthStatus = "unknown"
 		if err := model.UpdateService(service); err != nil {
 			log.Printf("Warning: Could not update service status: %v", err)
