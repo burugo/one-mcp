@@ -15,6 +15,9 @@ export interface ServiceType {
     homepageUrl?: string; // URL to GitHub page or official website
     icon?: ReactNode;
     isInstalled?: boolean;
+    health_status?: string;
+    display_name?: string;
+    enabled?: boolean;
 }
 
 // 详细服务类型定义
@@ -161,6 +164,9 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                             npmScore: typeof item.score === 'number' ? item.score : undefined,
                             homepageUrl: homepageUrl,
                             isInstalled: item.is_installed || false,
+                            health_status: item.HealthStatus || item.health_status || '',
+                            display_name: item.DisplayName || item.display_name || item.Name || item.name,
+                            enabled: typeof item.Enabled === 'boolean' ? item.Enabled : undefined,
                         };
                     });
                     set({ searchResults: mappedResults });
@@ -405,29 +411,31 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     pollInstallationStatus: async (serviceId, taskId) => {
-        // Implementation for polling installation status
-        // This is a simplified version, actual implementation might need more robust logic
         const { searchResults, installedServices } = get();
         const service = [...searchResults, ...installedServices].find(s => s.id === serviceId);
-        const serviceDisplayName = service?.name || serviceId; // Use service name if found, else fallback to serviceId
+        const serviceDisplayName = service?.name || serviceId;
 
         try {
             const response = await api.get(`/mcp_market/install_status/${taskId}`) as APIResponse<any>;
             if (response.success && response.data) {
-                const { status, logs, error_message } = response.data;
+                const { status, logs = [], error_message } = response.data;
                 logs.forEach((log: string) => get().updateInstallProgress(serviceId, log));
                 if (status === 'completed') {
                     get().updateInstallStatus(serviceId, 'success');
                     toastEmitter.emit({ title: "安装完成", description: `${serviceDisplayName} 已成功安装。` });
-                    get().fetchInstalledServices(); // Refresh installed list
+                    get().fetchInstalledServices();
                 } else if (status === 'failed') {
                     get().updateInstallStatus(serviceId, 'error', error_message || 'Installation failed');
                     toastEmitter.emit({ variant: "destructive", title: "安装失败", description: error_message || `未能安装 ${serviceDisplayName}。` });
-                } else if (status === 'pending' || status === 'running') {
-                    // Continue polling
+                } else if (status === 'pending' || status === 'running' || status === 'installing') {
+                    // 继续轮询，不弹 toast
+                    setTimeout(() => get().pollInstallationStatus(serviceId, taskId), 5000);
+                } else {
+                    // 其他未知状态，继续轮询
                     setTimeout(() => get().pollInstallationStatus(serviceId, taskId), 5000);
                 }
             } else {
+                // 只有在 response.success 为 false 或 data 缺失时才弹 toast
                 console.warn("Failed to poll installation status, or no data:", response.message);
                 get().updateInstallStatus(serviceId, 'error', 'Polling failed. Check server logs.');
                 toastEmitter.emit({ variant: "destructive", title: "轮询错误", description: `无法获取 ${serviceDisplayName} 的安装状态。` });

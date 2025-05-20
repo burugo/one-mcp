@@ -58,7 +58,7 @@ This section details the `Task Type` concept, which is crucial for guiding the E
 *   **For `new-feat` (New Feature), `bug-fix` (Bug Fix), `ref-func` (Functional Refactoring) tasks:**
     *   **Goal:** Apply your expertise to achieve the task's goal effectively, focusing on code quality, scalability, and maintainability.
     *   **Flexibility:** This includes splitting long files/functions where appropriate for clarity and modularity.
-    *   **Completion:** After committing and updating documents (as per the "Automatic Testing, Fixing, and Committing Workflow"), report the milestone. **Then, proceed automatically UNLESS specific pausing conditions are met.** (Refer to "Proceed or Pause" conditions in Workflow Guidelines).
+    *   **Completion:** After committing and updating documents (as per the "Automatic Testing, Fixing, and Committing Workflow"), report the milestone. **Then, proceed automatically, especially for simple modifications, UNLESS specific pausing conditions are met (e.g., blockers, high uncertainty, high-risk changes, explicit plan requirements for user confirmation, or a user-initiated pause). The Executor should continue auto-progression for straightforward tasks until explicitly told to stop by the user.** (Refer to "Proceed or Pause" conditions in Workflow Guidelines).
 
 ## Document Conventions
 **Note:** Task management files (e.g., `.cursor/feature-x-tasks.md`) are stored in the `.cursor` directory. `.cursor/scratchpad.md` serves as the central coordination file.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -6,33 +6,38 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Search, BarChart, User, PlusCircle, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
-import { useMarketStore } from '@/store/marketStore';
+import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
-import api from '@/utils/api';
+import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export function ServicesPage() {
     const { toast } = useToast();
     const navigate = useNavigate();
-    const { installedServices, fetchInstalledServices, restartService, uninstallService, setInstalledServices } = useMarketStore();
+    const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService } = useMarketStore();
+    const [localInstalledServices, setLocalInstalledServices] = useState<ServiceType[]>([]);
     const [configModalOpen, setConfigModalOpen] = useState(false);
-    const [selectedService, setSelectedService] = useState<any>(null);
+    const [selectedService, setSelectedService] = useState<ServiceType | null>(null);
     const [uninstallDialogOpen, setUninstallDialogOpen] = useState(false);
     const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
-    const [removingIds, setRemovingIds] = useState<string[]>([]);
+
+    const hasFetched = useRef(false);
 
     useEffect(() => {
-        fetchInstalledServices().then(() => {
-            setInstalledServices(useMarketStore.getState().installedServices);
-        });
+        if (!hasFetched.current) {
+            fetchInstalledServices();
+            hasFetched.current = true;
+        }
     }, [fetchInstalledServices]);
 
-    // 过滤逻辑
-    const allServices = installedServices;
-    const activeServices = installedServices.filter(s => s.health_status === 'active' || s.health_status === 'Active');
-    const inactiveServices = installedServices.filter(s => s.health_status === 'inactive' || s.health_status === 'Inactive');
+    useEffect(() => {
+        setLocalInstalledServices(globalInstalledServices);
+    }, [globalInstalledServices]);
 
-    // 保存单个环境变量
+    const allServices = localInstalledServices;
+    const activeServices = localInstalledServices.filter(s => s.health_status === 'active' || s.health_status === 'Active');
+    const inactiveServices = localInstalledServices.filter(s => s.health_status === 'inactive' || s.health_status === 'Inactive');
+
     const handleSaveVar = async (varName: string, value: string) => {
         if (!selectedService) return;
         const service_id = selectedService.id;
@@ -40,10 +45,10 @@ export function ServicesPage() {
             service_id,
             var_name: varName,
             var_value: value,
-        });
+        }) as APIResponse<any>;
         if (res.success) {
-            toast({ title: 'Saved', description: `${varName} 已保存`, variant: 'success' });
-            fetchInstalledServices(); // 刷新服务数据
+            toast({ title: 'Saved', description: `${varName} 已保存` });
+            fetchInstalledServices();
         } else {
             throw new Error(res.message || '保存失败');
         }
@@ -53,18 +58,20 @@ export function ServicesPage() {
         setPendingUninstallId(serviceId);
         setUninstallDialogOpen(true);
     };
+
     const handleUninstallConfirm = async () => {
         if (!pendingUninstallId) return;
+        const serviceToUninstallId = pendingUninstallId;
         setUninstallDialogOpen(false);
+        setPendingUninstallId(null);
+
         try {
-            await uninstallService(pendingUninstallId);
-            toast({ title: '卸载成功', description: '服务已成功卸载', variant: 'success' });
-            // 本地立即移除卡片
-            setInstalledServices(prev => prev.filter(s => s.id !== pendingUninstallId));
+            await uninstallService(serviceToUninstallId);
+            toast({ title: '卸载成功', description: '服务已成功卸载' });
+            setLocalInstalledServices(prev => prev.filter(s => s.id !== serviceToUninstallId));
         } catch (e: any) {
             toast({ title: '卸载失败', description: e?.message || '未知错误', variant: 'destructive' });
         }
-        setPendingUninstallId(null);
     };
 
     return (
@@ -91,13 +98,12 @@ export function ServicesPage() {
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
                                 <p>No installed services.</p>
                             </div>
-                        ) : allServices.filter(s => !removingIds.includes(s.id)).map(service => (
+                        ) : allServices.map(service => (
                             <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center">
                                             <div className="bg-primary/10 p-2 rounded-md mr-3">
-                                                {/* 可根据 service.Icon 字段渲染图标 */}
                                                 <Search className="w-6 h-6 text-primary" />
                                             </div>
                                             <div>
@@ -147,7 +153,7 @@ export function ServicesPage() {
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
                                 <p>No active services.</p>
                             </div>
-                        ) : activeServices.filter(s => !removingIds.includes(s.id)).map(service => (
+                        ) : activeServices.map(service => (
                             <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
@@ -174,7 +180,7 @@ export function ServicesPage() {
                                     </div>
                                 </CardHeader>
                                 <CardContent>
-                                    <p className="text-sm text-muted-foreground">{service.service_description || service.description}</p>
+                                    <p className="text-sm text-muted-foreground">{(service as any).service_description || service.description}</p>
                                 </CardContent>
                                 <CardFooter className="flex justify-between">
                                     <Button variant="outline" size="sm" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
@@ -183,7 +189,7 @@ export function ServicesPage() {
                                         size="sm"
                                         onClick={() => toast({
                                             title: `Service Disabled`,
-                                            description: `${service.display_name || service.name} is now inactive.`
+                                            description: `${(service as any).display_name || service.name} is now inactive.`
                                         })}
                                     >
                                         Disable
@@ -199,7 +205,7 @@ export function ServicesPage() {
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
                                 <p>No inactive services.</p>
                             </div>
-                        ) : inactiveServices.filter(s => !removingIds.includes(s.id)).map(service => (
+                        ) : inactiveServices.map(service => (
                             <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
@@ -226,7 +232,7 @@ export function ServicesPage() {
                                     </div>
                                 </CardHeader>
                                 <CardContent>
-                                    <p className="text-sm text-muted-foreground">{service.service_description || service.description}</p>
+                                    <p className="text-sm text-muted-foreground">{(service as any).service_description || service.description}</p>
                                 </CardContent>
                                 <CardFooter className="flex justify-between">
                                     <Button variant="outline" size="sm" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
@@ -235,7 +241,7 @@ export function ServicesPage() {
                                         size="sm"
                                         onClick={() => toast({
                                             title: `Service Enabled`,
-                                            description: `${service.display_name || service.name} is now active.`
+                                            description: `${(service as any).display_name || service.name} is now active.`
                                         })}
                                     >
                                         Enable
@@ -247,12 +253,14 @@ export function ServicesPage() {
                 </TabsContent>
             </Tabs>
 
-            <ServiceConfigModal
-                open={configModalOpen}
-                service={selectedService}
-                onClose={() => setConfigModalOpen(false)}
-                onSaveVar={handleSaveVar}
-            />
+            {selectedService && (
+                <ServiceConfigModal
+                    open={configModalOpen}
+                    onClose={() => setConfigModalOpen(false)}
+                    service={selectedService}
+                    onSaveVar={handleSaveVar}
+                />
+            )}
 
             <div className="mt-12">
                 <h3 className="text-2xl font-bold mb-4">Usage Statistics</h3>
@@ -283,12 +291,11 @@ export function ServicesPage() {
             <ConfirmDialog
                 isOpen={uninstallDialogOpen}
                 onOpenChange={setUninstallDialogOpen}
-                title="确认卸载"
-                description="确定要卸载该服务吗？此操作不可撤销。"
-                confirmText="卸载"
-                cancelText="取消"
-                confirmButtonVariant="destructive"
+                title="确认卸载服务"
+                description={`您确定要卸载服务 ${localInstalledServices.find(s => s.id === pendingUninstallId)?.name || pendingUninstallId} 吗？此操作无法撤销。`}
                 onConfirm={handleUninstallConfirm}
+                confirmText="卸载"
+                confirmButtonVariant="destructive"
             />
         </div>
     );
