@@ -151,38 +151,64 @@ The system needs to support:
     - **14.1**: Enhance backend to fetch GitHub stars and potentially parse author information from GitHub repository URLs. Define a task file (e.g., `.cursor/feature-backend-github.md`) when this becomes active. `Task Type: new-feat`
     - **Success Criteria**: Backend marketplace API provides GitHub stars and improved author information for services where applicable.
 
+### 15. Frontend: Login Experience Refactor (Completed)
+    - **15.1**: Standardize UI/UX for standalone login page and login modal, ensure correct token persistence. See `.cursor/login-refactor-tasks.md` for details. `Task Type: ref-struct/new-feat/bug-fix`
+    - **Success Criteria**: Login page and modal are visually and functionally identical; token handling is correct and robust.
+
+### 16. Feature: Service Uninstallation (Active)
+    - **16.1**: Implement the ability for users to uninstall services from the marketplace. See `.cursor/feature-uninstall-service-tasks.md` for details. `Task Type: new-feat`
+    - **Success Criteria**: Users can successfully uninstall services, with appropriate feedback and state changes in UI and backend.
+
 ## Project Status Board
 
-Active Task File: feature-service-card-refine.md
+Active Task File: `.cursor/feature-uninstall-service-tasks.md`
 
-- feature-service-management.md: 已完成全局 MCP 客户端管理器相关任务，主流程和单元测试全部通过。
-- feature-mcp-installer-ui.md: UI 实现已完成，相关任务已移至归档或标记为完成。
-- .cursor/feature-routing-refactor.md: 基本完成。
-- .cursor/ui-polish-tasks.md: (Status: Completed, except for theme switching which can be a separate low-priority task)
-- .cursor/feature-backend-installer.md: Backend work for MCP server installation. (Status: Task 5 - Testing for PyPI/uvx is pending)
-- .cursor/feature-service-card-refine.md: (Status: Completed) 后端 stars 聚合与缓存链路打通，接口 contract 满足需求，全部任务已完成。
-- .cursor/feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
-- feature-marketplace-services-split.md: 环境变量编辑功能已完成并通过验收，PATCH /api/mcp_market/env_var 路由已注册，前后端联调通过。
+Relevant Task Files:
+*   `.cursor/login-refactor-tasks.md`: Login experience refactor (All tasks completed).
+*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature (Active).
+*   feature-service-card-refine.md: (Status: Completed)
+*   feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
 
-# Executor's Feedback or Assistance Requests
+# One MCP AI Agent Scratchpad
 
-**Marketplace UI Finalization (Executor):**
-- Resolved the `toLocaleString` runtime error that occurred when clicking search. The error was caused by `ServiceMarketplace.tsx` using an old, inline `ServiceCard` definition that tried to access a non-existent `service.downloads` property.
-- Successfully integrated the new, external `ServiceCard` component (from `frontend/src/components/market/ServiceCard.tsx`) into `frontend/src/components/market/ServiceMarketplace.tsx`.
-  - Removed the old inline `ServiceCard` definition.
-  - Updated imports to use the new `ServiceCard`.
-  - Mapped the `onSelect` prop to the existing `onSelectService` handler.
-  - Implemented an `onInstall` handler (`handleInstallService`) that calls the `installService` action from `marketStore` with the correct arguments (`serviceId`, `envVars`). This fixed a linter error related to argument count.
-- Task 1 (Integrate `ServiceCard.tsx`) in `.cursor/feature-marketplace-ui-finalization.md` is now complete.
+## Background and Motivation
 
-**2024-05-18 新进展：**
-已修复 installService 依赖 selectedService 的问题，ServiceCard 卡片点击安装现已健壮。Task 2.3 已完成，准备继续推进 UI 其他细节测试。
-+已修复 ServiceCard stars/npmScore 显示逻辑，score 字段现在能在 stars 缺失或为 0 时正确 fallback 显示，UI 体验更合理。
+User wants to unify the login experience between the standalone `/login` page and the login modal. Currently, they differ in UI and token handling, with the `/login` page not correctly persisting the token to the global state (AuthContext).
+Additionally, user requested a new feature to uninstall services from the marketplace, and visual enhancements for the installation process (toast notification and a success checkmark animation).
 
-**Task 3 (npm 包 GitHub stars 聚合+Redis 缓存)**
-- Task 3（npm 包 GitHub stars 聚合+Redis 缓存）已全部完成，接口 contract 满足前端需求，缓存生效。
-- 自动化测试时发现 backend/library/market/pypi_test.go 存在语法错误（与本次改动无关），主线功能不受影响，建议后续单独修复。
-- 已自动 git commit 相关代码和脚本。
+## Key Challenges and Analysis
+
+**Login Refactor:**
+1.  **UI/UX Unification**: `Login.tsx` needs to replicate or reuse the visual and interactive elements of `login-dialog.tsx`.
+2.  **Logic Reusability**: `login-dialog.tsx` contains form handling, API calls, error management, and global state updates via `useAuth().login`. `Login.tsx` must use this logic.
+3.  **Token Persistence**: Ensure `/login` page uses `useAuth().login` for consistent token handling in `localStorage` and `AuthContext`.
+4.  **Component Reuse Strategy**: Recommended creating a `LoginFormCommon.tsx` to be used by both `login-dialog.tsx` (for modal) and `Login.tsx` (for standalone page).
+
+**Service Uninstallation:**
+1.  **Backend API**: Requires a new endpoint to handle uninstallation commands and database updates.
+2.  **Frontend State**: `marketStore` needs to manage uninstallation status.
+3.  **UI/UX**: "Uninstall" button, confirmation dialog, and feedback (toasts, loading states).
+
+**Installation Animation:**
+1.  Display a toast "Installing..." on initiation.
+2.  On success, show a large, semi-transparent checkmark SVG animation in the center of the service card, which then fades out.
+
+## High-level Task Breakdown
+
+1.  **Create Login Form Common Component (`ref-struct`)**: 详见 `.cursor/login-refactor-tasks.md`
+2.  **Refactor Login Modal (`ref-struct`)**: 详见 `.cursor/login-refactor-tasks.md`
+3.  **Refactor Standalone Login Page (`new-feat` / `ref-func`)**: 详见 `.cursor/login-refactor-tasks.md`
+4.  **Test and Verify (`bug-fix`)**: 详见 `.cursor/login-refactor-tasks.md`
+
+## Project Status Board
+
+Active Task File: `.cursor/feature-uninstall-service-tasks.md`
+
+Relevant Task Files:
+*   `.cursor/login-refactor-tasks.md`: Login experience refactor (All tasks completed).
+*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature (Active).
+*   feature-service-card-refine.md: (Status: Completed)
+*   feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
 
 ## Lessons
 

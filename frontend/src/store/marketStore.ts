@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { ReactNode } from 'react';
-import api, { APIResponse } from '@/utils/api'; // 引入 APIResponse 类型
+import api, { APIResponse, toastEmitter } from '@/utils/api'; // 引入 APIResponse 类型 和 toastEmitter
 
 // 服务类型定义
 export interface ServiceType {
@@ -45,6 +45,12 @@ export interface InstallTask {
     taskId?: string;
 }
 
+// 卸载任务状态
+export interface UninstallTask {
+    status: 'idle' | 'uninstalling' | 'error';
+    error?: string;
+}
+
 // 定义 Store 状态类型
 interface MarketState {
     // 搜索相关
@@ -62,6 +68,8 @@ interface MarketState {
 
     // 安装任务
     installTasks: Record<string, InstallTask>;
+    // 卸载任务状态
+    uninstallTasks: Record<string, UninstallTask>;
 
     // 操作方法
     setSearchTerm: (term: string) => void;
@@ -94,6 +102,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     selectedService: null,
     isLoadingDetails: false,
     installTasks: {},
+    uninstallTasks: {},
 
     // 操作方法
     setSearchTerm: (term) => set({ searchTerm: term }),
@@ -379,134 +388,91 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     updateInstallStatus: (serviceId, status, error) => {
-        const task = get().installTasks[serviceId];
-
-        if (task) {
-            set({
-                installTasks: {
-                    ...get().installTasks,
-                    [serviceId]: {
-                        ...task,
-                        status,
-                        error,
-                        logs: error
-                            ? [...task.logs, `Error: ${error}`]
-                            : (status === 'success'
-                                ? [...task.logs, 'Installation completed successfully!']
-                                : task.logs)
-                    }
+        set(state => ({
+            installTasks: {
+                ...state.installTasks,
+                [serviceId]: {
+                    ...state.installTasks[serviceId],
+                    status: status,
+                    error: error,
                 }
-            });
-
-            // 如果安装成功，刷新已安装服务列表
-            if (status === 'success') {
-                get().fetchInstalledServices();
             }
-        }
+        }));
     },
 
-    pollInstallationStatus: (serviceId, taskId) => {
-        const intervalId = `poll-${serviceId}-${taskId}`;
-        // Clear any existing interval for this specific poll to avoid duplicates
-        const existingInterval = (window as any)[intervalId];
-        if (existingInterval) {
-            clearInterval(existingInterval);
-        }
-
-        const interval = setInterval(async () => {
-            const currentTask = get().installTasks[serviceId];
-            if (!currentTask || currentTask.status !== 'installing') {
-                clearInterval(interval);
-                delete (window as any)[intervalId]; // Clean up
-                return;
-            }
-
-            try {
-                // Use service_id for polling, as taskId from backend is mcp_service_id
-                const response = await api.get(`/mcp_market/installation_status?service_id=${taskId}`) as APIResponse<any>;
-
-                if (response.success && response.data) {
-                    const statusData = response.data;
-                    const { status, logs, error_message } = statusData;
-
-                    if (logs && Array.isArray(logs)) {
-                        logs.forEach((log: string) => get().updateInstallProgress(serviceId, log));
-                    } else if (typeof logs === 'string' && logs) { // Handle if logs is a single string
-                        get().updateInstallProgress(serviceId, logs);
-                    }
-
-                    if (status === 'completed' || status === 'success') {
-                        clearInterval(interval);
-                        delete (window as any)[intervalId];
-                        get().updateInstallStatus(serviceId, 'success');
-                        get().fetchInstalledServices(); // Refresh installed list
-                        // Potentially clear selected service or navigate
-                        get().clearSelectedService();
-                    } else if (status === 'failed' || status === 'error') {
-                        clearInterval(interval);
-                        delete (window as any)[intervalId];
-                        get().updateInstallStatus(serviceId, 'error', error_message || 'Installation failed.');
-                    } else if (status === 'installing' || status === 'pending' || status === 'running') {
-                        // Continue polling
-                        get().updateInstallProgress(serviceId, `Status: ${status}. Waiting for completion...`);
-                    } else {
-                        // Unknown status, log it but keep polling for a while
-                        console.warn('Status polling unknown status:', statusData);
-                        get().updateInstallProgress(serviceId, `Unknown status: ${status}. Waiting...`);
-                    }
-                } else {
-                    // API call was successful (2xx) but response.success is false or no response.data
-                    console.error('Status polling API error:', response.message || 'Request successful but no data or success:false');
-                    // Keep polling for a while, timeout will handle persistent issues.
-                    // get().updateInstallProgress(serviceId, `Polling data error: ${response.message || 'Unexpected data'}`);
-                }
-            } catch (error) { // This catch is mainly for api.get throwing an error (e.g. network, or interceptor rethrow)
-                console.error('Status polling fetch error:', error);
-                // If fetch itself fails (network issue), keep polling. Timeout will handle it.
-                // get().updateInstallProgress(serviceId, `Polling network error: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }, 2000); // Poll every 2 seconds
-
-        (window as any)[intervalId] = interval; // Store interval ID to manage it
-
-        // Set a timeout to prevent infinite polling
-        setTimeout(() => {
-            const currentTaskCheck = get().installTasks[serviceId];
-            if (currentTaskCheck && currentTaskCheck.status === 'installing') {
-                clearInterval(interval);
-                delete (window as any)[intervalId];
-                get().updateInstallStatus(
-                    serviceId,
-                    'error',
-                    'Installation timed out. Please check service status manually.'
-                );
-            }
-        }, 180000); // Timeout after 3 minutes (180 seconds)
-    },
-
-    uninstallService: async (serviceId) => {
-        const service = get().installedServices.find(s => s.id === serviceId);
-
-        if (!service) return;
-
+    pollInstallationStatus: async (serviceId, taskId) => {
+        // Implementation for polling installation status
+        // This is a simplified version, actual implementation might need more robust logic
         try {
-            const response = await api.post('/mcp_market/uninstall_service', {
-                data: {
-                    package_name: service.name,
-                    package_manager: service.source
+            const response = await api.get(`/mcp_market/install_status/${taskId}`) as APIResponse<any>;
+            if (response.success && response.data) {
+                const { status, logs, error_message } = response.data;
+                logs.forEach((log: string) => get().updateInstallProgress(serviceId, log));
+                if (status === 'completed') {
+                    get().updateInstallStatus(serviceId, 'success');
+                    toastEmitter.emit({ title: "Installation Complete", description: `${serviceId} installed successfully.` });
+                    get().fetchInstalledServices(); // Refresh installed list
+                } else if (status === 'failed') {
+                    get().updateInstallStatus(serviceId, 'error', error_message || 'Installation failed');
+                    toastEmitter.emit({ variant: "destructive", title: "Installation Failed", description: error_message || `Failed to install ${serviceId}.` });
+                } else if (status === 'pending' || status === 'running') {
+                    // Continue polling
+                    setTimeout(() => get().pollInstallationStatus(serviceId, taskId), 5000);
                 }
-            }) as APIResponse<any>;
-
-            if (!response.success || !response.data) {
-                throw new Error(response.message || 'Uninstallation failed');
+            } else {
+                // throw new Error(response.message || 'Failed to poll installation status');
+                // If polling fails, show an error but don't necessarily stop an active installation process
+                // Potentially retry polling a few times with backoff
+                console.warn("Failed to poll installation status, or no data:", response.message);
+                get().updateInstallStatus(serviceId, 'error', 'Polling failed. Check server logs.');
+                toastEmitter.emit({ variant: "destructive", title: "Polling Error", description: `Could not get installation status for ${serviceId}.` });
             }
-
-            // 刷新已安装服务列表
-            get().fetchInstalledServices();
-
         } catch (error) {
-            console.error('Uninstallation error:', error);
-            // 可以设置一个错误状态或显示通知
+            console.error('Polling error:', error);
+            get().updateInstallStatus(serviceId, 'error', 'Failed to poll installation status.');
+            toastEmitter.emit({ variant: "destructive", title: "Polling Error", description: `Error polling installation status for ${serviceId}.` });
         }
-    }
+    },
+
+    uninstallService: async (serviceId: string) => {
+        set(state => ({
+            uninstallTasks: {
+                ...state.uninstallTasks,
+                [serviceId]: { status: 'uninstalling', error: undefined },
+            },
+        }));
+        try {
+            // Assuming serviceId can be directly used in the URL as per API design
+            const response = await api.delete(`/mcp_market/services/${serviceId}/uninstall`) as APIResponse<any>;
+            if (response.success) {
+                set(state => ({
+                    uninstallTasks: {
+                        ...state.uninstallTasks,
+                        [serviceId]: { status: 'idle', error: undefined },
+                    },
+                }));
+                toastEmitter.emit({ title: "Uninstall Successful", description: `Service ${serviceId} uninstalled.` });
+                get().fetchInstalledServices(); // Refresh the list of installed services
+                get().searchServices(); // Also refresh search results if on 'all' tab, as isInstalled might change
+            } else {
+                const errorMsg = response.message || `Failed to uninstall ${serviceId}.`;
+                set(state => ({
+                    uninstallTasks: {
+                        ...state.uninstallTasks,
+                        [serviceId]: { status: 'error', error: errorMsg },
+                    },
+                }));
+                toastEmitter.emit({ variant: "destructive", title: "Uninstall Failed", description: errorMsg });
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.message || error.message || `An unknown error occurred while uninstalling ${serviceId}.`;
+            set(state => ({
+                uninstallTasks: {
+                    ...state.uninstallTasks,
+                    [serviceId]: { status: 'error', error: errorMsg },
+                },
+            }));
+            toastEmitter.emit({ variant: "destructive", title: "Uninstall Error", description: errorMsg });
+        }
+    },
 })); 
