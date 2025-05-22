@@ -46,8 +46,11 @@ The system needs to support:
     - Generate snippets matching `client_expected_protocol`.
     - Construct proxy URLs using `our_proxy_protocol_for_this_client` to determine the correct path segment (e.g., `/sse` or `/mcp`).
 - **Schema Definition and Validation**: For config schemas.
-- **Proxying Logic**: Runtime proxy for `stdio`, `sse`, `streamable_http` underlying services, exposed via One MCP's SSE or Streamable HTTP endpoints (distinguished by URL path, e.g., `/proxy/:instance_id/sse` vs `/proxy/:instance_id/mcp`).
-- **API Design**: For Admin, User, and Export (now simpler, no protocol choice param).
+- **Proxying Logic**: Runtime proxy for `stdio`, `sse`, `streamable_http` underlying services.
+   - SSE services accessed via `/api/sse/:serviceName`.
+   - Streamable HTTP services accessed via `/api/http/:serviceName`.
+   - `:serviceName` is the unique name of the service instance.
+- **API Design**: For Admin, User, and Export. Proxy endpoints are now `/api/sse/:serviceName` and `/api/http/:serviceName`.
 
 **New Challenges for Server Installation Feature:**
 - **Multi-Package Manager Integration**: Securely and reliably executing external commands (`npx`, `uvx`) to install packages from different ecosystems. Managing their outputs and error states. (Backend support for `uvx`/`pip` needs to be added/enhanced).
@@ -58,6 +61,7 @@ The system needs to support:
 - **Subtle Page Width Changes**: Investigating and resolving minor page width inconsistencies.
     - **Initial thought**: Caused by scrollbar appearance/disappearance. Global fix `overflow-y-scroll` on `<main>` helped.
     - **Current Hypothesis (Services Page Tabs)**: The width change when switching tabs (e.g., "All Services" vs "Active") on the `ServicesPage` might be due to the tab content's intrinsic width. If a tab's content is narrow (like a short paragraph in "Active"), its container might shrink, causing a perceived page width change, even with `w-full` on parent elements. The `TabsContent` for "All Services" (grid of cards) is wider and might set a different baseline.
+    - **Service Name Uniqueness**: Ensuring the `name` field for service instances is unique will be critical for the new routing scheme.
 
 **Challenges for Marketplace UI Finalization:**
 - Ensuring seamless integration of `ServiceCard.tsx` into `MarketPage.tsx`, including proper data flow and event handling (`onSelect`, `onInstall`).
@@ -99,8 +103,11 @@ The system needs to support:
     - **4.4**: Implement aggregation. `Task Type: New Feature`
 
 ### 5. Core: Service Proxying Runtime
-    - **5.1**: Design proxy endpoints. Paths should distinguish protocol, e.g., `/api/proxy/:instance_id/sse` and `/api/proxy/:instance_id/mcp`. `Task Type: New Feature`
-    - Success Criteria: Proxy URLs are distinct for SSE and Streamable HTTP, matching what export templates generate.
+    - **5.1**: Adapt proxy endpoint design to use service names. `Task Type: ref-struct`
+        - SSE: `/api/sse/:serviceName`
+        - Streamable HTTP: `/api/http/:serviceName`
+        - `:serviceName` is the unique name of the service instance.
+    - Success Criteria: Backend routes are updated to handle these new URL patterns. Proxy logic correctly uses `serviceName` for lookup.
     - **5.2**: Implement request handling logic for proxy endpoints. `Task Type: New Feature`
     - **5.3**: Implement dispatch logic based on `MCPService.Type` of the underlying service. `Task Type: New Feature`
     - **5.4**: Handle parameter mapping and passing. `Task Type: New Feature`
@@ -159,15 +166,24 @@ The system needs to support:
     - **16.1**: Implement the ability for users to uninstall services from the marketplace. See `.cursor/feature-uninstall-service-tasks.md` for details. `Task Type: new-feat`
     - **Success Criteria**: Users can successfully uninstall services, with appropriate feedback and state changes in UI and backend.
 
+### 17. Backend: Adapt Proxy Endpoints to New URL Structure (New Task)
+    - **17.1**: Modify backend routing to handle `GET /api/sse/:serviceName` for SSE services. `Task Type: ref-struct`
+    - **17.2**: Modify backend routing to handle `GET /api/http/:serviceName` (and other relevant methods) for Streamable HTTP services. `Task Type: ref-struct`
+    - **17.3**: Ensure service lookup within proxy handlers uses the `serviceName` from the path. `Task Type: ref-func`
+    - **17.4**: Add or verify mechanisms to ensure uniqueness of the `service.name` field for `ConfigService` instances. `Task Type: new-feat` (if new validation) or `ref-func` (if enhancing existing).
+    - See `.cursor/backend-url-refactor-tasks.md` for details.
+
 ## Project Status Board
 
-Active Task File: `.cursor/feature-uninstall-service-tasks.md`
+Active Task File: `.cursor/backend-url-refactor-tasks.md`
 
 Relevant Task Files:
 *   `.cursor/login-refactor-tasks.md`: Login experience refactor (All tasks completed).
-*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature (Active).
-*   feature-service-card-refine.md: (Status: Completed)
-*   feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
+*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature.
+*   `.cursor/feature-service-card-refine.md`: (Status: Completed)
+*   `.cursor/feature-marketplace-ui-finalization.md`: Frontend work to integrate ServiceCard.tsx and test marketplace UI.
+*   `.cursor/generate-description-plan-mode-tasks.md`: Meta-task to generate description for `plan-mode.mdc`.
+*   `.cursor/backend-url-refactor-tasks.md`: Adapt backend proxy URLs (Active).
 
 # One MCP AI Agent Scratchpad
 
@@ -206,7 +222,7 @@ Active Task File: `.cursor/feature-uninstall-service-tasks.md`
 
 Relevant Task Files:
 *   `.cursor/login-refactor-tasks.md`: Login experience refactor (All tasks completed).
-*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature (Active).
+*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature.
 *   feature-service-card-refine.md: (Status: Completed)
 *   feature-marketplace-ui-finalization.md: (Status: Active) Frontend work to integrate ServiceCard.tsx and test marketplace UI.
 
@@ -441,5 +457,46 @@ Active Task File: `.cursor/feature-uninstall-service-tasks.md`
 
 Relevant Task Files:
 *   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature (Active).
+
+# Meta-Task: Generate Description for plan-mode.mdc
+
+## Background and Motivation
+
+The user has requested a description to be generated for the `plan-mode.mdc` rule itself. This rule is crucial as it defines how the Planner agent should operate, emphasizing thorough exploration before planning.
+
+## Key Challenges and Analysis
+
+- The main challenge is to create a description that is both concise and accurately captures the comprehensive nature and intent of `plan-mode.mdc`.
+- It must reflect the mandatory nature of Phase 1 (Contextual Exploration & Analysis) and the specific outputs required (Context Summary, tool usage).
+- It should also summarize Phase 2 (Formulate a Plan) and its outputs (updates to scratchpad, creation of task files with `Task Type`).
+
+## High-level Task Breakdown
+
+### 1. Generate Description for `plan-mode.mdc`
+    - **Task**: Generate a comprehensive description for the `plan-mode.mdc` rule.
+    - **Details**: See `.cursor/generate-description-plan-mode-tasks.md`.
+    - **Task Type**: `new-feat` (creating a new descriptive artifact).
+
+## Project Status Board
+
+Previous Active Task File: `.cursor/feature-uninstall-service-tasks.md`
+**Active Task File: `.cursor/generate-description-plan-mode-tasks.md`**
+
+Relevant Task Files:
+*   `.cursor/login-refactor-tasks.md`: Login experience refactor (All tasks completed).
+*   `.cursor/feature-uninstall-service-tasks.md`: Service Uninstallation feature.
+*   `.cursor/feature-service-card-refine.md`: (Status: Completed)
+*   `.cursor/feature-marketplace-ui-finalization.md`: Frontend work to integrate ServiceCard.tsx and test marketplace UI.
+*   `.cursor/generate-description-plan-mode-tasks.md`: Meta-task to generate description for `plan-mode.mdc` (Active).
+
+## Executor's Feedback or Assistance Requests
+
+Waiting for the Executor to generate the description based on the plan.
+
+## Lessons
+*(Existing lessons remain)*
+
+## User Specified Lessons
+*(Existing user specified lessons remain)*
 
 ---

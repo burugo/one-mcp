@@ -1,0 +1,28 @@
+# Backend Proxy URL Refactor\n\nThis task focuses on modifying the backend Go codebase to support new URL structures for its proxy endpoints, as per the user's revised strategy. The frontend will continue to generate URLs in the format `/api/sse/:serviceName` and `/api/http/:serviceName`.\n\n## Completed Tasks\n\n- [ ] (No tasks completed yet)\n\n## In Progress Tasks\n\n- [ ] **Task 1: Adapt SSE Proxy Endpoint** `ref-struct`\n    - **Description**: Modify the backend Go router to handle requests on the path `GET /api/sse/:serviceName`.\n    - **Details**: The handler for this route should identify the `ConfigService` instance using the `serviceName` path parameter. It will then proxy the request to the underlying SSE service.\n    - **Relevant Files**: Backend Go router setup files, SSE proxy handler logic.\n    - **Success Criteria**: The backend correctly routes `GET /api/sse/:serviceName` to the appropriate SSE proxy logic, and the service is looked up using `serviceName`.\n\n- [ ] **Task 2: Adapt Streamable HTTP Proxy Endpoint** `ref-struct`\n    - **Description**: Modify the backend Go router to handle requests on the path `GET /api/http/:serviceName` (and potentially other HTTP methods like POST, PUT, DELETE if the underlying services require them through the proxy).\n    - **Details**: The handler for this route should identify the `ConfigService` instance using the `serviceName` path parameter. It will then proxy the request to the underlying Streamable HTTP service.\n    - **Relevant Files**: Backend Go router setup files, Streamable HTTP proxy handler logic.\n    - **Success Criteria**: The backend correctly routes `/api/http/:serviceName` (for relevant methods) to the appropriate Streamable HTTP proxy logic, and the service is looked up using `serviceName`.\n\n- [ ] **Task 3: Update Service Lookup Logic** `ref-func`\n    - **Description**: Ensure that all proxy handlers (for SSE and Streamable HTTP) use the `serviceName` extracted from the URL path to fetch the correct `ConfigService` instance details (e.g., its type, actual endpoint, configuration). This likely involves querying the database using the `name` field of the `ConfigService` model.\n    - **Relevant Files**: Proxy handler functions, database interaction layer for `ConfigService`.\n    - **Success Criteria**: Proxy handlers reliably fetch the correct service configuration based on the `serviceName` from the path parameter.\n
+- [ ] **Task 4: Ensure `service.name` Uniqueness** `new-feat` or `ref-func`\n    - **Description**: Implement or verify mechanisms to enforce the uniqueness of the `name` field for `ConfigService` instances. This could be a database constraint, validation logic during creation/update of service instances, or a combination.\n    - **Rationale**: Since `serviceName` is now a key part of the URL for routing, its uniqueness is critical to avoid ambiguity.\n    - **Relevant Files**: `ConfigService` GORM model, API handlers for creating/updating `ConfigService` instances, database schema/migration files.\n    - **Success Criteria**: The system prevents the creation or update of service instances if the `name` field is not unique. Attempts to create duplicates result in a clear error.\n
+## Future Tasks\n\n- [ ] Review and update client configuration export templates if they were previously generating `/api/proxy/...` URLs, to ensure they now generate `/api/sse/:serviceName` or `/api/http/:serviceName` as appropriate for each client type.\n
+## Implementation Plan\n
+1.  **Router Changes (Go backend):**
+    *   Identify the file(s) where API routes are defined (e.g., using Gin, Chi, or standard `net/http`).
+    *   Remove or comment out the old `/api/proxy/:instance_id/sse` and `/api/proxy/:instance_id/mcp` routes.
+    *   Add new routes:
+        *   `router.GET("/api/sse/:serviceName", sseProxyHandler)`
+        *   `router.Any("/api/http/:serviceName", httpProxyHandler)` (using `Any` or specific methods as needed)
+2.  **Handler Modifications (Go backend):**
+    *   In `sseProxyHandler` and `httpProxyHandler` (or their equivalents):
+        *   Extract `serviceName` from path parameters (e.g., `c.Param("serviceName")` in Gin).
+        *   Modify database queries to find the `ConfigService` instance where `name == serviceName`.
+        *   Ensure the rest of the proxying logic (connecting to underlying service, streaming data) remains functional with the service details fetched via `serviceName`.
+3.  **`service.name` Uniqueness (Go backend):**
+    *   If using GORM, consider adding `gorm:"unique"` tag to the `Name` field in the `ConfigService` struct and ensure migrations handle this.
+    *   Add validation logic in the API handlers that create or update `ConfigService` instances. Before saving, query if another instance with the same name already exists. If so, return an appropriate error (e.g., HTTP 409 Conflict).
+4.  **Testing:**
+    *   Manually test the new endpoints using tools like `curl` or Postman with known service names.
+    -   Verify that the frontend `ServiceConfigModal` now shows URLs that work correctly with the modified backend.
+
+### Relevant Files
+
+- Backend Go files related to API routing (e.g., `main.go`, `routes.go`, or specific router package files).
+- Backend Go files containing the proxy handler logic for SSE and Streamable HTTP services.
+- Backend Go files for `ConfigService` model definition and database operations.
+- Frontend: `frontend/src/components/market/ServiceConfigModal.tsx` (to confirm it now works as expected without changes to it). 
