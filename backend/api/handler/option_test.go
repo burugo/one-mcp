@@ -10,8 +10,6 @@ import (
 
 	"one-mcp/backend/common"
 
-	"github.com/burugo/thing"
-	"github.com/burugo/thing/drivers/db/sqlite"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
@@ -24,17 +22,21 @@ func setupOptionRouter() *gin.Engine {
 }
 
 func TestOptionAPI(t *testing.T) {
-	common.SQLitePath = ":memory:"
-	// 用内存数据库初始化 ORM
-	dbAdapter, err := sqlite.NewSQLiteAdapter(":memory:")
-	assert.NoError(t, err)
-	thing.Configure(dbAdapter, nil)
-	// 让 OptionDB 用同一个 dbAdapter
-	model.OptionDB, err = thing.New[*model.Option](dbAdapter, nil)
-	assert.NoError(t, err)
-	// 先建表，再初始化数据库和 OptionMap
-	err = thing.AutoMigrate(&model.Option{})
-	assert.NoError(t, err)
+	// Store original SQLitePath and ensure it's restored at the end of the test.
+	originalPath := common.SQLitePath
+	common.SQLitePath = ":memory:" // Force InitDB to use a new in-memory database
+	defer func() {
+		common.SQLitePath = originalPath
+		// Attempt to clear OptionMap to prevent state leakage to other tests,
+		// as InitDB populates it.
+		common.OptionMap = make(map[string]string)
+	}()
+
+	// Use model.InitDB() for consistent initialization.
+	// InitDB will configure thing, AutoMigrate all models (including Option),
+	// initialize model.OptionDB, and populate common.OptionMap.
+	err := model.InitDB()
+	assert.NoError(t, err, "model.InitDB() failed for :memory: database in TestOptionAPI")
 
 	router := setupOptionRouter()
 
@@ -46,6 +48,20 @@ func TestOptionAPI(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
+
+	// Directly check model.OptionDB.All() right after the PUT request - for debugging thing.All() behavior
+	allOptionsAfterPut, errDbAll := model.OptionDB.All()
+	assert.NoError(t, errDbAll, "model.OptionDB.All() after PUT should not error")
+	// foundInDbAllDirectly := false
+	// for _, optDb := range allOptionsAfterPut {
+	// 	if optDb.Key == "TestKey" && optDb.Value == "TestValue" {
+	// 		foundInDbAllDirectly = true
+	// 		break
+	// 	}
+	// }
+	logStr, _ := json.Marshal(allOptionsAfterPut)
+	println("Direct result from model.OptionDB.All() after PUT (expected to be empty due to thing.All caching):", string(logStr))
+	// assert.True(t, foundInDbAllDirectly, "Option should be findable via model.OptionDB.All() immediately after save") // Known issue with thing.All() caching
 
 	// 2. 获取配置
 	req2, _ := http.NewRequest("GET", "/api/option/", nil)

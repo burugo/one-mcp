@@ -4,7 +4,7 @@ module one-mcp
 go 1.24
 
 require (
-	github.com/burugo/thing v0.1.13
+	github.com/burugo/thing v0.1.14
 	github.com/gin-contrib/cors v1.7.5
 	github.com/gin-contrib/sessions v1.0.3
 	github.com/gin-contrib/static v1.1.5
@@ -12,7 +12,7 @@ require (
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
-	github.com/mark3labs/mcp-go v0.27.0
+	github.com/mark3labs/mcp-go v0.29.0
 	github.com/redis/go-redis/v9 v9.8.0
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/crypto v0.37.0

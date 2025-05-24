@@ -349,3 +349,24 @@ func (m *ServiceManager) StartDaemon() {
 		}
 	}()
 }
+
+// GetSSEServiceByName 根据服务名查找 SSESvc 实例
+func (m *ServiceManager) GetSSEServiceByName(serviceName string) (*SSESvc, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	for _, svc := range m.services {
+		if svc.Name() == serviceName && svc.Type() == model.ServiceTypeSSE {
+			if sseSvc, ok := svc.(*SSESvc); ok {
+				return sseSvc, nil
+			}
+		}
+	}
+	return nil, ErrServiceNotFound
+}
+
+// SetService 允许注入 mock Service（测试专用）
+func (m *ServiceManager) SetService(serviceID int64, svc Service) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.services[serviceID] = svc
+}

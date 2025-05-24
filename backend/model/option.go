@@ -7,7 +7,7 @@ import (
 )
 
 // OptionMap stores system options, accessible via common.OptionMapRWMutex
-var OptionMap map[string]string
+var OptionMap = common.OptionMap
 
 type Option struct {
 	thing.BaseModel
@@ -22,19 +22,7 @@ type Option struct {
 func UpdateOptionMap(key string, value string) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
-	if OptionMap == nil {
-		OptionMap = make(map[string]string)
-	}
 	OptionMap[key] = value
-}
-
-// InitOptionMap initializes the option map
-func InitOptionMap() {
-	common.OptionMapRWMutex.Lock()
-	defer common.OptionMapRWMutex.Unlock()
-	if OptionMap == nil {
-		OptionMap = make(map[string]string)
-	}
 }
 
 // The functions below will be implemented in service/option_service.go
@@ -59,9 +47,6 @@ func OptionInit() error {
 func InitOptionMapFromDB() error {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
-	if OptionMap == nil {
-		OptionMap = make(map[string]string)
-	}
 	if OptionDB == nil {
 		return nil // OptionDB not initialized
 	}

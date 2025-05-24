@@ -3,7 +3,10 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
+
+	"one-mcp/backend/common"
 
 	"github.com/burugo/thing"
 )
@@ -151,7 +154,7 @@ func MCPServiceInit() error {
 	var err error
 	MCPServiceDB, err = thing.Use[*MCPService]()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize MCPServiceDB: %w", err)
 	}
 	return nil
 }
@@ -168,26 +171,12 @@ func GetEnabledServices() ([]*MCPService, error) {
 
 // GetServiceByID retrieves a specific service by ID
 func GetServiceByID(id int64) (*MCPService, error) {
-	service, err := MCPServiceDB.ByID(id)
-	if err != nil {
-		if err.Error() == "record not found" {
-			return nil, errors.New("service_not_found")
-		}
-		return nil, err
-	}
-	return service, nil
+	return MCPServiceDB.ByID(id)
 }
 
 // GetServiceByName retrieves a specific service by name
 func GetServiceByName(name string) (*MCPService, error) {
-	services, err := MCPServiceDB.Where("name = ?", name).Fetch(0, 1)
-	if err != nil {
-		return nil, err
-	}
-	if len(services) == 0 {
-		return nil, errors.New("service_not_found")
-	}
-	return services[0], nil
+	return MCPServiceDB.Where("name = ?", name).First()
 }
 
 // CreateService creates a new MCP service
@@ -249,4 +238,91 @@ func GetServicesWithConfig() ([]map[string]interface{}, error) {
 // GetServicesByPackageDetails retrieves services by package details
 func GetServicesByPackageDetails(packageManager, packageName string) ([]*MCPService, error) {
 	return MCPServiceDB.Where("package_manager = ? AND source_package_name = ?", packageManager, packageName).All()
+}
+
+// StdioConfig holds the configuration for an Stdio MCP service
+type StdioConfig struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+	Env     []string `json:"env"` // Stored as "KEY=VALUE" strings
+}
+
+const exaMCPServiceStdioSchema = `{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"env":{"type":"array","items":{"type":"string","pattern":"^[^=]+=[^=]+$"}}},"required":["command"]}`
+
+// SeedDefaultServices ensures default services like "exa-mcp-server" exist.
+func SeedDefaultServices() error {
+	common.SysLog("Seeding default services...")
+	serviceName := "exa-mcp-server"
+	existingService, _ := GetServiceByName(serviceName) // Ignore error, just check if nil
+
+	stdioConf := StdioConfig{
+		Command: "exa-mcp-server",
+		Args:    []string{},
+		Env:     []string{},
+	}
+	stdioConfJSON, err := json.Marshal(stdioConf)
+	if err != nil {
+		common.SysError(fmt.Sprintf("Failed to marshal stdioConf for %s: %v", serviceName, err))
+		return err
+	}
+
+	if existingService == nil {
+		common.SysLog(fmt.Sprintf("Service %s not found, creating...", serviceName))
+		newService := &MCPService{
+			Name:                     serviceName,
+			DisplayName:              "Example MCP Server (Stdio)",
+			Description:              "An example MCP server that communicates via stdio, proxied via SSE.",
+			Type:                     ServiceTypeStdio,
+			AdminConfigSchema:        exaMCPServiceStdioSchema,
+			DefaultAdminConfigValues: string(stdioConfJSON),
+			UserConfigSchema:         `{"type":"object","properties":{"custom_user_param":{"type":"string"}}}`,
+			AllowUserOverride:        true,
+			ClientConfigTemplates:    "{}",
+			// For manually seeded services, package manager specific fields can be empty or have placeholder values
+			PackageManager:    "manual",    // Or empty string
+			SourcePackageName: serviceName, // Or empty string
+			InstalledVersion:  "N/A",       // Or a specific version if known, or empty
+			// HealthStatus and LastHealthCheck will be default/zero
+		}
+		if err := MCPServiceDB.Save(newService); err != nil {
+			common.SysError(fmt.Sprintf("Failed to create service %s: %v", serviceName, err))
+			return err
+		}
+		common.SysLog(fmt.Sprintf("Service %s created successfully.", serviceName))
+	} else {
+		common.SysLog(fmt.Sprintf("Service %s already exists. Updating DefaultAdminConfigValues and Type if necessary...", serviceName))
+		updateNeeded := false
+		if existingService.Type != ServiceTypeStdio {
+			existingService.Type = ServiceTypeStdio
+			updateNeeded = true
+			common.SysLog(fmt.Sprintf("Updated Type for service %s to Stdio", serviceName))
+		}
+		if existingService.AdminConfigSchema == "" || existingService.AdminConfigSchema == "{}" {
+			existingService.AdminConfigSchema = exaMCPServiceStdioSchema
+			updateNeeded = true
+			common.SysLog(fmt.Sprintf("Updated AdminConfigSchema for service %s", serviceName))
+		}
+		if existingService.DefaultAdminConfigValues != string(stdioConfJSON) {
+			existingService.DefaultAdminConfigValues = string(stdioConfJSON)
+			updateNeeded = true
+			common.SysLog(fmt.Sprintf("Updated DefaultAdminConfigValues for service %s", serviceName))
+		}
+		// Ensure package manager fields are appropriate for a manually managed service if they were different
+		if existingService.PackageManager != "manual" {
+			existingService.PackageManager = "manual"
+			updateNeeded = true
+			common.SysLog(fmt.Sprintf("Updated PackageManager for service %s to manual", serviceName))
+		}
+
+		if updateNeeded {
+			if err := MCPServiceDB.Save(existingService); err != nil {
+				common.SysError(fmt.Sprintf("Failed to update service %s: %v", serviceName, err))
+				return err
+			}
+			common.SysLog(fmt.Sprintf("Service %s updated successfully.", serviceName))
+		} else {
+			common.SysLog(fmt.Sprintf("No updates needed for service %s.", serviceName))
+		}
+	}
+	return nil
 }

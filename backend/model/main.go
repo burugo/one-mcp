@@ -68,13 +68,20 @@ func InitDB() (err error) {
 	}
 	thing.Configure(dbAdapter, cacheClient)
 
-	// 初始化所有 ORM 实例
+	// 1. AutoMigrate all models first
+	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{})
+	if err != nil {
+		return err
+	}
+
+	// 2. Initialize all ORM instances
 	if err := UserInit(); err != nil {
 		return err
 	}
 	if err := OptionInit(); err != nil {
 		return err
 	}
+	// InitOptionMapFromDB should be called after OptionInit and AutoMigrate
 	if err := InitOptionMapFromDB(); err != nil {
 		return err
 	}
@@ -88,10 +95,7 @@ func InitDB() (err error) {
 		return err
 	}
 
-	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{})
-	if err != nil {
-		return err
-	}
+	// 3. Perform data-dependent operations like creating a root account
 	return createRootAccountIfNeed()
 }
 

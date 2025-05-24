@@ -11,8 +11,6 @@ import (
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 
-	// Removed: "one-mcp/backend/api/route"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
@@ -24,7 +22,7 @@ func setupTestDB(t *testing.T) func() {
 	common.SQLitePath = testDBPath
 	_ = os.Remove(testDBPath) // Clean up previous test DB if it exists
 
-	// InitDB will configure thing and run migrations
+	// InitDB will configure thing and run migrations (including AutoMigrate for all models)
 	err := model.InitDB()
 	assert.NoError(t, err, "model.InitDB() failed during test setup")
 

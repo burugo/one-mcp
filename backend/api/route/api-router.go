@@ -134,5 +134,9 @@ func SetApiRouter(route *gin.Engine) {
 		// 	configRoute.DELETE("/:id", handler.DeleteUserConfig)
 		// 	configRoute.GET("/:id/:client", handler.ExportUserConfig)
 		// }
+
+		// 注册 SSE 代理路由
+		// The *action will capture the rest of the path (e.g., /message, /files/somefile.txt)
+		apiRouter.GET("/sse/:serviceName/*action", handler.SSEProxyHandler)
 	}
 }

@@ -62,6 +62,9 @@ The system needs to support:
     - **Initial thought**: Caused by scrollbar appearance/disappearance. Global fix `overflow-y-scroll` on `<main>` helped.
     - **Current Hypothesis (Services Page Tabs)**: The width change when switching tabs (e.g., "All Services" vs "Active") on the `ServicesPage` might be due to the tab content's intrinsic width. If a tab's content is narrow (like a short paragraph in "Active"), its container might shrink, causing a perceived page width change, even with `w-full` on parent elements. The `TabsContent` for "All Services" (grid of cards) is wider and might set a different baseline.
     - **Service Name Uniqueness**: Ensuring the `name` field for service instances is unique will be critical for the new routing scheme.
+    - Handling services like 'exa-mcp-server' which are fundamentally `stdio` but need to be exposed via an SSE endpoint. This requires the backend to use the `mcp-go` library to wrap the `stdio` client with an `mcp-go` SSE server.
+    - Managing `mcp-go` client/server lifecycles within the One MCP backend when proxying `stdio` services.
+    - Retrieving `stdio` configuration (command, args, env) for `MCPService` records from their stored configuration (e.g., `DefaultAdminConfigValues` or effective user config).
 
 **Challenges for Marketplace UI Finalization:**
 - Ensuring seamless integration of `ServiceCard.tsx` into `MarketPage.tsx`, including proper data flow and event handling (`onSelect`, `onInstall`).
@@ -176,6 +179,8 @@ The system needs to support:
 ## Project Status Board
 
 Active Task File: `.cursor/backend-url-refactor-tasks.md`
+Current Focus: Stdio to SSE Proxy for `exa-mcp-server` - Implementation Complete, pending testing.
+Next Up: Testing of Stdio to SSE proxy, then address other pending tasks (HTTP proxy, native SSE proxy, lifecycle management).
 
 Relevant Task Files:
 *   `.cursor/login-refactor-tasks.md`: Login experience refactor (All tasks completed).
@@ -374,7 +379,8 @@ Key requirements:
 - `bugfix-install-button-stuck.md`: Completed
 
 ## Executor's Feedback or Assistance Requests
-- Waiting for approval to apply logging and fixes for env var submission.
+
+- [2024-06-10] SSE 代理 mock 测试用例已补全，测试需在用例前初始化 MCPServiceDB（model.MCPServiceInit），否则 CreateService 会 panic。已在 active task file 记录此依赖。
 
 ## Lessons
 - Axios interceptors can alter the shape of API responses; ensure store actions and component logic are consistent with the actual data structure returned by the API client.

@@ -2,10 +2,19 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
+	"one-mcp/backend/common"
 	"one-mcp/backend/model"
+
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // ServiceStatus 表示服务的健康状态
@@ -236,23 +245,235 @@ func (s *BaseService) CheckHealth(ctx context.Context) (*ServiceHealth, error) {
 	return &healthCopy, nil
 }
 
-// ServiceFactory 用于创建适合特定类型的服务实例
-func ServiceFactory(mcpService *model.MCPService) (Service, error) {
-	baseService := NewBaseService(mcpService.ID, mcpService.Name, mcpService.Type)
+// SSESvc wraps an http.Handler to act as an SSE service.
+type SSESvc struct {
+	*BaseService              // Embed BaseService
+	Handler      http.Handler // The actual handler that will serve SSE requests
+}
 
-	// 根据服务类型返回不同的服务实现
-	switch mcpService.Type {
-	case model.ServiceTypeStdio:
-		// TODO: 返回Stdio服务实现
-		return baseService, nil
-	case model.ServiceTypeSSE:
-		// TODO: 返回SSE服务实现
-		return baseService, nil
-	case model.ServiceTypeStreamableHTTP:
-		// TODO: 返回StreamableHTTP服务实现
-		return baseService, nil
-	default:
-		// 默认返回基本服务实现
-		return baseService, nil
+// NewSSESvc creates a new SSESvc.
+// The base argument should have its serviceType set to model.ServiceTypeSSE
+// as this SSESvc is intended to serve SSE.
+func NewSSESvc(base *BaseService, handler http.Handler) *SSESvc {
+	if base.serviceType != model.ServiceTypeSSE {
+		// This is an internal consistency check. The factory should ensure this.
+		common.SysError(fmt.Sprintf("NewSSESvc called with BaseService of type %s, expected SSE", base.serviceType))
+		base.serviceType = model.ServiceTypeSSE // Correct it
+	}
+	return &SSESvc{
+		BaseService: base,
+		Handler:     handler,
 	}
 }
+
+// ServeHTTP delegates to the underlying Handler.
+// This method makes SSESvc an http.Handler itself.
+func (s *SSESvc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.Handler == nil {
+		http.Error(w, "SSE handler not configured for service: "+s.Name(), http.StatusInternalServerError)
+		return
+	}
+	s.Handler.ServeHTTP(w, r)
+}
+
+// Cached Handlers for different types of services
+var (
+	initializedStdioSSEWrappers = make(map[string]http.Handler)
+	muStdioSSEWrappers          sync.Mutex
+
+	// TODO: Add caches for other types if needed, e.g., direct SSE proxies
+)
+
+// getOrCreateStdioToSSEHandler is responsible for instantiating and returning
+// an http.Handler that wraps an Stdio MCP service to expose it via SSE.
+// It ensures that each handler is initialized only once.
+func getOrCreateStdioToSSEHandler(mcpDBService *model.MCPService) (http.Handler, error) {
+	muStdioSSEWrappers.Lock()
+	defer muStdioSSEWrappers.Unlock()
+
+	if handler, exists := initializedStdioSSEWrappers[mcpDBService.Name]; exists {
+		common.SysLog(fmt.Sprintf("Reusing cached Stdio-to-SSE handler for %s", mcpDBService.Name))
+		return handler, nil
+	}
+
+	common.SysLog(fmt.Sprintf("Creating new Stdio-to-SSE handler for %s", mcpDBService.Name))
+
+	// 1. Retrieve Stdio Config
+	var stdioConf model.StdioConfig
+	if mcpDBService.DefaultAdminConfigValues == "" {
+		errMsg := fmt.Sprintf("Stdio service %s has no DefaultAdminConfigValues", mcpDBService.Name)
+		common.SysError(errMsg)
+		return nil, errors.New(errMsg)
+	}
+	err := json.Unmarshal([]byte(mcpDBService.DefaultAdminConfigValues), &stdioConf)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to unmarshal StdioConfig for %s: %v", mcpDBService.Name, err)
+		common.SysError(errMsg)
+		return nil, errors.New(errMsg)
+	}
+
+	if stdioConf.Command == "" {
+		errMsg := fmt.Sprintf("Stdio service %s has an empty command in StdioConfig", mcpDBService.Name)
+		common.SysError(errMsg)
+		return nil, errors.New(errMsg)
+	}
+	common.SysLog(fmt.Sprintf("Stdio config for %s: Command=%s, Args=%v", mcpDBService.Name, stdioConf.Command, stdioConf.Args))
+
+	// 2. Create Stdio MCP Client
+	mcpGoClient, err := mcpclient.NewStdioMCPClient(stdioConf.Command, stdioConf.Env, stdioConf.Args...)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to create mcp-go StdioClient for %s: %v", mcpDBService.Name, err)
+		common.SysError(errMsg)
+		return nil, errors.New(errMsg)
+	}
+	// TODO: Manage mcpGoClient lifecycle (e.g., Close() on shutdown or when service is disabled/deleted)
+
+	// 3. Initialize Client & Create MCP Server
+	ctx := context.Background()
+
+	mcpGoServer := mcpserver.NewMCPServer(
+		mcpDBService.Name,
+		mcpDBService.InstalledVersion,
+		mcpserver.WithResourceCapabilities(true, true),
+	)
+
+	clientInfo := mcp.Implementation{
+		Name:    fmt.Sprintf("one-mcp-proxy-for-%s", mcpDBService.Name),
+		Version: common.Version,
+	}
+
+	initRequest := mcp.InitializeRequest{}
+	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initRequest.Params.ClientInfo = clientInfo
+
+	common.SysLog(fmt.Sprintf("Initializing mcp-go client for %s...", mcpDBService.Name))
+	_, err = mcpGoClient.Initialize(ctx, initRequest)
+	if err != nil {
+		mcpGoClient.Close()
+		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s: %v", mcpDBService.Name, err)
+		common.SysError(errMsg)
+		return nil, errors.New(errMsg)
+	}
+	common.SysLog(fmt.Sprintf("Successfully initialized mcp-go client for %s. Adding resources...", mcpDBService.Name))
+
+	if err := addClientToolsToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
+		mcpGoClient.Close()
+		common.SysError(fmt.Sprintf("Failed to add tools for %s: %v", mcpDBService.Name, err))
+	}
+	if err := addClientPromptsToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
+		mcpGoClient.Close()
+		common.SysError(fmt.Sprintf("Failed to add prompts for %s: %v", mcpDBService.Name, err))
+	}
+	common.SysLog(fmt.Sprintf("Finished adding resources for %s to mcp-go server.", mcpDBService.Name))
+
+	// 4. Create SSE Server (Wrapper for mcp-go server)
+	oneMCPExternalBaseURL := common.OptionMap["ServerAddress"]
+
+	actualMCPGoSSEServer := mcpserver.NewSSEServer(mcpGoServer,
+		mcpserver.WithStaticBasePath(""),
+		mcpserver.WithBaseURL(oneMCPExternalBaseURL+"/api/sse/"+mcpDBService.Name),
+	)
+
+	initializedStdioSSEWrappers[mcpDBService.Name] = actualMCPGoSSEServer
+	common.SysLog(fmt.Sprintf("Successfully created and cached Stdio-to-SSE handler for %s", mcpDBService.Name))
+	return actualMCPGoSSEServer, nil
+}
+
+// ServiceFactory 用于创建适合特定类型的服务实例
+func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
+	var effectiveServiceType model.ServiceType
+	var httpHandlerForProxy http.Handler
+	var err error
+
+	switch mcpDBService.Type {
+	case model.ServiceTypeStdio:
+		common.SysLog(fmt.Sprintf("ServiceFactory: %s is Stdio type. Attempting to wrap as SSE.", mcpDBService.Name))
+		httpHandlerForProxy, err = getOrCreateStdioToSSEHandler(mcpDBService)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create stdio-to-SSE handler for %s: %w", mcpDBService.Name, err)
+		}
+		effectiveServiceType = model.ServiceTypeSSE
+
+	case model.ServiceTypeSSE:
+		common.SysLog(fmt.Sprintf("ServiceFactory: %s is native SSE type. TODO: Implement direct SSE proxy.", mcpDBService.Name))
+		return nil, fmt.Errorf("native SSE service proxying not yet implemented for %s", mcpDBService.Name)
+
+	case model.ServiceTypeStreamableHTTP:
+		common.SysLog(fmt.Sprintf("ServiceFactory: %s is StreamableHTTP. TODO: Implement.", mcpDBService.Name))
+		return nil, fmt.Errorf("streamableHTTP service proxying not yet implemented for %s", mcpDBService.Name)
+
+	default:
+		common.SysError(fmt.Sprintf("ServiceFactory: Unsupported service type '%s' for service %s", mcpDBService.Type, mcpDBService.Name))
+		return nil, errors.New("unsupported service type: " + string(mcpDBService.Type))
+	}
+
+	proxyBaseService := NewBaseService(mcpDBService.ID, mcpDBService.Name, effectiveServiceType)
+
+	if effectiveServiceType == model.ServiceTypeSSE && httpHandlerForProxy != nil {
+		return NewSSESvc(proxyBaseService, httpHandlerForProxy), nil
+	}
+
+	return nil, fmt.Errorf("could not create a suitable proxy service for %s (type %s, effective %s)", mcpDBService.Name, mcpDBService.Type, effectiveServiceType)
+}
+
+// --- Helper functions to add resources to mcp-go server (adapted from user's example) ---
+
+func addClientToolsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
+	toolsRequest := mcp.ListToolsRequest{}
+	for {
+		tools, err := mcpGoClient.ListTools(ctx, toolsRequest)
+		if err != nil {
+			common.SysError(fmt.Sprintf("ListTools failed for %s: %v", mcpServerName, err))
+			return err
+		}
+		if tools == nil {
+			common.SysLog(fmt.Sprintf("ListTools returned nil tools for %s. No tools to add.", mcpServerName))
+			break
+		}
+		common.SysLog(fmt.Sprintf("Listed %d tools for %s", len(tools.Tools), mcpServerName))
+		for _, tool := range tools.Tools {
+			common.SysLog(fmt.Sprintf("Adding tool %s to %s", tool.Name, mcpServerName))
+			mcpGoServer.AddTool(tool, mcpGoClient.CallTool)
+		}
+		if tools.NextCursor == "" {
+			break
+		}
+		toolsRequest.PaginatedRequest.Params.Cursor = tools.NextCursor
+	}
+	return nil
+}
+
+func addClientPromptsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
+	promptsRequest := mcp.ListPromptsRequest{}
+	for {
+		prompts, err := mcpGoClient.ListPrompts(ctx, promptsRequest)
+		if err != nil {
+			common.SysError(fmt.Sprintf("ListPrompts failed for %s: %v", mcpServerName, err))
+			return err
+		}
+		if prompts == nil {
+			common.SysLog(fmt.Sprintf("ListPrompts returned nil prompts for %s. No prompts to add.", mcpServerName))
+			break
+		}
+		common.SysLog(fmt.Sprintf("Listed %d prompts for %s", len(prompts.Prompts), mcpServerName))
+		for _, prompt := range prompts.Prompts {
+			common.SysLog(fmt.Sprintf("Adding prompt %s to %s", prompt.Name, mcpServerName))
+			mcpGoServer.AddPrompt(prompt, mcpGoClient.GetPrompt)
+		}
+		if prompts.NextCursor == "" {
+			break
+		}
+		promptsRequest.PaginatedRequest.Params.Cursor = prompts.NextCursor
+	}
+	return nil
+}
+
+// TODO: Implement addClientResourcesToMCPServer and addClientResourceTemplatesToMCPServer
+// based on user's example if these are required for exa-mcp-server.
+// For now, these are stubbed or simplified.
+
+// --- End Helper Functions ---
+
+// Keep existing ServiceManager and its methods (GetServiceManager, AddService, GetSSEServiceByName etc.)
+// GetSSEServiceByName will now rely on the updated ServiceFactory.
+// ... existing code ...

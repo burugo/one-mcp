@@ -19,10 +19,9 @@ var (
 var UploadPath = "upload"
 
 func PrintHelp() {
-	fmt.Println("Gin Template " + Version + " - Your next project starts from here.")
-	fmt.Println("Copyright (C) 2023 JustSong. All rights reserved.")
-	fmt.Println("GitHub: https://github.com/songquanpeng/one-mcp/backend")
-	fmt.Println("Usage: one-mcp/backend [--port <port>] [--log-dir <log directory>] [--version] [--help]")
+	fmt.Println("Copyright (C) 2025 Buru. All rights reserved.")
+	fmt.Println("GitHub: https://github.com/burugo/one-mcp")
+	fmt.Println("Usage: one-mcp [--port <port>] [--log-dir <log directory>] [--version] [--help]")
 }
 
 func init() {
@@ -59,4 +58,5 @@ func init() {
 	if _, err := os.Stat(UploadPath); os.IsNotExist(err) {
 		_ = os.Mkdir(UploadPath, 0777)
 	}
+	InitOptionMap()
 }

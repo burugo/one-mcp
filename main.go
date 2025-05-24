@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -63,8 +64,11 @@ func main() {
 		common.FatalLog(err)
 	}
 
-	// Initialize options
-	model.InitOptionMap()
+	// Seed default services
+	if err := model.SeedDefaultServices(); err != nil {
+		common.SysError(fmt.Sprintf("Failed to seed default services: %v", err))
+		// Depending on severity, might os.Exit(1) or just log
+	}
 
 	// Initialize service manager
 	serviceManager := proxy.GetServiceManager()
