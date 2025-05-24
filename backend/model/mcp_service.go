@@ -72,6 +72,7 @@ type MCPService struct {
 	HealthStatus             string          `db:"health_status"`               // 健康状态: unknown, healthy, unhealthy, starting, stopped
 	LastHealthCheck          time.Time       `db:"last_health_check"`           // 最后健康检查时间
 	HealthDetails            string          `db:"health_details"`              // 健康详情的JSON字符串
+	DefaultEnvsJSON          string          `db:"default_envs_json"`           // JSON string for default environment variables map[string]string
 }
 
 // TableName sets the table name for the MCPService model
@@ -256,33 +257,49 @@ func SeedDefaultServices() error {
 	existingService, _ := GetServiceByName(serviceName) // Ignore error, just check if nil
 
 	stdioConf := StdioConfig{
-		Command: "exa-mcp-server",
-		Args:    []string{},
-		Env:     []string{},
+		Command: "npx",
+		Args:    []string{"-y", "exa-mcp-server"},
+		// Env will be populated from DefaultEnvsJSON or user-specific configs at runtime
 	}
 	stdioConfJSON, err := json.Marshal(stdioConf)
 	if err != nil {
-		common.SysError(fmt.Sprintf("Failed to marshal stdioConf for %s: %v", serviceName, err))
-		return err
+		common.SysError(fmt.Sprintf("Failed to marshal StdioConfig for %s: %v", serviceName, err))
+		// Decide if we should return error or continue
 	}
+
+	defaultExaEnvs := map[string]string{
+		"PORT": "0", // Example default environment variable
+	}
+	defaultExaEnvsJSONBytes, err := json.Marshal(defaultExaEnvs)
+	if err != nil {
+		common.SysError(fmt.Sprintf("Failed to marshal DefaultEnvsJSON for %s: %v", serviceName, err))
+		// Decide if we should return error or continue
+	}
+	defaultExaEnvsJSON := string(defaultExaEnvsJSONBytes)
 
 	if existingService == nil {
 		common.SysLog(fmt.Sprintf("Service %s not found, creating...", serviceName))
 		newService := &MCPService{
 			Name:                     serviceName,
-			DisplayName:              "Example MCP Server (Stdio)",
-			Description:              "An example MCP server that communicates via stdio, proxied via SSE.",
+			DisplayName:              "Exa Server (Stdio)",
+			Description:              "Exa MCP Server for search and agents.",
+			Category:                 CategoryAI,
+			Icon:                     "/static/exa.png",
+			DefaultOn:                true,
+			AdminOnly:                false,
+			OrderNum:                 10,
+			Enabled:                  true,
 			Type:                     ServiceTypeStdio,
 			AdminConfigSchema:        exaMCPServiceStdioSchema,
 			DefaultAdminConfigValues: string(stdioConfJSON),
-			UserConfigSchema:         `{"type":"object","properties":{"custom_user_param":{"type":"string"}}}`,
+			UserConfigSchema:         `{"type":"object","properties":{"API_KEY":{"type":"string","description":"Your Exa API Key (user-specific)"}}}`,
 			AllowUserOverride:        true,
 			ClientConfigTemplates:    "{}",
-			// For manually seeded services, package manager specific fields can be empty or have placeholder values
-			PackageManager:    "manual",    // Or empty string
-			SourcePackageName: serviceName, // Or empty string
-			InstalledVersion:  "N/A",       // Or a specific version if known, or empty
-			// HealthStatus and LastHealthCheck will be default/zero
+			RequiredEnvVarsJSON:      "[]",
+			DefaultEnvsJSON:          defaultExaEnvsJSON,
+			PackageManager:           "manual",
+			SourcePackageName:        serviceName,
+			InstalledVersion:         "N/A",
 		}
 		if err := MCPServiceDB.Save(newService); err != nil {
 			common.SysError(fmt.Sprintf("Failed to create service %s: %v", serviceName, err))
@@ -290,14 +307,14 @@ func SeedDefaultServices() error {
 		}
 		common.SysLog(fmt.Sprintf("Service %s created successfully.", serviceName))
 	} else {
-		common.SysLog(fmt.Sprintf("Service %s already exists. Updating DefaultAdminConfigValues and Type if necessary...", serviceName))
+		common.SysLog(fmt.Sprintf("Service %s already exists. Updating if necessary...", serviceName))
 		updateNeeded := false
 		if existingService.Type != ServiceTypeStdio {
 			existingService.Type = ServiceTypeStdio
 			updateNeeded = true
 			common.SysLog(fmt.Sprintf("Updated Type for service %s to Stdio", serviceName))
 		}
-		if existingService.AdminConfigSchema == "" || existingService.AdminConfigSchema == "{}" {
+		if existingService.AdminConfigSchema != exaMCPServiceStdioSchema {
 			existingService.AdminConfigSchema = exaMCPServiceStdioSchema
 			updateNeeded = true
 			common.SysLog(fmt.Sprintf("Updated AdminConfigSchema for service %s", serviceName))
@@ -307,11 +324,32 @@ func SeedDefaultServices() error {
 			updateNeeded = true
 			common.SysLog(fmt.Sprintf("Updated DefaultAdminConfigValues for service %s", serviceName))
 		}
-		// Ensure package manager fields are appropriate for a manually managed service if they were different
+		if existingService.DefaultEnvsJSON != defaultExaEnvsJSON {
+			existingService.DefaultEnvsJSON = defaultExaEnvsJSON
+			updateNeeded = true
+			common.SysLog(fmt.Sprintf("Updated DefaultEnvsJSON for service %s", serviceName))
+		}
 		if existingService.PackageManager != "manual" {
 			existingService.PackageManager = "manual"
 			updateNeeded = true
 			common.SysLog(fmt.Sprintf("Updated PackageManager for service %s to manual", serviceName))
+		}
+
+		if existingService.DisplayName != "Exa Server (Stdio)" {
+			existingService.DisplayName = "Exa Server (Stdio)"
+			updateNeeded = true
+		}
+		if existingService.Description != "Exa MCP Server for search and agents." {
+			existingService.Description = "Exa MCP Server for search and agents."
+			updateNeeded = true
+		}
+		if existingService.Icon != "/static/exa.png" {
+			existingService.Icon = "/static/exa.png"
+			updateNeeded = true
+		}
+		if existingService.Category != CategoryAI {
+			existingService.Category = CategoryAI
+			updateNeeded = true
 		}
 
 		if updateNeeded {

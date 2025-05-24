@@ -2,6 +2,9 @@ package model
 
 import (
 	"errors"
+	"fmt"
+
+	"one-mcp/backend/common"
 
 	"github.com/burugo/thing"
 )
@@ -139,4 +142,49 @@ func GetUserConfigsWithDetails(userID int64) ([]map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// GetUserSpecificEnvs retrieves a map of environment variable key-value pairs
+// for a specific user and service.
+// It joins UserConfig with ConfigService to get the actual ENV variable names (keys).
+func GetUserSpecificEnvs(userID int64, mcpServiceID int64) (map[string]string, error) {
+	if UserConfigDB == nil || ConfigServiceDB == nil {
+		return nil, errors.New("database connections not initialized for UserConfigDB or ConfigServiceDB")
+	}
+
+	userConfigs, err := UserConfigDB.Where("user_id = ? AND service_id = ?", userID, mcpServiceID).All()
+	if err != nil {
+		return nil, fmt.Errorf("error fetching user configs for user %d, service %d: %w", userID, mcpServiceID, err)
+	}
+
+	if len(userConfigs) == 0 {
+		return make(map[string]string), nil // No user-specific settings, return empty map
+	}
+
+	envMap := make(map[string]string)
+	for _, uc := range userConfigs {
+		// Fetch the ConfigService entry to get the Key (ENV variable name)
+		// UserConfig.ConfigID links to ConfigService.ID
+		// ConfigService.ServiceID links this key definition to an MCPService.
+		// We are querying UserConfig by mcpServiceID, so the ConfigID should theoretically
+		// point to a ConfigService that is also relevant to this mcpServiceID.
+		// An additional check could be configService.ServiceID == mcpServiceID, but it might be overly restrictive
+		// if a ConfigID can be global or reused. The direct link UserConfig.ConfigID -> ConfigService.ID is primary.
+		configService, err := ConfigServiceDB.ByID(uc.ConfigID)
+		if err != nil {
+			// Log this error, but continue processing other configs.
+			// A missing ConfigService entry for a UserConfig might indicate orphaned data.
+			common.SysError(fmt.Sprintf("Error fetching ConfigService with ID %d (for UserConfig ID %d, UserID %d, MCPServiceID %d): %v. Skipping this entry.", uc.ConfigID, uc.ID, userID, mcpServiceID, err))
+			continue
+		}
+
+		// Ensure the fetched ConfigService's Key is not empty.
+		if configService.Key == "" {
+			common.SysLog(fmt.Sprintf("WARN: ConfigService with ID %d (for UserConfig ID %d) has an empty Key. Skipping this entry.", configService.ID, uc.ID))
+			continue
+		}
+		envMap[configService.Key] = uc.Value
+	}
+
+	return envMap, nil
 }

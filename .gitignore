@@ -27,4 +27,5 @@ go.work.sum
 .tool-versions
 ./one-mcp
 .tmp
+.vscode
 *.log

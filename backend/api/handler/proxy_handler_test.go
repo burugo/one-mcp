@@ -135,11 +135,11 @@ func (h *mockMCPMasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if r.Method == "POST" && r.URL.Path == "/message" && r.URL.Query().Get("sessionId") == "test-session-123" {
 		// Optional: check request body
 		// bodyBytes, _ := io.ReadAll(r.Body)
-		// assert.Contains(h.t, string(bodyBytes), "\\"method\\":\\"initialize\\"")
+		// assert.Contains(h.t, string(bodyBytes), "\"method\":\"initialize\"")
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted) // 202 Accepted for POSTs that initiate async work or just acknowledge
-		fmt.Fprintf(w, "{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":0,\\\"result\\\":{\\\"protocolVersion\\\":\\\"test-pv\\\",\\\"serverInfo\\\":{\\\"name\\\":\\\"Mock MCP Server\\\"}}}")
+		fmt.Fprintf(w, "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":\"test-pv\",\"serverInfo\":{\"name\":\"Mock MCP Server\"}}}")
 		return
 	}
 
@@ -164,6 +164,7 @@ func TestSSEProxyHandler_MCPProtocolFlow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.Default()
 	router.GET("/api/sse/:serviceName/*action", SSEProxyHandler)
+	router.POST("/api/sse/:serviceName/*action", SSEProxyHandler)
 
 	serviceName := "exa-mcp-server-flow"
 	stdioConf := model.StdioConfig{Command: "fake-exa-cmd"}
@@ -221,7 +222,7 @@ func TestSSEProxyHandler_MCPProtocolFlow(t *testing.T) {
 
 	assert.Equal(t, http.StatusAccepted, wPost.Code, "POST to message endpoint should be 202 Accepted")
 	assert.Equal(t, "application/json", wPost.Header().Get("Content-Type"), "Content-Type should be application/json")
-	expectedJsonRpcResponse := "{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":0,\\\"result\\\":{\\\"protocolVersion\\\":\\\"test-pv\\\",\\\"serverInfo\\\":{\\\"name\\\":\\\"Mock MCP Server\\\"}}}"
+	expectedJsonRpcResponse := "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":\"test-pv\",\"serverInfo\":{\"name\":\"Mock MCP Server\"}}}"
 	assert.JSONEq(t, expectedJsonRpcResponse, wPost.Body.String(), "Response body for POST should be correct JSON-RPC")
 
 	wRedirect := httptest.NewRecorder()
@@ -230,4 +231,150 @@ func TestSSEProxyHandler_MCPProtocolFlow(t *testing.T) {
 
 	assert.Equal(t, http.StatusMovedPermanently, wRedirect.Code, "GET to base without slash should 301")
 	assert.Equal(t, "/api/sse/"+serviceName+"/", wRedirect.Header().Get("Location"), "Location header for 301 should be correct")
+}
+
+// TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig verifies that when a user
+// has specific configurations for an Stdio service that allows overrides,
+// NewStdioSSEHandlerUncached is called with the correctly merged StdioConfig.
+func TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t *testing.T) {
+	teardown := setupTestEnvironmentForProxyHandler()
+	defer teardown()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.Default()
+	// Simulate JWTAuth middleware setting userID
+	router.Use(func(c *gin.Context) {
+		c.Set("userID", int64(1)) // Assuming test user ID is 1
+		c.Next()
+	})
+	router.GET("/api/sse/:serviceName/*action", SSEProxyHandler)
+
+	// 1. Setup Database State
+	// Create User (implicitly, userID=1 is used from context)
+	// UserDB might not be directly needed if we just set userID in context
+
+	// Create MCPService
+	mcpServiceName := "user-specific-test-svc"
+	defaultStdioConfig := model.StdioConfig{
+		Command: "base-cmd",
+		Args:    []string{"base-arg"},
+		Env:     []string{"DEFAULT_CMD_ENV=cmd_val"}, // Env from command config
+	}
+	defaultStdioConfigJSON, _ := json.Marshal(defaultStdioConfig)
+	defaultEnvsMap := map[string]string{"DEFAULT_JSON_ENV": "json_val", "USER_OVERRIDABLE_DEFAULT": "default_version"}
+	defaultEnvsJSON, _ := json.Marshal(defaultEnvsMap)
+
+	mcpSvc := &model.MCPService{
+		Name:                     mcpServiceName,
+		Type:                     model.ServiceTypeStdio,
+		AllowUserOverride:        true,
+		DefaultAdminConfigValues: string(defaultStdioConfigJSON),
+		DefaultEnvsJSON:          string(defaultEnvsJSON),
+		Enabled:                  true,
+	}
+	err := model.CreateService(mcpSvc)
+	assert.NoError(t, err)
+	dbMcpSvc, err := model.GetServiceByName(mcpServiceName)
+	assert.NoError(t, err)
+	assert.NotNil(t, dbMcpSvc)
+	defer model.DeleteService(dbMcpSvc.ID)
+
+	// Create ConfigService (the definition of the ENV var)
+	configKeyName := "USER_API_KEY"
+	cfgSvc := &model.ConfigService{
+		ServiceID: dbMcpSvc.ID,
+		Key:       configKeyName,
+		Type:      model.ConfigTypeSecret,
+	}
+	err = model.CreateConfigOption(cfgSvc)
+	assert.NoError(t, err)
+	dbConfigSvc, err := model.GetConfigOptionByKey(dbMcpSvc.ID, configKeyName)
+	assert.NoError(t, err)
+	assert.NotNil(t, dbConfigSvc)
+	// No defer needed for ConfigService as it would be deleted with MCPService or if schema had cascades
+
+	// Create UserConfig (the user's specific value for the ENV var)
+	userApiKeyVal := "user_secret_123"
+	userCfg := &model.UserConfig{
+		UserID:    1, // Matches userID set in Gin context
+		ServiceID: dbMcpSvc.ID,
+		ConfigID:  dbConfigSvc.ID,
+		Value:     userApiKeyVal,
+	}
+	err = model.SaveUserConfig(userCfg)
+	assert.NoError(t, err)
+
+	// User override for a default env
+	configKeyOverride := "USER_OVERRIDABLE_DEFAULT"
+	cfgSvcOverride := &model.ConfigService{
+		ServiceID: dbMcpSvc.ID,
+		Key:       configKeyOverride,
+		Type:      model.ConfigTypeString,
+	}
+	err = model.CreateConfigOption(cfgSvcOverride)
+	assert.NoError(t, err)
+	dbConfigSvcOverride, _ := model.GetConfigOptionByKey(dbMcpSvc.ID, configKeyOverride)
+
+	userOverrideVal := "user_has_overridden"
+	userCfgOverride := &model.UserConfig{
+		UserID:    1,
+		ServiceID: dbMcpSvc.ID,
+		ConfigID:  dbConfigSvcOverride.ID,
+		Value:     userOverrideVal,
+	}
+	err = model.SaveUserConfig(userCfgOverride)
+	assert.NoError(t, err)
+
+	// 2. Mock proxy.NewStdioSSEHandlerUncached
+	originalNewStdioSSEHandlerUncached := proxy.NewStdioSSEHandlerUncached
+	var capturedStdioConfig model.StdioConfig
+	var newStdioSSEHandlerUncachedCalled bool
+
+	proxy.NewStdioSSEHandlerUncached = func(ctx context.Context, mcpDBService *model.MCPService, effectiveStdioConfig model.StdioConfig) (http.Handler, error) {
+		newStdioSSEHandlerUncachedCalled = true
+		capturedStdioConfig = effectiveStdioConfig
+		// Return a simple mock handler for the test to complete the HTTP flow
+		return &mockSSEHandler{}, nil
+	}
+	defer func() {
+		proxy.NewStdioSSEHandlerUncached = originalNewStdioSSEHandlerUncached
+	}()
+
+	// 3. Make the request
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/sse/"+mcpServiceName+"/someaction", nil)
+	router.ServeHTTP(w, req)
+
+	// 4. Assertions
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, newStdioSSEHandlerUncachedCalled, "NewStdioSSEHandlerUncached should have been called")
+
+	assert.Equal(t, "base-cmd", capturedStdioConfig.Command, "Command should be from DefaultAdminConfigValues")
+	assert.Equal(t, []string{"base-arg"}, capturedStdioConfig.Args, "Args should be from DefaultAdminConfigValues")
+
+	// Check ENVs: DEFAULT_CMD_ENV, DEFAULT_JSON_ENV, USER_API_KEY, USER_OVERRIDABLE_DEFAULT (overridden)
+	expectedEnvsMap := map[string]string{
+		"DEFAULT_CMD_ENV":  "cmd_val",
+		"DEFAULT_JSON_ENV": "json_val",
+		configKeyName:      userApiKeyVal,
+		configKeyOverride:  userOverrideVal,
+	}
+
+	actualEnvsMap := make(map[string]string)
+	for _, envStr := range capturedStdioConfig.Env {
+		parts := strings.SplitN(envStr, "=", 2)
+		if len(parts) == 2 {
+			actualEnvsMap[parts[0]] = parts[1]
+		}
+	}
+	assert.Equal(t, expectedEnvsMap, actualEnvsMap, "Effective ENV variables are not correctly merged")
+
+	// Verify that the user-specific handler is cached
+	userHandlerKey := fmt.Sprintf("user-%d-service-%d", 1, dbMcpSvc.ID)
+	cachedUserHandler, found := proxy.GetCachedHandler(userHandlerKey)
+	assert.True(t, found, "User-specific handler should be cached")
+	assert.NotNil(t, cachedUserHandler, "Cached user-specific handler should not be nil")
+	_, ok := cachedUserHandler.(*mockSSEHandler)
+	assert.True(t, ok, "Cached handler should be the one returned by the mock NewStdioSSEHandlerUncached")
+
 }

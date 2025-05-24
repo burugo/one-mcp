@@ -138,5 +138,6 @@ func SetApiRouter(route *gin.Engine) {
 		// 注册 SSE 代理路由
 		// The *action will capture the rest of the path (e.g., /message, /files/somefile.txt)
 		apiRouter.GET("/sse/:serviceName/*action", handler.SSEProxyHandler)
+		apiRouter.POST("/sse/:serviceName/*action", handler.SSEProxyHandler) // Also handle POST requests
 	}
 }

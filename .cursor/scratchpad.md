@@ -506,3 +506,58 @@ Waiting for the Executor to generate the description based on the plan.
 *(Existing user specified lessons remain)*
 
 ---
+
+## Background and Motivation
+
+The system experiences deadlocks at runtime, particularly when services like `exa-mcp-server` are initialized. This is due to the `ServiceManager` holding a write lock during service registration, while the actual startup of `Stdio` type services (within `ServiceFactory` -> `getOrCreateStdioToSSEHandler`) can block indefinitely if the configured command fails to start or initialize correctly.
+The immediate trigger for `exa-mcp-server` is that its command is configured as `"exa-mcp-server"` directly, without `npx` (which might be needed if it's an npm package not globally installed), and its `PackageManager` is `"manual"`.
+The core issue is twofold:
+1. Potentially incorrect command/environment setup for `Stdio` services like `exa-mcp-server`.
+2. Lack of robust error handling (e.g., timeouts, non-blocking initialization) in the stdio process launching mechanism, leading to `RegisterService` holding a lock for too long.
+
+This plan aims to make the `Stdio` service startup more robust and configurable.
+
+## Key Challenges and Analysis
+
+- The `exa-mcp-server` is seeded with `Command: "exa-mcp-server"` and `PackageManager: "manual"`. If it requires `npx`, this configuration is incorrect.
+- The function `getOrCreateStdioToSSEHandler` in `backend/library/proxy/service.go` synchronously calls `mcpclient.NewStdioMCPClient` and `mcpGoClient.Initialize`. If these calls block due to command failure (e.g., not found, exits with error, hangs) or initialization issues, the `ServiceManager`'s write lock is held, causing a deadlock.
+- Modifying the command execution needs to consider if `npx` should be universally applied or configurable.
+- Adding timeouts to the process initialization requires careful consideration of appropriate durations and ensuring resource cleanup (e.g., `mcpGoClient.Close()`) on failure.
+- The fix should prevent indefinite blocking even if a command is misconfigured or fails to install/run, aligning with the user's expectation that command installation failures in production shouldn't cause deadlocks.
+
+## High-level Task Breakdown
+
+- **Task File**: `.cursor/fix-stdio-service-startup-tasks.md`
+    - Analyze and correct the command configuration for `exa-mcp-server`.
+    - Implement robust startup for `Stdio` services in `getOrCreateStdioToSSEHandler`, including timeouts and error handling.
+    - Ensure resources are cleaned up if service startup fails.
+    - Test the changes thoroughly.
+
+## Project Status Board
+
+- Active Task File: `.cursor/fix-stdio-service-startup-tasks.md`
+- Overall Status: Planning complete for Stdio service startup fix.
+
+# Background and Motivation
+
+支持多用户自定义服务配置，提升系统灵活性与安全性。通过 handler 动态创建与缓存，兼顾性能与隔离性。
+
+# Key Challenges and Analysis
+
+- 用户 ENV 合并优先级与冲突处理。
+- handler 生命周期与资源管理（后续可扩展）。
+- 单元测试的可 mock 性与覆盖面。
+
+# High-level Task Breakdown
+
+- 用户特定 ENV 查询与合并（见 .cursor/feature-user-service-env-tasks.md）
+- handler 动态创建与缓存（见 .cursor/feature-user-service-env-tasks.md）
+- 单元测试覆盖用户特定 handler 路径与配置合并（见 .cursor/feature-user-service-env-tasks.md）
+- SSEProxyHandler 结构重构，逻辑分离（见 .cursor/feature-user-service-env-tasks.md）
+- handler 生命周期与资源释放机制设计（见 .cursor/feature-user-service-env-tasks.md）
+- handler 缓存过期与自动清理实现（见 .cursor/feature-user-service-env-tasks.md）
+
+# Project Status Board
+
+- Active Task File: .cursor/feature-user-service-env-tasks.md
+- 当前进度：用户特定 handler 逻辑与单元测试已完成，handler 生命周期管理为后续任务。
