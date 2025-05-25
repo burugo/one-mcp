@@ -82,8 +82,7 @@ func InitDB() (err error) {
 	if err := OptionInit(); err != nil {
 		return err
 	}
-	// InitOptionMapFromDB should be called after OptionInit and AutoMigrate
-	if err := InitOptionMapFromDB(); err != nil {
+	if err := InitOptionMap(); err != nil {
 		return err
 	}
 	if err := MCPServiceInit(); err != nil {

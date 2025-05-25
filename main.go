@@ -111,16 +111,14 @@ func main() {
 			c.File("./frontend/dist/index.html")
 		}
 	})
-	var port = os.Getenv("PORT")
-	if port == "" {
-		port = strconv.Itoa(*common.Port)
-	}
+
+	port := strconv.Itoa(*common.Port)
 	common.SysLog("Server listening on port: " + port)
 
 	// Setup graceful shutdown
 	setupGracefulShutdown()
 
-	err = server.Run("0.0.0.0:" + port)
+	err = server.Run(":" + port)
 	if err != nil {
 		log.Fatal("failed to start server: " + err.Error())
 	}

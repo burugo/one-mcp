@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 var (
@@ -42,6 +43,14 @@ func init() {
 	} else if os.Getenv("JWT_SECRET") != "" {
 		JWTRefreshSecret = os.Getenv("JWT_SECRET")
 	}
+	if os.Getenv("PORT") != "" {
+		portInt, err := strconv.Atoi(os.Getenv("PORT"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		Port = &portInt
+	}
+
 	if *LogDir != "" {
 		var err error
 		*LogDir, err = filepath.Abs(*LogDir)
@@ -58,5 +67,4 @@ func init() {
 	if _, err := os.Stat(UploadPath); os.IsNotExist(err) {
 		_ = os.Mkdir(UploadPath, 0777)
 	}
-	InitOptionMap()
 }

@@ -1,7 +1,9 @@
 package model
 
 import (
+	"fmt"
 	"one-mcp/backend/common"
+	"strconv"
 
 	"github.com/burugo/thing"
 )
@@ -43,10 +45,24 @@ func OptionInit() error {
 	return nil
 }
 
-// InitOptionMapFromDB loads all options from the database into OptionMap
-func InitOptionMapFromDB() error {
+// InitOptionMap initializes the option map
+func InitOptionMap() error {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if common.OptionMap == nil {
+		common.OptionMap = map[string]string{}
+	}
+	common.OptionMap["ServerAddress"] = common.ServerAddress
+	common.OptionMap["Port"] = strconv.Itoa(*common.Port)
+	if err := InitOptionMapFromDB(); err != nil {
+		common.SysError(fmt.Sprintf("Failed to initialize option map from database: %v", err))
+		return err
+	}
+	return nil
+}
+
+// InitOptionMapFromDB loads all options from the database into OptionMap
+func InitOptionMapFromDB() error {
 	if OptionDB == nil {
 		return nil // OptionDB not initialized
 	}

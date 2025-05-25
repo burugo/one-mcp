@@ -93,12 +93,3 @@ const (
 	UserStatusEnabled  = 1 // don't use 0, 0 is the default value!
 	UserStatusDisabled = 2 // also don't use 0
 )
-
-// InitOptionMap initializes the option map
-func InitOptionMap() {
-	OptionMapRWMutex.Lock()
-	defer OptionMapRWMutex.Unlock()
-	if OptionMap == nil {
-		OptionMap = map[string]string{}
-	}
-}

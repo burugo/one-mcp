@@ -353,6 +353,14 @@ func createStdioToSSEHandlerInstance(
 		common.SysError(fmt.Sprintf("Failed to add prompts for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err))
 		// Depending on policy, might return error or just log and continue
 	}
+	if err := addClientResourcesToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
+		common.SysError(fmt.Sprintf("Failed to add resources for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err))
+		// Depending on policy, might return error or just log and continue
+	}
+	if err := addClientResourceTemplatesToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
+		common.SysError(fmt.Sprintf("Failed to add resource templates for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err))
+		// Depending on policy, might return error or just log and continue
+	}
 	common.SysLog(fmt.Sprintf("Finished adding resources for %s (%s) to mcp-go server.", mcpDBService.Name, instanceNameDetail))
 
 	// 3. Create SSE Server (Wrapper for mcp-go server)
@@ -576,3 +584,77 @@ func addClientPromptsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPC
 // Keep existing ServiceManager and its methods (GetServiceManager, AddService, GetSSEServiceByName etc.)
 // GetSSEServiceByName will now rely on the updated ServiceFactory.
 // ... existing code ...
+
+// --- New Helper Functions ---
+
+func addClientResourcesToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
+	resourcesRequest := mcp.ListResourcesRequest{}
+	for {
+		resources, err := mcpGoClient.ListResources(ctx, resourcesRequest)
+		if err != nil {
+			common.SysError(fmt.Sprintf("ListResources failed for %s: %v", mcpServerName, err))
+			return err
+		}
+		if resources == nil {
+			common.SysLog(fmt.Sprintf("ListResources returned nil resources for %s. No resources to add.", mcpServerName))
+			break
+		}
+		common.SysLog(fmt.Sprintf("Successfully listed %d resources for %s", len(resources.Resources), mcpServerName))
+		for _, resource := range resources.Resources {
+			// Capture range variable for closure
+			resource := resource
+			common.SysLog(fmt.Sprintf("Adding resource %s to %s", resource.Name, mcpServerName))
+			mcpGoServer.AddResource(resource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+				readResource, e := mcpGoClient.ReadResource(ctx, request)
+				if e != nil {
+					return nil, e
+				}
+				return readResource.Contents, nil
+			})
+		}
+		if resources.NextCursor == "" {
+			break
+		}
+		resourcesRequest.PaginatedRequest.Params.Cursor = resources.NextCursor
+	}
+	return nil
+}
+
+func addClientResourceTemplatesToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
+	resourceTemplatesRequest := mcp.ListResourceTemplatesRequest{}
+	for {
+		resourceTemplates, err := mcpGoClient.ListResourceTemplates(ctx, resourceTemplatesRequest)
+		if err != nil {
+			common.SysError(fmt.Sprintf("ListResourceTemplates failed for %s: %v", mcpServerName, err))
+			return err
+		}
+		if resourceTemplates == nil {
+			common.SysLog(fmt.Sprintf("ListResourceTemplates returned nil templates for %s. No templates to add.", mcpServerName))
+			break
+		}
+		common.SysLog(fmt.Sprintf("Successfully listed %d resource templates for %s", len(resourceTemplates.ResourceTemplates), mcpServerName))
+		for _, resourceTemplate := range resourceTemplates.ResourceTemplates {
+			// Capture range variable for closure
+			resourceTemplate := resourceTemplate
+			common.SysLog(fmt.Sprintf("Adding resource template %s to %s", resourceTemplate.Name, mcpServerName))
+			mcpGoServer.AddResourceTemplate(resourceTemplate, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+				// Note: The callback for AddResourceTemplate in mcp-go server might expect a specific request type
+				// or the ReadResourceRequest might be generic enough.
+				// Assuming ReadResourceRequest is appropriate as per user's example.
+				readResource, e := mcpGoClient.ReadResource(ctx, request) // This call might need adjustment if ReadResourceTemplates requires a different read method.
+				// However, mcp-go server.AddResourceTemplate's callback signature is indeed for ReadResourceRequest.
+				if e != nil {
+					return nil, e
+				}
+				return readResource.Contents, nil
+			})
+		}
+		if resourceTemplates.NextCursor == "" {
+			break
+		}
+		resourceTemplatesRequest.PaginatedRequest.Params.Cursor = resourceTemplates.NextCursor
+	}
+	return nil
+}
+
+// --- End Helper Functions ---
