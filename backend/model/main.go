@@ -69,6 +69,7 @@ func InitDB() (err error) {
 	thing.Configure(dbAdapter, cacheClient)
 
 	// 1. AutoMigrate all models first
+	thing.AllowDropColumn = true
 	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{})
 	if err != nil {
 		return err

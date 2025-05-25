@@ -561,3 +561,52 @@ This plan aims to make the `Stdio` service startup more robust and configurable.
 
 - Active Task File: .cursor/feature-user-service-env-tasks.md
 - 当前进度：用户特定 handler 逻辑与单元测试已完成，handler 生命周期管理为后续任务。
+
+### User-Specific Service ENV Support & Handler Refactor (feature-user-service-env-tasks.md)
+- **Status:** In Progress
+- **Summary:** Allow users to configure independent ENVs for services, dynamically creating and caching handlers. This involved refactoring `SSEProxyHandler`, adding `GetUserSpecificEnvs`, and updating tests.
+- **Next Steps:** Implement handler lifecycle management and cache eviction.
+
+### MCPService Model and StdioConfig Refactor (feature-mcp-service-refactor-tasks.md)
+- **Status:** Planning
+- **Summary:** Remove deprecated config fields (`DefaultAdminConfigValues`, `AdminConfigSchema`, `UserConfigSchema`) from `MCPService`. Modify `stdioConf` population in `proxy/service.go` to use `MCPService.Command`, `MCPService.ArgsJSON`, and `MCPService.DefaultEnvsJSON`. Update MCPService API handlers to set `Command` based on `PackageManager`.
+- **Next Steps:** Execute the plan: modify models, service logic, API handlers, and update tests.
+
+## Key Challenges and Analysis
+
+### Previous: User-Specific ENV & Handler Management
+- Ensuring correct precedence of ENV variables (user > service default > stdioConf default).
+- Dynamically creating and caching `http.Handler` instances per user and service, or globally.
+- Refactoring `SSEProxyHandler` for clarity by separating user-specific and global handler logic.
+- Mocking dependencies effectively in unit tests for `proxy_handler.go`.
+
+### Current: MCPService Model and StdioConfig Refactor
+- **Field Removal:** Identifying and safely removing all usages of `DefaultAdminConfigValues`, `AdminConfigSchema`, and `UserConfigSchema`.
+- **StdioConfig Population:** Modifying `getOrCreateStdioToSSEHandler` and `defaultNewStdioSSEHandlerUncached` in `backend/library/proxy/service.go` to construct `model.StdioConfig` using:
+    - `mcpDBService.Command` for `StdioConfig.Command`.
+    - `mcpDBService.ArgsJSON` (string containing JSON array of strings) for `StdioConfig.Args`. Requires JSON unmarshalling.
+    - `mcpDBService.DefaultEnvsJSON` (string containing JSON map of string to string) for `StdioConfig.Env`. Requires unmarshalling and formatting into `[]string{"KEY=VALUE"}`. This part is largely existing but needs to be verified in the new flow.
+- **API Handler Logic:** Updating `CreateMCPService` and `UpdateMCPService` in `backend/api/handler/mcp_service.go` to set `service.Command` based on `service.PackageManager`:
+    - If `PackageManager == "npm"`, set `Command = "npx"`.
+    - If `PackageManager == "pypi"`, set `Command = "uvx"`.
+    - This logic should be applied *before* saving the service.
+- **Test Updates:** Significant updates will be required for `backend/api/handler/proxy_handler_test.go` as it currently relies on `DefaultAdminConfigValues` for setting up test scenarios. Tests will need to be adapted to use the new `Command` and `ArgsJSON` fields.
+- **Error Handling:** Ensuring proper error handling during JSON unmarshalling of `ArgsJSON` and `DefaultEnvsJSON`.
+- **Impact on Seeder:** The commented-out seeder logic in `backend/model/mcp_service.go` will need updating if it's to be used.
+- **Data Migration (Out of Scope for AI):** No explicit data migration steps for existing database records are included in this plan. This would typically involve a separate migration script or process.
+
+## High-level Task Breakdown
+
+### 1. Remove deprecated fields from `MCPService` model and update seeder.
+### 2. Modify `proxy/service.go` to use new fields for `StdioConfig`.
+### 3. Update `handler/mcp_service.go` API for `PackageManager` logic.
+### 4. Update tests in `handler/proxy_handler_test.go`.
+### 5. Update `handler/proxy_handler.go` to reflect new `StdioConfig` sourcing.
+
+## Project Status Board
+
+- **Active Task File:** `.cursor/feature-mcp-service-refactor-tasks.md`
+- **Overall Progress:** User-specific ENV support is mostly complete. Starting refactor of MCPService model and StdioConfig.
+- **Relevant Task Files:**
+  - `.cursor/feature-user-service-env-tasks.md` (In Progress - nearing completion of currently planned items)
+  - `.cursor/feature-mcp-service-refactor-tasks.md` (Newly Active)

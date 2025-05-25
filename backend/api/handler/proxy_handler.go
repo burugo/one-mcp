@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"one-mcp/backend/common"
 	"one-mcp/backend/library/proxy"
@@ -50,22 +49,38 @@ func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPSe
 
 	common.SysLog(fmt.Sprintf("[SSEProxyHandler] No cached user-specific handler for key: %s. Attempting creation.", userHandlerKey))
 	var baseStdioConf model.StdioConfig
-	if mcpDBService.DefaultAdminConfigValues != "" {
-		if err := json.Unmarshal([]byte(mcpDBService.DefaultAdminConfigValues), &baseStdioConf); err != nil {
-			// Log error but proceed, as baseStdioConf might still be partially usable or defaults will apply.
-			common.SysError(fmt.Sprintf("[SSEProxyHandler] Error unmarshalling base StdioConfig for user-specific handler %s: %v", mcpDBService.Name, err))
-		}
-	} else {
-		common.SysLog(fmt.Sprintf("WARN: [SSEProxyHandler] DefaultAdminConfigValues is empty for service %s. User-specific handler might lack base command/args.", mcpDBService.Name))
+
+	// Populate baseStdioConf.Command and baseStdioConf.Args from mcpDBService
+	baseStdioConf.Command = mcpDBService.Command
+	if mcpDBService.Command == "" {
+		// This is a critical issue if we expect a command for Stdio type for user-specific handler creation
+		common.SysError(fmt.Sprintf("[SSEProxyHandler] MCPService.Command is empty for service %s (ID: %d) when creating user-specific handler.", mcpDBService.Name, mcpDBService.ID))
+		// Depending on strictness, might return error here. For now, proceeding will likely fail in NewStdioSSEHandlerUncached.
 	}
 
+	if mcpDBService.ArgsJSON != "" {
+		if err := json.Unmarshal([]byte(mcpDBService.ArgsJSON), &baseStdioConf.Args); err != nil {
+			common.SysError(fmt.Sprintf("[SSEProxyHandler] Error unmarshalling ArgsJSON for service %s (user-specific base): %v. Args will be empty.", mcpDBService.Name, err))
+			baseStdioConf.Args = []string{} // Ensure Args is empty on error
+		}
+	} else {
+		baseStdioConf.Args = []string{} // Ensure Args is empty if ArgsJSON is empty
+	}
+
+	// Initialize Env, will be populated by DefaultEnvsJSON and user-specific overrides
+	baseStdioConf.Env = []string{}
+
 	currentEnvMap := make(map[string]string)
+	// Populate currentEnvMap from DefaultEnvsJSON first
 	if mcpDBService.DefaultEnvsJSON != "" && mcpDBService.DefaultEnvsJSON != "{}" {
 		if err := json.Unmarshal([]byte(mcpDBService.DefaultEnvsJSON), &currentEnvMap); err != nil {
 			common.SysError(fmt.Sprintf("[SSEProxyHandler] Error unmarshalling DefaultEnvsJSON for %s (user-specific base): %v", mcpDBService.Name, err))
+			// Continue with an empty map if unmarshal fails
+			currentEnvMap = make(map[string]string)
 		}
 	}
 
+	// Fetch and merge user-specific ENVs
 	userEnvs, userEnvErr := model.GetUserSpecificEnvs(userID, mcpDBService.ID)
 	if userEnvErr != nil {
 		common.SysError(fmt.Sprintf("[SSEProxyHandler] Error fetching user-specific ENVs for user %d, service %s: %v", userID, mcpDBService.Name, userEnvErr))
@@ -75,17 +90,17 @@ func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPSe
 	if len(userEnvs) > 0 {
 		common.SysLog(fmt.Sprintf("[SSEProxyHandler] Merging %d user-specific ENVs for user %d, service %s", len(userEnvs), userID, mcpDBService.Name))
 		for k, v := range userEnvs {
-			currentEnvMap[k] = v
+			currentEnvMap[k] = v // User-specific ENVs override DefaultEnvsJSON
 		}
 	} else {
-		common.SysLog(fmt.Sprintf("[SSEProxyHandler] No user-specific ENVs found for user %d, service %s. Using defaults.", userID, mcpDBService.Name))
+		common.SysLog(fmt.Sprintf("[SSEProxyHandler] No user-specific ENVs found for user %d, service %s. Using defaults from DefaultEnvsJSON if any.", userID, mcpDBService.Name))
 	}
 
-	var finalEnv []string
+	// Convert the final map to the KEY=VALUE string slice format for StdioConfig.Env
 	for k, v := range currentEnvMap {
-		finalEnv = append(finalEnv, fmt.Sprintf("%s=%s", k, v))
+		baseStdioConf.Env = append(baseStdioConf.Env, fmt.Sprintf("%s=%s", k, v))
 	}
-	baseStdioConf.Env = finalEnv
+
 	common.SysLog(fmt.Sprintf("[SSEProxyHandler] Effective StdioConfig for user %d, service %s: Command='%s', Args=%v, Env=%v", userID, mcpDBService.Name, baseStdioConf.Command, baseStdioConf.Args, baseStdioConf.Env))
 
 	newHandler, creationErr := proxy.NewStdioSSEHandlerUncached(c.Request.Context(), mcpDBService, baseStdioConf)
@@ -124,7 +139,7 @@ func tryGetOrCreateGlobalHandler(c *gin.Context, mcpDBService *model.MCPService)
 // SSEProxyHandler handles GET and POST /api/sse/:serviceName/*action
 func SSEProxyHandler(c *gin.Context) {
 	serviceName := c.Param("serviceName")
-	actionPath := c.Param("action") // e.g., / or /some/path?query=val
+	// actionPath := c.Param("action") // e.g., / or /some/path?query=val
 
 	// Process path to be suitable for the underlying mcp-go SSEServer
 	// It expects paths like "/" or "/message?sessionId=xyz"
@@ -132,20 +147,20 @@ func SSEProxyHandler(c *gin.Context) {
 	// If action is empty (e.g. /api/sse/serviceName), actionPath is "/"
 	// If action is /foo (e.g. /api/sse/serviceName/foo), actionPath is "/foo"
 	// If action is foo (e.g. /api/sse/serviceNamefoo), actionPath is "/foo" - this case is unlikely with /*action
-	pathPart := actionPath
-	if idx := strings.Index(actionPath, "?"); idx != -1 {
-		pathPart = actionPath[:idx] // Extract path without query for logging/internal routing if needed
-	}
-	if pathPart == "" { // Should be at least "/" if param is matched
-		pathPart = "/"
-	}
-	// Ensure leading slash for the request URL path passed to the handler
-	if !strings.HasPrefix(pathPart, "/") {
-		pathPart = "/" + pathPart
-	}
+	// pathPart := actionPath
+	// if idx := strings.Index(actionPath, "?"); idx != -1 {
+	// 	pathPart = actionPath[:idx] // Extract path without query for logging/internal routing if needed
+	// }
+	// if pathPart == "" { // Should be at least "/" if param is matched
+	// 	pathPart = "/"
+	// }
+	// // Ensure leading slash for the request URL path passed to the handler
+	// if !strings.HasPrefix(pathPart, "/") {
+	// 	pathPart = "/" + pathPart
+	// }
 
 	originalPathForRequest := c.Request.URL.Path // Preserve for logging
-	c.Request.URL.Path = pathPart                // Set path for the proxied request
+	// c.Request.URL.Path = pathPart                // Set path for the proxied request
 
 	common.SysLog(fmt.Sprintf("[SSEProxyHandler] Service: %s, Original ActionParam: %s, Processed Path: %s, Query: %s",
 		serviceName, c.Param("action"), c.Request.URL.Path, c.Request.URL.RawQuery))

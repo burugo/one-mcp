@@ -53,8 +53,8 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
     };
 
     // 生成 endpoint
-    const sseEndpoint = serverAddress ? `${serverAddress}/api/sse/${service?.name || ''}` : '';
-    const httpEndpoint = serverAddress ? `${serverAddress}/api/http/${service?.name || ''}` : '';
+    const sseEndpoint = serverAddress ? `${serverAddress}/proxy/${service?.name || ''}/sse` : '';
+    const httpEndpoint = serverAddress ? `${serverAddress}/proxy/${service?.name || ''}/mcp` : '';
 
     return (
         <Dialog open={open} onOpenChange={onClose}>

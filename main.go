@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -65,10 +64,10 @@ func main() {
 	}
 
 	// Seed default services
-	if err := model.SeedDefaultServices(); err != nil {
-		common.SysError(fmt.Sprintf("Failed to seed default services: %v", err))
-		// Depending on severity, might os.Exit(1) or just log
-	}
+	// if err := model.SeedDefaultServices(); err != nil {
+	// 	common.SysError(fmt.Sprintf("Failed to seed default services: %v", err))
+	// 	// Depending on severity, might os.Exit(1) or just log
+	// }
 
 	// Initialize service manager
 	serviceManager := proxy.GetServiceManager()
@@ -121,7 +120,7 @@ func main() {
 	// Setup graceful shutdown
 	setupGracefulShutdown()
 
-	err = server.Run(":" + port)
+	err = server.Run("0.0.0.0:" + port)
 	if err != nil {
 		log.Fatal("failed to start server: " + err.Error())
 	}

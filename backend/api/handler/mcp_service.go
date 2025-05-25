@@ -127,8 +127,20 @@ func CreateMCPService(c *gin.Context) {
 			common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("source_package_name_required", lang))
 			return
 		}
-
 		// 如果需要安装包，还可以添加更多验证...
+	}
+
+	// Set Command and potentially ArgsJSON based on PackageManager
+	if service.PackageManager == "npm" {
+		service.Command = "npx"
+		if service.ArgsJSON == "" && service.SourcePackageName != "" {
+			service.ArgsJSON = fmt.Sprintf(`["-y", "%s"]`, service.SourcePackageName)
+		}
+	} else if service.PackageManager == "pypi" {
+		service.Command = "uvx"
+		if service.ArgsJSON == "" && service.SourcePackageName != "" {
+			service.ArgsJSON = fmt.Sprintf(`["-y", "%s"]`, service.SourcePackageName)
+		}
 	}
 
 	if err := model.CreateService(&service); err != nil {
@@ -176,6 +188,9 @@ func UpdateMCPService(c *gin.Context) {
 	// 保存原始值用于比较
 	oldPackageManager := service.PackageManager
 	oldSourcePackageName := service.SourcePackageName
+	// Preserve original Command and ArgsJSON before binding, so we can see if user explicitly changed them
+	// or if our PackageManager logic should take precedence if they become empty after binding.
+	// However, the current logic is that PackageManager dictates Command/ArgsJSON if they are empty.
 
 	if err := c.ShouldBindJSON(service); err != nil {
 		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_request_data", lang), err)
@@ -212,8 +227,25 @@ func UpdateMCPService(c *gin.Context) {
 		// 检查是否修改了关键包信息，可能需要重新安装
 		if oldPackageManager != service.PackageManager || oldSourcePackageName != service.SourcePackageName {
 			// 这里可以添加处理逻辑或警告...
+			// If PackageManager or SourcePackageName changes, ArgsJSON might need to be re-evaluated
+			// or cleared if it was auto-generated. For now, we rely on the logic below to set it.
 		}
 	}
+
+	// Set Command and potentially ArgsJSON based on PackageManager
+	// This logic applies on update as well, ensuring Command/ArgsJSON are consistent with PackageManager
+	if service.PackageManager == "npm" {
+		service.Command = "npx"
+		if service.ArgsJSON == "" && service.SourcePackageName != "" {
+			service.ArgsJSON = fmt.Sprintf(`["-y", "%s"]`, service.SourcePackageName)
+		}
+	} else if service.PackageManager == "pypi" {
+		service.Command = "uvx"
+		if service.ArgsJSON == "" && service.SourcePackageName != "" {
+			service.ArgsJSON = fmt.Sprintf(`["-y", "%s"]`, service.SourcePackageName)
+		}
+	} // Add else if for other package managers or if service.PackageManager == "" to potentially clear Command/ArgsJSON if they were auto-set.
+	// For now, if PackageManager is not npm or pypi, Command and ArgsJSON remain as bound from request.
 
 	if err := model.UpdateService(service); err != nil {
 		common.RespError(c, http.StatusInternalServerError, i18n.Translate("update_service_failed", lang), err)

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"one-mcp/backend/common"
-
 	"github.com/burugo/thing"
 )
 
@@ -50,29 +48,28 @@ type EnvVarDefinition struct {
 // MCPService represents an MCP service that can be enabled or configured
 type MCPService struct {
 	thing.BaseModel
-	Name                     string          `db:"name"`
-	DisplayName              string          `db:"display_name"`
-	Description              string          `db:"description"`
-	Category                 ServiceCategory `db:"category"`
-	Icon                     string          `db:"icon"`
-	DefaultOn                bool            `db:"default_on"`
-	AdminOnly                bool            `db:"admin_only"`
-	OrderNum                 int             `db:"order_num"`
-	Enabled                  bool            `db:"enabled"`
-	Type                     ServiceType     `db:"type"`                        // Underlying type (stdio, sse, streamable_http)
-	AdminConfigSchema        string          `db:"admin_config_schema"`         // JSON schema for admin configuration
-	DefaultAdminConfigValues string          `db:"default_admin_config_values"` // Default values for admin configuration
-	UserConfigSchema         string          `db:"user_config_schema"`          // JSON schema for user configuration
-	AllowUserOverride        bool            `db:"allow_user_override"`         // Whether users can override admin settings
-	ClientConfigTemplates    string          `db:"client_config_templates"`     // JSON map of client_type to template details
-	RequiredEnvVarsJSON      string          `db:"required_env_vars_json"`      // JSON array of environment variables required by the service
-	PackageManager           string          `db:"package_manager"`             // For marketplace services: npm, pypi
-	SourcePackageName        string          `db:"source_package_name"`         // For marketplace services: package name in the repository
-	InstalledVersion         string          `db:"installed_version"`           // For marketplace services: currently installed version
-	HealthStatus             string          `db:"health_status"`               // 健康状态: unknown, healthy, unhealthy, starting, stopped
-	LastHealthCheck          time.Time       `db:"last_health_check"`           // 最后健康检查时间
-	HealthDetails            string          `db:"health_details"`              // 健康详情的JSON字符串
-	DefaultEnvsJSON          string          `db:"default_envs_json"`           // JSON string for default environment variables map[string]string
+	Name                  string          `db:"name"`
+	DisplayName           string          `db:"display_name"`
+	Description           string          `db:"description"`
+	Category              ServiceCategory `db:"category"`
+	Icon                  string          `db:"icon"`
+	DefaultOn             bool            `db:"default_on"`
+	AdminOnly             bool            `db:"admin_only"`
+	OrderNum              int             `db:"order_num"`
+	Enabled               bool            `db:"enabled"`
+	Type                  ServiceType     `db:"type"`
+	Command               string          `db:"command"`
+	ArgsJSON              string          `db:"args_json"`
+	AllowUserOverride     bool            `db:"allow_user_override"`     // Whether users can override admin settings
+	ClientConfigTemplates string          `db:"client_config_templates"` // JSON map of client_type to template details
+	RequiredEnvVarsJSON   string          `db:"required_env_vars_json"`  // JSON array of environment variables required by the service
+	PackageManager        string          `db:"package_manager"`         // For marketplace services: npm, pypi
+	SourcePackageName     string          `db:"source_package_name"`     // For marketplace services: package name in the repository
+	InstalledVersion      string          `db:"installed_version"`       // For marketplace services: currently installed version
+	HealthStatus          string          `db:"health_status"`           // 健康状态: unknown, healthy, unhealthy, starting, stopped
+	LastHealthCheck       time.Time       `db:"last_health_check"`       // 最后健康检查时间
+	HealthDetails         string          `db:"health_details"`          // 健康详情的JSON字符串
+	DefaultEnvsJSON       string          `db:"default_envs_json"`       // JSON string for default environment variables map[string]string
 }
 
 // TableName sets the table name for the MCPService model
@@ -248,119 +245,135 @@ type StdioConfig struct {
 	Env     []string `json:"env"` // Stored as "KEY=VALUE" strings
 }
 
-const exaMCPServiceStdioSchema = `{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"env":{"type":"array","items":{"type":"string","pattern":"^[^=]+=[^=]+$"}}},"required":["command"]}`
+// const exaMCPServiceStdioSchema = `{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"env":{"type":"array","items":{"type":"string","pattern":"^[^=]+=[^=]+$"}}},"required":["command"]}`
 
 // SeedDefaultServices ensures default services like "exa-mcp-server" exist.
-func SeedDefaultServices() error {
-	common.SysLog("Seeding default services...")
-	serviceName := "exa-mcp-server"
-	existingService, _ := GetServiceByName(serviceName) // Ignore error, just check if nil
+// func SeedDefaultServices() error {
+// 	common.SysLog("Seeding default services...")
+// 	serviceName := "exa-mcp-server"
+// 	existingService, _ := GetServiceByName(serviceName) // Ignore error, just check if nil
 
-	stdioConf := StdioConfig{
-		Command: "npx",
-		Args:    []string{"-y", "exa-mcp-server"},
-		// Env will be populated from DefaultEnvsJSON or user-specific configs at runtime
-	}
-	stdioConfJSON, err := json.Marshal(stdioConf)
-	if err != nil {
-		common.SysError(fmt.Sprintf("Failed to marshal StdioConfig for %s: %v", serviceName, err))
-		// Decide if we should return error or continue
-	}
+// 	// StdioConfig for exa-mcp-server
+// 	// Assuming it's run via npx and is an npm package.
+// 	// If it's a direct command, Command would be "exa-mcp-server" and ArgsJSON "[]" or specific args.
+// 	exaCommand := "npx"
+// 	exaArgsJSON := `["-y", "exa-mcp-server"]` // Note: Stored as a JSON string
 
-	defaultExaEnvs := map[string]string{
-		"PORT": "0", // Example default environment variable
-	}
-	defaultExaEnvsJSONBytes, err := json.Marshal(defaultExaEnvs)
-	if err != nil {
-		common.SysError(fmt.Sprintf("Failed to marshal DefaultEnvsJSON for %s: %v", serviceName, err))
-		// Decide if we should return error or continue
-	}
-	defaultExaEnvsJSON := string(defaultExaEnvsJSONBytes)
+// 	defaultExaEnvs := map[string]string{
+// 		"PORT": "0", // Example default environment variable
+// 	}
+// 	defaultExaEnvsJSONBytes, err := json.Marshal(defaultExaEnvs)
+// 	if err != nil {
+// 		common.SysError(fmt.Sprintf("Failed to marshal DefaultEnvsJSON for %s: %v", serviceName, err))
+// 		// Decide if we should return error or continue
+// 	}
+// 	defaultExaEnvsJSON := string(defaultExaEnvsJSONBytes)
 
-	if existingService == nil {
-		common.SysLog(fmt.Sprintf("Service %s not found, creating...", serviceName))
-		newService := &MCPService{
-			Name:                     serviceName,
-			DisplayName:              "Exa Server (Stdio)",
-			Description:              "Exa MCP Server for search and agents.",
-			Category:                 CategoryAI,
-			Icon:                     "/static/exa.png",
-			DefaultOn:                true,
-			AdminOnly:                false,
-			OrderNum:                 10,
-			Enabled:                  true,
-			Type:                     ServiceTypeStdio,
-			AdminConfigSchema:        exaMCPServiceStdioSchema,
-			DefaultAdminConfigValues: string(stdioConfJSON),
-			UserConfigSchema:         `{"type":"object","properties":{"API_KEY":{"type":"string","description":"Your Exa API Key (user-specific)"}}}`,
-			AllowUserOverride:        true,
-			ClientConfigTemplates:    "{}",
-			RequiredEnvVarsJSON:      "[]",
-			DefaultEnvsJSON:          defaultExaEnvsJSON,
-			PackageManager:           "manual",
-			SourcePackageName:        serviceName,
-			InstalledVersion:         "N/A",
-		}
-		if err := MCPServiceDB.Save(newService); err != nil {
-			common.SysError(fmt.Sprintf("Failed to create service %s: %v", serviceName, err))
-			return err
-		}
-		common.SysLog(fmt.Sprintf("Service %s created successfully.", serviceName))
-	} else {
-		common.SysLog(fmt.Sprintf("Service %s already exists. Updating if necessary...", serviceName))
-		updateNeeded := false
-		if existingService.Type != ServiceTypeStdio {
-			existingService.Type = ServiceTypeStdio
-			updateNeeded = true
-			common.SysLog(fmt.Sprintf("Updated Type for service %s to Stdio", serviceName))
-		}
-		if existingService.AdminConfigSchema != exaMCPServiceStdioSchema {
-			existingService.AdminConfigSchema = exaMCPServiceStdioSchema
-			updateNeeded = true
-			common.SysLog(fmt.Sprintf("Updated AdminConfigSchema for service %s", serviceName))
-		}
-		if existingService.DefaultAdminConfigValues != string(stdioConfJSON) {
-			existingService.DefaultAdminConfigValues = string(stdioConfJSON)
-			updateNeeded = true
-			common.SysLog(fmt.Sprintf("Updated DefaultAdminConfigValues for service %s", serviceName))
-		}
-		if existingService.DefaultEnvsJSON != defaultExaEnvsJSON {
-			existingService.DefaultEnvsJSON = defaultExaEnvsJSON
-			updateNeeded = true
-			common.SysLog(fmt.Sprintf("Updated DefaultEnvsJSON for service %s", serviceName))
-		}
-		if existingService.PackageManager != "manual" {
-			existingService.PackageManager = "manual"
-			updateNeeded = true
-			common.SysLog(fmt.Sprintf("Updated PackageManager for service %s to manual", serviceName))
-		}
+// 	if existingService == nil {
+// 		common.SysLog(fmt.Sprintf("Service %s not found, creating...", serviceName))
+// 		newService := &MCPService{
+// 			Name:                     serviceName,
+// 			DisplayName:              "Exa Server (Stdio)",
+// 			Description:              "Exa MCP Server for search and agents.",
+// 			Category:                 CategoryAI,
+// 			Icon:                     "/static/exa.png",
+// 			DefaultOn:                true,
+// 			AdminOnly:                false,
+// 			OrderNum:                 10,
+// 			Enabled:                  true,
+// 			Type:                     ServiceTypeStdio,
+// 			Command:                  exaCommand,
+// 			ArgsJSON:                 exaArgsJSON,
+// 			// AdminConfigSchema:        exaMCPServiceStdioSchema, // Removed
+// 			// DefaultAdminConfigValues: string(stdioConfJSON), // Removed
+// 			// UserConfigSchema:         `{"type":"object","properties":{"API_KEY":{"type":"string","description":"Your Exa API Key (user-specific)"}}}`, // Removed
+// 			AllowUserOverride:        true,
+// 			ClientConfigTemplates:    "{}",
+// 			RequiredEnvVarsJSON:      "[]", // Example: `[{"name":"EXA_API_KEY", "description":"Your Exa API Key", "is_secret":true}]`
+// 			DefaultEnvsJSON:          defaultExaEnvsJSON,
+// 			PackageManager:           "npm", // Assuming it's an npm package for this example
+// 			SourcePackageName:        "exa-mcp-server",
+// 			InstalledVersion:         "N/A", // This would be set upon actual installation
+// 		}
+// 		if err := MCPServiceDB.Save(newService); err != nil {
+// 			common.SysError(fmt.Sprintf("Failed to create service %s: %v", serviceName, err))
+// 			return err
+// 		}
+// 		common.SysLog(fmt.Sprintf("Service %s created successfully.", serviceName))
+// 	} else {
+// 		common.SysLog(fmt.Sprintf("Service %s already exists. Updating if necessary...", serviceName))
+// 		updateNeeded := false
+// 		if existingService.Type != ServiceTypeStdio {
+// 			existingService.Type = ServiceTypeStdio
+// 			updateNeeded = true
+// 			common.SysLog(fmt.Sprintf("Updated Type for service %s to Stdio", serviceName))
+// 		}
+// 		// Update command and args if they differ from the new defaults
+// 		if existingService.Command != exaCommand {
+// 			existingService.Command = exaCommand
+// 			updateNeeded = true
+// 			common.SysLog(fmt.Sprintf("Updated Command for service %s to %s", serviceName, exaCommand))
+// 		}
+// 		if existingService.ArgsJSON != exaArgsJSON {
+// 			existingService.ArgsJSON = exaArgsJSON
+// 			updateNeeded = true
+// 			common.SysLog(fmt.Sprintf("Updated ArgsJSON for service %s", serviceName))
+// 		}
+// 		if existingService.DefaultEnvsJSON != defaultExaEnvsJSON {
+// 			existingService.DefaultEnvsJSON = defaultExaEnvsJSON
+// 			updateNeeded = true
+// 			common.SysLog(fmt.Sprintf("Updated DefaultEnvsJSON for service %s", serviceName))
+// 		}
+// 		if existingService.PackageManager != "npm" { // Example, align with your typical setup
+// 			existingService.PackageManager = "npm"
+// 			updateNeeded = true
+// 			common.SysLog(fmt.Sprintf("Updated PackageManager for service %s to npm", serviceName))
+// 		}
+// 		if existingService.SourcePackageName != "exa-mcp-server" {
+// 			existingService.SourcePackageName = "exa-mcp-server"
+// 			updateNeeded = true
+// 			common.SysLog(fmt.Sprintf("Updated SourcePackageName for service %s", serviceName))
+// 		}
+// 		// Remove schema fields if they still exist (they shouldn't after struct change, but good for migration from old state)
+// 		// if existingService.AdminConfigSchema != "" { // This field will be gone from struct
+// 		// 	// existingService.AdminConfigSchema = "" // No need to set, will be zero value
+// 		// 	updateNeeded = true
+// 		// }
+// 		// if existingService.DefaultAdminConfigValues != "" { // This field will be gone
+// 		// 	// existingService.DefaultAdminConfigValues = ""
+// 		// 	updateNeeded = true
+// 		// }
+// 		// if existingService.UserConfigSchema != "" { // This field will be gone
+// 		// 	// existingService.UserConfigSchema = ""
+// 		// 	updateNeeded = true
+// 		// }
 
-		if existingService.DisplayName != "Exa Server (Stdio)" {
-			existingService.DisplayName = "Exa Server (Stdio)"
-			updateNeeded = true
-		}
-		if existingService.Description != "Exa MCP Server for search and agents." {
-			existingService.Description = "Exa MCP Server for search and agents."
-			updateNeeded = true
-		}
-		if existingService.Icon != "/static/exa.png" {
-			existingService.Icon = "/static/exa.png"
-			updateNeeded = true
-		}
-		if existingService.Category != CategoryAI {
-			existingService.Category = CategoryAI
-			updateNeeded = true
-		}
+// 		if existingService.DisplayName != "Exa Server (Stdio)" {
+// 			existingService.DisplayName = "Exa Server (Stdio)"
+// 			updateNeeded = true
+// 		}
+// 		if existingService.Description != "Exa MCP Server for search and agents." {
+// 			existingService.Description = "Exa MCP Server for search and agents."
+// 			updateNeeded = true
+// 		}
+// 		if existingService.Icon != "/static/exa.png" {
+// 			existingService.Icon = "/static/exa.png"
+// 			updateNeeded = true
+// 		}
+// 		if existingService.Category != CategoryAI {
+// 			existingService.Category = CategoryAI
+// 			updateNeeded = true
+// 		}
 
-		if updateNeeded {
-			if err := MCPServiceDB.Save(existingService); err != nil {
-				common.SysError(fmt.Sprintf("Failed to update service %s: %v", serviceName, err))
-				return err
-			}
-			common.SysLog(fmt.Sprintf("Service %s updated successfully.", serviceName))
-		} else {
-			common.SysLog(fmt.Sprintf("No updates needed for service %s.", serviceName))
-		}
-	}
-	return nil
-}
+// 		if updateNeeded {
+// 			if err := MCPServiceDB.Save(existingService); err != nil {
+// 				common.SysError(fmt.Sprintf("Failed to update service %s: %v", serviceName, err))
+// 				return err
+// 			}
+// 			common.SysLog(fmt.Sprintf("Service %s updated successfully.", serviceName))
+// 		} else {
+// 			common.SysLog(fmt.Sprintf("No updates needed for service %s.", serviceName))
+// 		}
+// 	}
+// 	return nil
+// }

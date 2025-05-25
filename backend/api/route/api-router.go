@@ -137,7 +137,19 @@ func SetApiRouter(route *gin.Engine) {
 
 		// 注册 SSE 代理路由
 		// The *action will capture the rest of the path (e.g., /message, /files/somefile.txt)
-		apiRouter.GET("/sse/:serviceName/*action", handler.SSEProxyHandler)
-		apiRouter.POST("/sse/:serviceName/*action", handler.SSEProxyHandler) // Also handle POST requests
+		// apiRouter.GET("/sse/:serviceName/*action", handler.SSEProxyHandler)
+		// apiRouter.POST("/sse/:serviceName/*action", handler.SSEProxyHandler) // Also handle POST requests
+
+		// New SSE Proxy routes (incorrectly placed previously)
+		// apiRouter.GET("/proxy/:serviceName/sse/*action", handler.SSEProxyHandler)
+		// apiRouter.POST("/proxy/:serviceName/sse/*action", handler.SSEProxyHandler)
+	}
+
+	// Define routes under /proxy, outside the /api group
+	proxyRouter := route.Group("/proxy")
+	proxyRouter.Use(middleware.LangMiddleware()) // Apply similar general middlewares
+	proxyRouter.Use(middleware.GlobalAPIRateLimit())
+	{
+		proxyRouter.Any("/:serviceName/*action", handler.SSEProxyHandler)
 	}
 }
