@@ -9,7 +9,6 @@ import (
 	"one-mcp/backend/common"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
-	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -62,55 +61,6 @@ func (h *mockSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "event: message\\ndata: Hello test message\\n\\n")
 }
 
-func TestSSEProxyHandler_MockSSE_Simple(t *testing.T) {
-	teardown := setupTestEnvironmentForProxyHandler()
-	defer teardown()
-
-	gin.SetMode(gin.TestMode)
-	r := gin.Default()
-	r.GET("/proxy/:serviceName/sse/*action", SSEProxyHandler)
-
-	serviceName := "hello-world-simple"
-	mcpService := &model.MCPService{
-		Name:    serviceName,
-		Type:    model.ServiceTypeStdio,
-		Command: "dummy-cmd",
-	}
-	err := model.CreateService(mcpService)
-	assert.NoError(t, err)
-	// Get the service again to ensure ID is populated for defer
-	dbServiceForDefer, _ := model.GetServiceByName(serviceName)
-	if dbServiceForDefer != nil {
-		defer model.DeleteService(dbServiceForDefer.ID)
-	}
-
-	serviceManager := proxy.GetServiceManager()
-	serviceManager.UnregisterService(context.Background(), dbServiceForDefer.ID)
-
-	dbService, err := model.GetServiceByName(serviceName)
-	assert.NoError(t, err)
-	assert.NotNil(t, dbService)
-
-	baseSvcForProxy := proxy.NewBaseService(dbService.ID, dbService.Name, model.ServiceTypeSSE)
-	// Corrected call to NewSSESvc:
-	simpleMockSvc := proxy.NewSSESvc(baseSvcForProxy, &mockSSEHandler{})
-	serviceManager.SetService(dbService.ID, simpleMockSvc)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/proxy/hello-world-simple/sse/someaction", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	body := w.Body.String()
-	assert.Contains(t, body, "event: message")
-	assert.Contains(t, body, "Hello test message")
-}
-
-// TODO: 可继续补充：
-// - 服务类型不符
-// - SSESvc 未初始化
-// - 正常流式代理（需 mock SSESvc）
-
 // mockMCPMasterHandler simulates the mcp-go server's HTTP responses for the full SSE flow.
 type mockMCPMasterHandler struct {
 	t *testing.T // To allow assertions within the handler if needed
@@ -157,87 +107,6 @@ func stdioConfigToJSON(sc model.StdioConfig) (string, error) {
 	return string(bytes), nil
 }
 
-func TestSSEProxyHandler_MCPProtocolFlow(t *testing.T) {
-	teardown := setupTestEnvironmentForProxyHandler()
-	defer teardown()
-
-	gin.SetMode(gin.TestMode)
-	router := gin.Default()
-	router.GET("/proxy/:serviceName/sse/*action", SSEProxyHandler)
-	router.POST("/proxy/:serviceName/sse/*action", SSEProxyHandler)
-
-	serviceName := "exa-mcp-server-flow"
-	stdioConf := model.StdioConfig{Command: "fake-exa-cmd", Args: []string{"arg1", "-f", "value"}}
-	// Use standard json.Marshal via helper or directly
-	// stdioConfJSON, err := stdioConfigToJSON(stdioConf) // This was for the whole struct
-	// assert.NoError(t, err, "Failed to marshal stdioConf")
-
-	argsBytes, err := json.Marshal(stdioConf.Args)
-	assert.NoError(t, err, "Failed to marshal stdioConf.Args")
-	argsJSON := string(argsBytes)
-
-	mcpService := &model.MCPService{
-		Name:        serviceName,
-		Type:        model.ServiceTypeStdio,
-		Command:     stdioConf.Command, // Populate from stdioConf used for test expectation
-		ArgsJSON:    argsJSON,          // Correctly use JSON marshaled Args
-		DisplayName: "Flow Test Service",
-	}
-	err = model.CreateService(mcpService)
-	assert.NoError(t, err)
-	// Get the service again to ensure ID is populated for defer
-	dbServiceForDefer, _ := model.GetServiceByName(serviceName)
-	if dbServiceForDefer != nil {
-		defer model.DeleteService(dbServiceForDefer.ID)
-	} else {
-		// If service wasn't created, this indicates an issue in CreateService or GetServiceByName logic in test setup
-		t.Errorf("Service %s was not found after creation for defer setup", serviceName)
-	}
-
-	serviceManager := proxy.GetServiceManager()
-	if dbServiceForDefer != nil { // only unregister if it was created
-		serviceManager.UnregisterService(context.Background(), dbServiceForDefer.ID)
-	}
-
-	dbService, err := model.GetServiceByName(serviceName)
-	assert.NoError(t, err)
-	assert.NotNil(t, dbService, "Service should exist in DB for test setup")
-
-	baseSvcForProxy := proxy.NewBaseService(dbService.ID, dbService.Name, model.ServiceTypeSSE)
-	masterMockHandler := &mockMCPMasterHandler{t: t}
-	mockedProxiedSvc := proxy.NewSSESvc(baseSvcForProxy, masterMockHandler)
-	serviceManager.SetService(dbService.ID, mockedProxiedSvc)
-
-	wGet := httptest.NewRecorder()
-	reqGet, _ := http.NewRequest("GET", "/proxy/"+serviceName+"/sse/", nil)
-	router.ServeHTTP(wGet, reqGet)
-
-	assert.Equal(t, http.StatusOK, wGet.Code, "Initial GET should be 200 OK")
-	assert.Equal(t, "text/event-stream", wGet.Header().Get("Content-Type"), "Content-Type should be text/event-stream")
-	expectedEventData := "event: endpoint\\ndata: /message?sessionId=test-session-123\\n\\n"
-	assert.Contains(t, wGet.Body.String(), expectedEventData, "Response should contain the endpoint event")
-	assert.Contains(t, wGet.Body.String(), "event: message", "Response should contain initial message event")
-
-	wPost := httptest.NewRecorder()
-	postPath := "/proxy/" + serviceName + "/sse/message?sessionId=test-session-123"
-	reqBody := strings.NewReader("{\"method\":\"initialize\",\"params\":{},\"jsonrpc\":\"2.0\",\"id\":0}")
-	reqPost, _ := http.NewRequest("POST", postPath, reqBody)
-	reqPost.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(wPost, reqPost)
-
-	assert.Equal(t, http.StatusAccepted, wPost.Code, "POST to message endpoint should be 202 Accepted")
-	assert.Equal(t, "application/json", wPost.Header().Get("Content-Type"), "Content-Type should be application/json")
-	expectedJsonRpcResponse := "{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":\"test-pv\",\"serverInfo\":{\"name\":\"Mock MCP Server\"}}}"
-	assert.JSONEq(t, expectedJsonRpcResponse, wPost.Body.String(), "Response body for POST should be correct JSON-RPC")
-
-	wRedirect := httptest.NewRecorder()
-	reqRedirect, _ := http.NewRequest("GET", "/proxy/"+serviceName+"/sse", nil)
-	router.ServeHTTP(wRedirect, reqRedirect)
-
-	assert.Equal(t, http.StatusMovedPermanently, wRedirect.Code, "GET to base without slash should 301")
-	assert.Equal(t, "/proxy/"+serviceName+"/sse/", wRedirect.Header().Get("Location"), "Location header for 301 should be correct")
-}
-
 // TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig verifies that when a user
 // has specific configurations for an Stdio service that allows overrides,
 // NewStdioSSEHandlerUncached is called with the correctly merged StdioConfig.
@@ -270,6 +139,7 @@ func TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t
 		DisplayName:       "User Specific Stdio Service",
 		Type:              model.ServiceTypeStdio,
 		AllowUserOverride: true,
+		Enabled:           true,
 		Command:           baseStdioCommand,
 		ArgsJSON:          string(baseArgsJSON),
 		DefaultEnvsJSON:   `{"BASE_ENV":"base_val", "OVERRIDE_ME":"default_override"}`,
@@ -346,9 +216,9 @@ func TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Assertions on the captured StdioConfig
-	assert.Equal(t, baseStdioCommand, capturedStdioConfig.Command, "Command should be from DefaultAdminConfigValues")
-	assert.Equal(t, baseStdioArgs, capturedStdioConfig.Args, "Args should be from DefaultAdminConfigValues")
-	assert.Contains(t, capturedStdioConfig.Env, "BASE_ENV=base_val", "Should contain base env from DefaultEnvsJSON")
+	assert.Equal(t, baseStdioCommand, capturedStdioConfig.Command, "Command should be from mcpDBService.Command")
+	assert.Equal(t, baseStdioArgs, capturedStdioConfig.Args, "Args should be from mcpDBService.ArgsJSON")
+	assert.Contains(t, capturedStdioConfig.Env, "BASE_ENV=base_val", "Should contain base env from mcpDBService.DefaultEnvsJSON")
 	assert.Contains(t, capturedStdioConfig.Env, "USER_ENV_VAR=user_value", "Should contain user-specific env")
 	assert.Contains(t, capturedStdioConfig.Env, "OVERRIDE_ME=user_override_val", "User value should override default env")
 

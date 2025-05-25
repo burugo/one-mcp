@@ -139,25 +139,6 @@ func tryGetOrCreateGlobalHandler(c *gin.Context, mcpDBService *model.MCPService)
 // SSEProxyHandler handles GET and POST /api/sse/:serviceName/*action
 func SSEProxyHandler(c *gin.Context) {
 	serviceName := c.Param("serviceName")
-	// actionPath := c.Param("action") // e.g., / or /some/path?query=val
-
-	// Process path to be suitable for the underlying mcp-go SSEServer
-	// It expects paths like "/" or "/message?sessionId=xyz"
-	// The actionPath from Gin for /*action includes the leading slash if present.
-	// If action is empty (e.g. /api/sse/serviceName), actionPath is "/"
-	// If action is /foo (e.g. /api/sse/serviceName/foo), actionPath is "/foo"
-	// If action is foo (e.g. /api/sse/serviceNamefoo), actionPath is "/foo" - this case is unlikely with /*action
-	// pathPart := actionPath
-	// if idx := strings.Index(actionPath, "?"); idx != -1 {
-	// 	pathPart = actionPath[:idx] // Extract path without query for logging/internal routing if needed
-	// }
-	// if pathPart == "" { // Should be at least "/" if param is matched
-	// 	pathPart = "/"
-	// }
-	// // Ensure leading slash for the request URL path passed to the handler
-	// if !strings.HasPrefix(pathPart, "/") {
-	// 	pathPart = "/" + pathPart
-	// }
 
 	originalPathForRequest := c.Request.URL.Path // Preserve for logging
 	// c.Request.URL.Path = pathPart                // Set path for the proxied request

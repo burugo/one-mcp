@@ -4,14 +4,13 @@ Refactor the `MCPService` model to remove deprecated configuration fields and up
 
 ## Completed Tasks
 
+- [x] Task 1: Remove deprecated fields from `MCPService` model and update seeder. `ref-struct`
+- [x] Task 2: Modify `proxy/service.go` to use new fields for `StdioConfig`. `ref-func`
+- [x] Task 3: Update `handler/mcp_service.go` API for `PackageManager` logic. `ref-func`
+- [x] Task 4: Update tests in `handler/proxy_handler_test.go`. `test`
+- [x] Task 5: Update `handler/proxy_handler.go` to reflect new `StdioConfig` sourcing. `ref-func`
+
 ## In Progress Tasks
-
-- [ ] Task 1: Remove deprecated fields from `MCPService` model and update seeder. `ref-struct`
-- [ ] Task 2: Modify `proxy/service.go` to use new fields for `StdioConfig`. `ref-func`
-- [ ] Task 3: Update `handler/mcp_service.go` API for `PackageManager` logic. `ref-func`
-- [ ] Task 4: Update tests in `handler/proxy_handler_test.go`. `test`
-- [ ] Task 5: Update `handler/proxy_handler.go` to reflect new `StdioConfig` sourcing. `ref-func`
-
 
 ## Future Tasks
 
@@ -110,4 +109,8 @@ Detailed steps for each task:
 - `backend/library/proxy/service.go`
 - `backend/api/handler/mcp_service.go`
 - `backend/api/handler/proxy_handler_test.go`
-- `backend/api/handler/proxy_handler.go` 
+- `backend/api/handler/proxy_handler.go`
+
+## Notes on Proxy URL Changes
+
+The core proxy URL structure (e.g., `/proxy/:service_name/sse/*action`) itself has not been altered by this refactoring. However, the underlying mechanism that determines *how* a proxied service is executed (specifically, its command, arguments, and environment variables) has been significantly changed. Previously, some of this configuration was derived from `DefaultAdminConfigValues`. Now, it is sourced from the new `Command`, `ArgsJSON`, and `DefaultEnvsJSON` fields of the `MCPService` model, with additional logic in the API handlers to set `Command` and default `ArgsJSON` based on `PackageManager` and `SourcePackageName`. Therefore, while the endpoint URLs remain the same in their fundamental structure (utilizing a `/proxy/...` base path for SSE services), the behavior and configuration of the services accessed through these URLs have been updated according to the refactor plan. 
