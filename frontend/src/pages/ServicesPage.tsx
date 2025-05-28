@@ -3,13 +3,20 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, BarChart, User, PlusCircle, Trash2 } from 'lucide-react';
+import { Search, BarChart, User, PlusCircle, Trash2, Settings, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
+import CustomServiceModal, { CustomServiceData } from '@/components/market/CustomServiceModal';
 import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 
 export function ServicesPage() {
     const { toast } = useToast();
@@ -17,6 +24,7 @@ export function ServicesPage() {
     const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService } = useMarketStore();
     const [localInstalledServices, setLocalInstalledServices] = useState<ServiceType[]>([]);
     const [configModalOpen, setConfigModalOpen] = useState(false);
+    const [customServiceModalOpen, setCustomServiceModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<ServiceType | null>(null);
     const [uninstallDialogOpen, setUninstallDialogOpen] = useState(false);
     const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
@@ -74,6 +82,29 @@ export function ServicesPage() {
         }
     };
 
+    const handleCreateCustomService = async (serviceData: CustomServiceData) => {
+        try {
+            const res = await api.post('/mcp_market/custom_service', serviceData) as APIResponse<any>;
+            if (res.success) {
+                toast({
+                    title: '创建成功',
+                    description: `服务 ${serviceData.name} 已成功创建`
+                });
+                fetchInstalledServices();
+                return res.data;
+            } else {
+                throw new Error(res.message || '创建失败');
+            }
+        } catch (error: any) {
+            toast({
+                title: '创建失败',
+                description: error.message || '未知错误',
+                variant: 'destructive'
+            });
+            throw error;
+        }
+    };
+
     return (
         <div className="w-full space-y-8">
             <div className="flex justify-between items-center mb-6">
@@ -81,9 +112,27 @@ export function ServicesPage() {
                     <h2 className="text-3xl font-bold tracking-tight">MCP Services</h2>
                     <p className="text-muted-foreground mt-1">Manage and configure your multi-cloud platform services</p>
                 </div>
-                <Button onClick={() => navigate('/market')} className="rounded-full bg-[#7c3aed] hover:bg-[#7c3aed]/90">
-                    <PlusCircle className="w-4 h-4 mr-2" /> Add Service
-                </Button>
+                <div className="flex space-x-2">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button className="rounded-full bg-[#7c3aed] hover:bg-[#7c3aed]/90">
+                                <PlusCircle className="w-4 h-4 mr-2" /> Add Service
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => navigate('/market')}>
+                                <Search className="w-4 h-4 mr-2" /> 从市场安装
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                                setTimeout(() => {
+                                    setCustomServiceModalOpen(true);
+                                }, 50);
+                            }}>
+                                <Plus className="w-4 h-4 mr-2" /> 自定义安装
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </div>
 
             <Tabs defaultValue="all" className="mb-8">
@@ -262,6 +311,23 @@ export function ServicesPage() {
                 />
             )}
 
+            <CustomServiceModal
+                open={customServiceModalOpen}
+                onClose={() => setCustomServiceModalOpen(false)}
+                onCreateService={handleCreateCustomService}
+            />
+
+            <ConfirmDialog
+                isOpen={uninstallDialogOpen}
+                onOpenChange={setUninstallDialogOpen}
+                title="确认卸载"
+                description="确定要卸载此服务吗？这将移除所有相关配置。"
+                confirmText="卸载"
+                cancelText="取消"
+                onConfirm={handleUninstallConfirm}
+                confirmButtonVariant="destructive"
+            />
+
             <div className="mt-12">
                 <h3 className="text-2xl font-bold mb-4">Usage Statistics</h3>
                 <Card className="shadow-sm border bg-card/30">
@@ -287,16 +353,6 @@ export function ServicesPage() {
                     </CardContent>
                 </Card>
             </div>
-
-            <ConfirmDialog
-                isOpen={uninstallDialogOpen}
-                onOpenChange={setUninstallDialogOpen}
-                title="确认卸载服务"
-                description={`您确定要卸载服务 ${localInstalledServices.find(s => s.id === pendingUninstallId)?.name || pendingUninstallId} 吗？此操作无法撤销。`}
-                onConfirm={handleUninstallConfirm}
-                confirmText="卸载"
-                confirmButtonVariant="destructive"
-            />
         </div>
     );
 } 
