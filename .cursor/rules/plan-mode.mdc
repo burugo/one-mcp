@@ -1,17 +1,17 @@
 ---
-description: Your role as Planner is to analyze requests and code, develop a detailed plan, and manage task documentation.
+description: This document outlines the PLAN mode, which is used to analyze requests and code, develop a detailed plan, and manage task documentation.
 globs: 
 alwaysApply: false
 ---
 
-# Planner Mode: Detailed Planning and Task Management
+# PLAN Mode: Detailed Planning and Task Management
 
-Your primary function is to meticulously analyze the user's request and the existing codebase to formulate a detailed, step-by-step action plan. You will manage high-level plans in `.cursor/scratchpad.md` and detailed tasks in dedicated task files (e.g., `.cursor/feature-x-tasks.md`). You MUST follow the phases outlined below, rigorously adhering to the explicit exploration requirements to prevent premature planning based on assumptions.
+Your primary function is to meticulously analyze the user's request and the existing codebase to formulate a detailed, step-by-step action plan. You MUST follow the phases outlined below, rigorously adhering to the explicit exploration requirements to prevent premature planning based on assumptions.
 
 Core Principles Summary:
 
-*   Planner Role: Analyze requests, break them into the smallest feasible tasks, define `Task Type` for each, manage high-level plans in `.cursor/scratchpad.md`, and detail tasks in dedicated task files (e.g., `.cursor/feature-x-tasks.md`).
-*   Task Definition Focus: A primary role of the Planner is to assign a `Task Type` to each task. Task details and their types are managed in the relevant task files.
+*   PLAN Mode Function: Analyze requests, break them into the smallest feasible tasks, define `Task Type` for each, and manage all plans, background, analysis, task breakdown, status, etc., in the task file (e.g., `.cursor/feature-x-tasks.md`).
+*   Task Definition Focus: A primary function of PLAN mode is to assign a `Task Type` to each task. Task details and their types are managed in the relevant task files.
 *   Key Objective: Think deeply and document a plan for user review before implementation. Ensure task breakdowns are granular with clear success criteria, always focusing on the simplest and most efficient approaches.
 
 ## Mission
@@ -57,22 +57,22 @@ Core Exploration Actions (using available tools like `read_file`, `codebase_sear
 
 Key outputs of this phase, aligned with the multi-agent system, will be:
 
-1.  Updates to `.cursor/scratchpad.md`:
-    *   Populate/Update `Background and Motivation`.
-    *   Populate/Update `Key Challenges and Analysis`.
-    *   Outline the `High-level Task Breakdown`, specifying the dedicated task file for each major task. This section itself should *not* contain granular sub-task lists.
-    *   Update the `Project Status Board` to clearly indicate the currently active task file (e.g., `Active Task File: feature-auth-tasks.md`). Optionally, provide a very high-level status of overall progress and list any additional relevant task files. Detailed task lists with checkboxes are NOT kept here but in the dedicated task files.
+1.  Updates to the task file (e.g., `.cursor/feature-x-tasks.md`):
+    *   Add/Update `Background and Motivation` at the top of the task file.
+    *   Add/Update `Key Challenges and Analysis`.
+    *   Outline the `High-level Task Breakdown`; this section should *not* contain granular sub-task lists.
+    *   Update the `Project Status Board` for project progress summary.
 
 2.  Creation or Update of Task File(s) (e.g., `.cursor/feature-x-tasks.md`):
     *   For large features or modules, create dedicated task files (e.g., `.cursor/feature-auth-tasks.md`).
-    *   Each file should focus on tasks related to a specific feature or module. The Planner decides when to create a new feature-specific task file based on the scope and complexity of the work.
+    *   Each file should focus on tasks related to a specific feature or module. PLAN mode decides when to create a new feature-specific task file based on the scope and complexity of the work.
     *   Include a clear description of the feature at the top of the new task file.
     *   Within the task file, provide a detailed breakdown of tasks into the smallest feasible steps.
     *   Crucially, assign a `Task Type` to each task. (Refer to "Task Types and Execution Directives" section below for details).
     *   Define clear success criteria for each task.
     *   Structure the task file according to the "Task File Structure" section below.
 
-The plan should be detailed enough for an Executor agent to understand and act upon, referencing the `Task Type` for specific execution methodologies.
+The plan should be detailed enough for ACT mode to understand and act upon, referencing the `Task Type` for specific execution methodologies.
 
 ### Phase 3: Iterate as Needed
 
@@ -81,74 +81,77 @@ The plan should be detailed enough for an Executor agent to understand and act u
 
 ## Document Conventions
 
-Note: Task management files (e.g., `.cursor/feature-x-tasks.md`) are stored in the `.cursor` directory. `.cursor/scratchpad.md` serves as the central coordination file.
+Note: All task management files (e.g., `.cursor/feature-x-tasks.md`) are stored in the `.cursor` directory. All high-level plans, background, analysis, task breakdown, status, etc., are maintained in a single task file.
 
-### `.cursor/scratchpad.md` File
+### Task File Structure (Recommended Template)
 
-*   The `.cursor/scratchpad.md` file is divided into several sections. Please do not arbitrarily change the titles.
-*   Sections and their primary purpose (Planner's focus):
-    *   `Background and Motivation`: Established by the Planner initially and appended during task progress.
-    *   `Key Challenges and Analysis`: Established by the Planner initially and appended during task progress.
-    *   `High-level Task Breakdown`: The Planner outlines the major tasks. For each major task, it should specify the dedicated task file (e.g., `.cursor/feature-x-tasks.md`) where details are managed.
-    *   `Project Status Board`:
-        *   Clearly indicate the currently active task file.
-        *   Optionally, provide a very high-level status of overall progress.
-        *   List any additional task files relevant to the project with their status.
-    *   `Executor's Feedback or Assistance Requests`: Reviewed by the Planner.
-    *   `Lessons`: Reviewed by the Planner; solutions to errors/bugs or other useful learnings are documented here.
-    *   `User Specified Lessons`: Pre-defined lessons from the user.
+*   The task file should ideally include the following structure:
+    *   `Background and Motivation`: Project/feature background and motivation.
+    *   `Key Challenges and Analysis`: Key challenges and analysis.
+    *   `High-level Task Breakdown`: High-level task breakdown.
+    *   `Project Status Board`: Project progress summary.
+    *   `Completed Tasks`, `In Progress Tasks`, `Future Tasks`: Detailed task list, including Task Type.
+    *   `Implementation Plan`: Implementation plan, architecture, data flow, technical components, environment configuration, etc.
+    *   `Relevant Files`: Key files involved and their descriptions.
+    *   `Lessons`: Errors/experiences/reusable content.
+    *   `ACT mode Feedback or Assistance Requests`: ACT mode feedback and assistance requests.
+    *   `User Specified Lessons`: User-predefined lessons.
 
-### Task File Management and Structure
-
-1.  Feature-Specific Task Files:
-    *   For large features or modules, create dedicated task files (e.g., `.cursor/feature-auth-tasks.md`).
-    *   Each file should focus on tasks related to a specific feature or module.
-    *   The Planner decides when to create a new feature-specific task file based on the scope and complexity of the work.
-
-2.  Task File Structure (Example):
+2.  Task File Structure Example:
     ```markdown
     # Feature Name Implementation
 
-    Brief description of the feature and its purpose.
+    ## Background and Motivation
+    Project/feature background and motivation.
+
+    ## Key Challenges and Analysis
+    Key challenges and analysis.
+
+    ## High-level Task Breakdown
+    - Major Task 1
+    - Major Task 2
+
+    ## Project Status Board
+    - Project progress summary
 
     ## Completed Tasks
-
-    - [x] Task 1 that has been completed `bug-fix`
-    - [x] Task 2 that has been completed `new-feat`
+    - [x] Task 1 completed `bug-fix`
+    - [x] Task 2 completed `new-feat`
 
     ## In Progress Tasks
-
-    - [ ] Task 3 currently being worked on `ref-struct`
+    - [ ] Task 3 in progress `ref-struct`
     - [ ] Task 4 to be completed soon `ref-func`
 
     ## Future Tasks
-
     - [ ] Task 5 planned for future implementation `new-feat`
     - [ ] Task 6 planned for future implementation `bug-fix`
 
     ## Implementation Plan
-
-    Detailed description of how the feature will be implemented. This can include architecture decisions, data flow descriptions, technical components needed, and environment configuration.
+    Implementation plan, architecture, data flow, technical components, environment configuration, etc.
 
     ### Relevant Files
+    - path/to/file1.ts - Description
+    - path/to/file2.ts - Description
+    
+    ## Lessons
+    - Reusable experiences, bug fixes, etc.
 
-    - path/to/file1.ts - Description of purpose
-    - path/to/file2.ts - Description of purpose
+    ## ACT mode Feedback or Assistance Requests
+    - ACT mode feedback and assistance requests
+
+    ## User Specified Lessons
+    - User-predefined lessons
     ```
 
-## Workflow Guidelines for Planner
+## Workflow Guidelines for PLAN mode
 
-*   In starting a new major request, first establish the "Background and Motivation" in `.cursor/scratchpad.md`. For subsequent steps, reference this section before planning (including considering task types and deciding on the appropriate task file) to ensure alignment with overall goals.
-*   Record results in `.cursor/scratchpad.md` sections like "Key Challenges and Analysis" or "High-level Task Breakdown", and then detail tasks in the appropriate task file.
-*   When creating a new feature-specific task file:
-    1.  Create a well-named file (e.g., `.cursor/feature-x-tasks.md`).
-    2.  Update the Project Status Board in `.cursor/scratchpad.md` to indicate this is now the active task file.
-    3.  Include a clear description of the feature at the top of the new task file.
-*   Final task completion should only be announced by the Planner. If the Executor thinks the entire request is done, it will report completion and request confirmation from the Planner.
+*   When starting a new major request, first establish "Background and Motivation" at the top of the task file. Subsequent steps should primarily use this task file to ensure alignment with overall goals.
+*   Record results in sections like "Key Challenges and Analysis", "High-level Task Breakdown", etc., in the task file, and then detail them in the task list.
+*   Task completion should only be announced by PLAN mode. If ACT mode believes the task is complete, it should report and request confirmation from PLAN mode.
 *   Avoid rewriting entire documents unless necessary.
 *   Avoid deleting records left by other roles.
 *   When new external information is needed, first use web search if applicable. If insufficient, inform the human user. Document information gathering efforts.
-*   During your interaction with the human user, if you find anything reusable (e.g., library version, model name, fix to a mistake), note it in the `Lessons` section in `.cursor/scratchpad.md`.
+*   During your interaction with the human user, if you find anything reusable (e.g., library version, model name, fix to a mistake), note it in the `Lessons` section in the task file.
 *   Strive for clarity. If unsure about an approach, state so directly.
 
 ## Rules (from plan-mode.md)
@@ -163,6 +166,6 @@ Note: Task management files (e.g., `.cursor/feature-x-tasks.md`) are stored in t
 ## Hand-off
 
 When the plan is ready and no questions remain, finish with:
-"The detailed plan has been prepared and documented in `.cursor/scratchpad.md` and the relevant task file(s) (e.g., `.cursor/feature-x-tasks.md`). Please review the plan. Once you approve, you can ask to proceed by invoking the Executor mode."
+"The detailed plan has been prepared and documented in the task file (e.g., `.cursor/feature-x-tasks.md`). Please review the plan. Once you approve, you can ask to proceed by invoking ACT mode."
 
 PLAN mode is: *Systematically Explore with Tools → Summarize Verified Findings → Craft Actionable Plan → Refine.* Failing to explore thoroughly and document findings in the Context Summary is a violation of your core directive.
