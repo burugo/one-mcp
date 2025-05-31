@@ -203,23 +203,50 @@ func SSEProxyHandler(c *gin.Context) {
 	}
 }
 
-// HTTPProxyHandler handles ANY /api/http/:serviceName/*action
+// HTTPProxyHandler handles ANY /proxy/:serviceName/mcp/*action
 func HTTPProxyHandler(c *gin.Context) {
 	serviceName := c.Param("serviceName")
 
-	service, err := model.GetServiceByName(serviceName)
-	if err != nil || service == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Service not found"})
+	originalPathForRequest := c.Request.URL.Path // Preserve for logging
+
+	common.SysLog(fmt.Sprintf("[HTTPProxyHandler] Service: %s, Original ActionParam: %s, Processed Path: %s, Query: %s",
+		serviceName, c.Param("action"), c.Request.URL.Path, c.Request.URL.RawQuery))
+
+	mcpDBService, err := model.GetServiceByName(serviceName)
+	if err != nil || mcpDBService == nil {
+		common.SysError(fmt.Sprintf("[HTTPProxyHandler] Service not found: %s, error: %v", serviceName, err))
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Service not found: " + serviceName})
+		return
+	}
+	if !mcpDBService.Enabled {
+		common.SysLog(fmt.Sprintf("WARN: [HTTPProxyHandler] Service not enabled: %s", serviceName))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Service not enabled: " + serviceName})
 		return
 	}
 
-	if service.Type != model.ServiceTypeStreamableHTTP {
+	// HTTP proxy only handles StreamableHTTP type services
+	if mcpDBService.Type != model.ServiceTypeStreamableHTTP {
+		common.SysError(fmt.Sprintf("[HTTPProxyHandler] Service %s is not of type StreamableHTTP (actual: %s)", serviceName, mcpDBService.Type))
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Service is not of type Streamable HTTP"})
 		return
 	}
 
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"success": false,
-		"message": "HTTP proxy not implemented yet",
-	})
+	var targetHandler http.Handler
+	var handlerErr error
+
+	// For HTTP services, we use the global handler approach since user-specific configs
+	// are typically handled at the HTTP level rather than process level
+	targetHandler, handlerErr = tryGetOrCreateGlobalHandler(c, mcpDBService)
+
+	if targetHandler != nil {
+		common.SysLog(fmt.Sprintf("[HTTPProxyHandler] Serving request for service %s (original path %s, processed path %s) using obtained handler.", serviceName, originalPathForRequest, c.Request.URL.Path))
+		targetHandler.ServeHTTP(c.Writer, c.Request)
+	} else {
+		finalErrMsg := "critical: unable to obtain any valid handler for service " + serviceName
+		if handlerErr != nil {
+			finalErrMsg = fmt.Sprintf("Service handler unavailable for %s: %s", serviceName, handlerErr.Error())
+		}
+		common.SysError(fmt.Sprintf("[HTTPProxyHandler] Error: %s", finalErrMsg))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": finalErrMsg})
+	}
 }

@@ -113,6 +113,7 @@ func SetApiRouter(route *gin.Engine) {
 			marketRoute.GET("/package_details", handler.GetPackageDetails)
 			marketRoute.GET("/install_status/:id", handler.GetInstallationStatus)
 			marketRoute.PATCH("/env_var", handler.PatchEnvVar)
+			marketRoute.POST("/custom_service", handler.CreateCustomService)
 
 			// Admin-only endpoints
 			adminMarketRoute := marketRoute.Group("/")
@@ -150,6 +151,13 @@ func SetApiRouter(route *gin.Engine) {
 	proxyRouter.Use(middleware.LangMiddleware()) // Apply similar general middlewares
 	proxyRouter.Use(middleware.GlobalAPIRateLimit())
 	{
-		proxyRouter.Any("/:serviceName/*action", handler.SSEProxyHandler)
+		// SSE proxy routes - for SSE endpoints and stdio->SSE conversion
+		proxyRouter.Any("/:serviceName/sse/*action", handler.SSEProxyHandler)
+
+		// HTTP proxy routes - for native HTTP MCP services
+		proxyRouter.Any("/:serviceName/mcp/*action", handler.HTTPProxyHandler)
+
+		// Legacy route removed to fix routing conflict with specific routes above
+		// proxyRouter.Any("/:serviceName/*action", handler.SSEProxyHandler)
 	}
 }

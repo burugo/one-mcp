@@ -60,16 +60,17 @@ type MCPService struct {
 	Type                  ServiceType     `db:"type"`
 	Command               string          `db:"command"`
 	ArgsJSON              string          `db:"args_json"`
-	AllowUserOverride     bool            `db:"allow_user_override"`     // Whether users can override admin settings
-	ClientConfigTemplates string          `db:"client_config_templates"` // JSON map of client_type to template details
-	RequiredEnvVarsJSON   string          `db:"required_env_vars_json"`  // JSON array of environment variables required by the service
-	PackageManager        string          `db:"package_manager"`         // For marketplace services: npm, pypi
-	SourcePackageName     string          `db:"source_package_name"`     // For marketplace services: package name in the repository
-	InstalledVersion      string          `db:"installed_version"`       // For marketplace services: currently installed version
-	HealthStatus          string          `db:"health_status"`           // 健康状态: unknown, healthy, unhealthy, starting, stopped
-	LastHealthCheck       time.Time       `db:"last_health_check"`       // 最后健康检查时间
-	HealthDetails         string          `db:"health_details"`          // 健康详情的JSON字符串
-	DefaultEnvsJSON       string          `db:"default_envs_json"`       // JSON string for default environment variables map[string]string
+	AllowUserOverride     bool            `db:"allow_user_override"`                        // Whether users can override admin settings
+	ClientConfigTemplates string          `db:"client_config_templates"`                    // JSON map of client_type to template details
+	RequiredEnvVarsJSON   string          `db:"required_env_vars_json"`                     // JSON array of environment variables required by the service
+	PackageManager        string          `db:"package_manager"`                            // For marketplace services: npm, pypi
+	SourcePackageName     string          `db:"source_package_name"`                        // For marketplace services: package name in the repository
+	InstalledVersion      string          `db:"installed_version"`                          // For marketplace services: currently installed version
+	HealthStatus          string          `db:"health_status"`                              // 健康状态: unknown, healthy, unhealthy, starting, stopped
+	LastHealthCheck       time.Time       `db:"last_health_check"`                          // 最后健康检查时间
+	HealthDetails         string          `db:"health_details"`                             // 健康详情的JSON字符串
+	DefaultEnvsJSON       string          `db:"default_envs_json"`                          // JSON string for default environment variables map[string]string
+	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json"` // JSON string for custom request headers map[string]string
 }
 
 // TableName sets the table name for the MCPService model

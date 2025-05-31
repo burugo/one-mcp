@@ -244,6 +244,7 @@ func InstallOrAddService(c *gin.Context) {
 		ServiceDescription  string                 `json:"service_description"`    // Optional: for creating MCPService
 		ServiceIconURL      string                 `json:"service_icon_url"`       // Optional: for creating MCPService
 		Category            model.ServiceCategory  `json:"category"`               // Optional: for creating MCPService
+		Headers             map[string]string      `json:"headers"`                // Optional: for SSE/HTTP services custom headers
 	}
 
 	if err := c.ShouldBindJSON(&requestBody); err != nil {
@@ -373,6 +374,16 @@ func InstallOrAddService(c *gin.Context) {
 		}
 		if newService.Category == "" {
 			newService.Category = model.CategoryAI
+		}
+
+		// Process Headers if provided
+		if len(requestBody.Headers) > 0 {
+			headersJSON, err := json.Marshal(requestBody.Headers)
+			if err != nil {
+				common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_headers", lang), err)
+				return
+			}
+			newService.HeadersJSON = string(headersJSON)
 		}
 
 		if err := model.CreateService(&newService); err != nil {
@@ -874,4 +885,160 @@ func PatchEnvVar(c *gin.Context) {
 		return
 	}
 	common.RespSuccessStr(c, i18n.Translate("env_var_saved_successfully", lang))
+}
+
+// CreateCustomService godoc
+// @Summary 创建自定义服务
+// @Description 创建一个自定义的MCP服务（支持stdio、sse、streamableHttp类型）
+// @Tags Market
+// @Accept json
+// @Produce json
+// @Param body body CustomServiceRequest true "自定义服务请求"
+// @Security ApiKeyAuth
+// @Success 200 {object} common.APIResponse
+// @Failure 400 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_market/custom_service [post]
+func CreateCustomService(c *gin.Context) {
+	lang := c.GetString("lang")
+
+	type CustomServiceRequest struct {
+		Name         string `json:"name" binding:"required"`
+		Type         string `json:"type" binding:"required"` // stdio, sse, streamableHttp
+		Command      string `json:"command"`
+		Arguments    string `json:"arguments"`
+		Environments string `json:"environments"`
+		URL          string `json:"url"`
+		Headers      string `json:"headers"`
+	}
+
+	var requestBody CustomServiceRequest
+	if err := c.ShouldBindJSON(&requestBody); err != nil {
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_request_data", lang), err)
+		return
+	}
+
+	// 验证服务类型
+	var serviceType model.ServiceType
+	switch requestBody.Type {
+	case "stdio":
+		serviceType = model.ServiceTypeStdio
+	case "sse":
+		serviceType = model.ServiceTypeSSE
+	case "streamableHttp":
+		serviceType = model.ServiceTypeStreamableHTTP
+	default:
+		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("invalid_service_type", lang))
+		return
+	}
+
+	// 基本验证
+	if requestBody.Type == "stdio" {
+		if requestBody.Command == "" {
+			common.RespErrorStr(c, http.StatusBadRequest, "stdio类型服务需要提供command参数")
+			return
+		}
+	} else if requestBody.Type == "sse" || requestBody.Type == "streamableHttp" {
+		if requestBody.URL == "" {
+			common.RespErrorStr(c, http.StatusBadRequest, "sse/streamableHttp类型服务需要提供url参数")
+			return
+		}
+	}
+
+	// 创建新服务
+	newService := model.MCPService{
+		Name:                  requestBody.Name,
+		DisplayName:           requestBody.Name,
+		Description:           fmt.Sprintf("Custom %s service", requestBody.Type),
+		Category:              model.CategoryUtil,
+		Type:                  serviceType,
+		ClientConfigTemplates: "{}",
+		Enabled:               true, // 自定义服务默认启用
+		HealthStatus:          "unknown",
+	}
+
+	// 处理不同类型的配置
+	if requestBody.Type == "stdio" {
+		newService.Command = requestBody.Command
+
+		// 处理参数
+		if requestBody.Arguments != "" {
+			args := strings.Split(strings.ReplaceAll(requestBody.Arguments, "\r\n", "\n"), "\n")
+			var filteredArgs []string
+			for _, arg := range args {
+				if strings.TrimSpace(arg) != "" {
+					filteredArgs = append(filteredArgs, strings.TrimSpace(arg))
+				}
+			}
+			if len(filteredArgs) > 0 {
+				argsJSON, err := json.Marshal(filteredArgs)
+				if err != nil {
+					common.RespError(c, http.StatusBadRequest, "参数格式错误", err)
+					return
+				}
+				newService.ArgsJSON = string(argsJSON)
+			}
+		}
+
+		// 处理环境变量
+		if requestBody.Environments != "" {
+			envMap := make(map[string]string)
+			envLines := strings.Split(strings.ReplaceAll(requestBody.Environments, "\r\n", "\n"), "\n")
+			for _, line := range envLines {
+				line = strings.TrimSpace(line)
+				if line != "" && strings.Contains(line, "=") {
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 {
+						envMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+					}
+				}
+			}
+			if len(envMap) > 0 {
+				envJSON, err := json.Marshal(envMap)
+				if err != nil {
+					common.RespError(c, http.StatusBadRequest, "环境变量格式错误", err)
+					return
+				}
+				newService.DefaultEnvsJSON = string(envJSON)
+			}
+		}
+	} else {
+		// 对于sse和streamableHttp类型，将URL存储在Command字段
+		newService.Command = requestBody.URL
+
+		// 处理Headers
+		if requestBody.Headers != "" {
+			headersMap := make(map[string]string)
+			headerLines := strings.Split(strings.ReplaceAll(requestBody.Headers, "\r\n", "\n"), "\n")
+			for _, line := range headerLines {
+				line = strings.TrimSpace(line)
+				if line != "" && strings.Contains(line, "=") {
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 {
+						headersMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+					}
+				}
+			}
+			if len(headersMap) > 0 {
+				headersJSON, err := json.Marshal(headersMap)
+				if err != nil {
+					common.RespError(c, http.StatusBadRequest, "请求头格式错误", err)
+					return
+				}
+				newService.HeadersJSON = string(headersJSON)
+			}
+		}
+	}
+
+	// 保存服务到数据库
+	if err := model.CreateService(&newService); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("create_mcp_service_failed", lang), err)
+		return
+	}
+
+	common.RespSuccess(c, gin.H{
+		"message":        "自定义服务创建成功",
+		"mcp_service_id": newService.ID,
+		"service":        newService,
+	})
 }

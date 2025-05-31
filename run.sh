@@ -9,6 +9,10 @@ export PATH=$PATH:/usr/local/bin
 # 杀掉占用 3000 端口的进程
 lsof -ti:3003 | xargs kill -9 2>/dev/null
 
+# 编译后端服务
+# go build -o one-mcp backend/main.go
+go build -o one-mcp .
+
 # 启动后端服务
-nohup go run main.go > backend.log 2>&1 &
+nohup ./one-mcp > backend.log 2>&1 &
 echo "Backend started on :3003, logs in backend.log" 
