@@ -1,0 +1,6 @@
+---
+description: Always respond in 中文
+globs: 
+alwaysApply: false
+---
+Always respond in 中文 with utf-8 encoding.

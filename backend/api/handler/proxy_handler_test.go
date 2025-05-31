@@ -36,13 +36,13 @@ func setupTestEnvironmentForProxyHandler() func() {
 	}
 }
 
-func TestSSEProxyHandler_ServiceNotFound(t *testing.T) {
+func TestProxyHandler_ServiceNotFound(t *testing.T) {
 	teardown := setupTestEnvironmentForProxyHandler()
 	defer teardown()
 
 	gin.SetMode(gin.TestMode)
 	r := gin.Default()
-	r.GET("/proxy/:serviceName/sse/*action", SSEProxyHandler)
+	r.GET("/proxy/:serviceName/sse/*action", ProxyHandler)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/proxy/not-exist-service/sse/someaction", nil)
@@ -70,7 +70,7 @@ func (h *mockMCPMasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	// Log the request path received by the mock handler for debugging
 	// h.t.Logf("mockMCPMasterHandler received path: %s, method: %s", r.URL.Path, r.Method)
 
-	if r.Method == "GET" && r.URL.Path == "/" { // Path seen by underlying handler after SSEProxyHandler
+	if r.Method == "GET" && r.URL.Path == "/" { // Path seen by underlying handler after ProxyHandler
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -107,10 +107,10 @@ func stdioConfigToJSON(sc model.StdioConfig) (string, error) {
 	return string(bytes), nil
 }
 
-// TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig verifies that when a user
+// TestProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig verifies that when a user
 // has specific configurations for an Stdio service that allows overrides,
 // NewStdioSSEHandlerUncached is called with the correctly merged StdioConfig.
-func TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t *testing.T) {
+func TestProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t *testing.T) {
 	teardown := setupTestEnvironmentForProxyHandler()
 	defer teardown()
 
@@ -121,7 +121,7 @@ func TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t
 		c.Set("userID", int64(1)) // Assuming test user ID is 1
 		c.Next()
 	})
-	router.GET("/proxy/:serviceName/sse/*action", SSEProxyHandler)
+	router.GET("/proxy/:serviceName/sse/*action", ProxyHandler)
 
 	serviceName := "user-specific-stdio-svc"
 	baseStdioCommand := "base-cmd"
@@ -197,15 +197,15 @@ func TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t
 	assert.NoError(t, err)
 	defer model.UserConfigDB.Delete(userOverrideSetting)
 
-	// Mock NewStdioSSEHandlerUncached to capture the StdioConfig passed to it
-	var capturedStdioConfig model.StdioConfig
-	originalNewStdioSSEHandlerUncached := proxy.NewStdioSSEHandlerUncached
-	proxy.NewStdioSSEHandlerUncached = func(ctx context.Context, mcpService *model.MCPService, effectiveStdioConfig model.StdioConfig) (http.Handler, error) {
-		capturedStdioConfig = effectiveStdioConfig
-		// Return a dummy handler, the focus is on capturing the config
+	// Mock NewProxyToSSEHandlerUncached to capture the service passed to it
+	var capturedService *model.MCPService
+	originalNewProxyToSSEHandlerUncached := proxy.NewProxyToSSEHandlerUncached
+	proxy.NewProxyToSSEHandlerUncached = func(ctx context.Context, mcpService *model.MCPService) (http.Handler, error) {
+		capturedService = mcpService
+		// Return a dummy handler, the focus is on capturing the service
 		return &mockSSEHandler{}, nil
 	}
-	defer func() { proxy.NewStdioSSEHandlerUncached = originalNewStdioSSEHandlerUncached }()
+	defer func() { proxy.NewProxyToSSEHandlerUncached = originalNewProxyToSSEHandlerUncached }()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/proxy/"+serviceName+"/sse/someaction", nil)
@@ -215,20 +215,31 @@ func TestSSEProxyHandler_UserSpecific_CallsNewUncachedHandlerWithCorrectConfig(t
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// Assertions on the captured StdioConfig
-	assert.Equal(t, baseStdioCommand, capturedStdioConfig.Command, "Command should be from mcpDBService.Command")
-	assert.Equal(t, baseStdioArgs, capturedStdioConfig.Args, "Args should be from mcpDBService.ArgsJSON")
-	assert.Contains(t, capturedStdioConfig.Env, "BASE_ENV=base_val", "Should contain base env from mcpDBService.DefaultEnvsJSON")
-	assert.Contains(t, capturedStdioConfig.Env, "USER_ENV_VAR=user_value", "Should contain user-specific env")
-	assert.Contains(t, capturedStdioConfig.Env, "OVERRIDE_ME=user_override_val", "User value should override default env")
+	// Assertions on the captured service
+	assert.Equal(t, serviceName, capturedService.Name, "Service name should match")
+	assert.Equal(t, baseStdioCommand, capturedService.Command, "Command should be from mcpDBService.Command")
 
-	// Ensure the default value that was overridden is not present
-	var foundOverriddenDefault bool
-	for _, envVar := range capturedStdioConfig.Env {
-		if envVar == "OVERRIDE_ME=default_override" {
-			foundOverriddenDefault = true
-			break
-		}
+	// Check ArgsJSON
+	var args []string
+	if capturedService.ArgsJSON != "" {
+		err := json.Unmarshal([]byte(capturedService.ArgsJSON), &args)
+		assert.NoError(t, err)
+		assert.Equal(t, baseStdioArgs, args, "Args should be from mcpDBService.ArgsJSON")
+	} else {
+		assert.Empty(t, args, "Args should be empty")
 	}
-	assert.False(t, foundOverriddenDefault, "Default overridden value should not be present in final Env")
+
+	// Check DefaultEnvsJSON
+	var envs map[string]string
+	if capturedService.DefaultEnvsJSON != "" {
+		err := json.Unmarshal([]byte(capturedService.DefaultEnvsJSON), &envs)
+		assert.NoError(t, err)
+		assert.Equal(t, "base_val", envs["BASE_ENV"], "Should contain base env from mcpDBService.DefaultEnvsJSON")
+		assert.Equal(t, "user_value", envs["USER_ENV_VAR"], "Should contain user-specific env")
+		assert.Equal(t, "user_override_val", envs["OVERRIDE_ME"], "User value should override default env")
+		_, exists := envs["OVERRIDE_ME"]
+		assert.True(t, exists, "OVERRIDE_ME should exist in envs")
+	} else {
+		assert.Empty(t, envs, "Envs should be empty")
+	}
 }

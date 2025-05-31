@@ -138,12 +138,12 @@ func SetApiRouter(route *gin.Engine) {
 
 		// 注册 SSE 代理路由
 		// The *action will capture the rest of the path (e.g., /message, /files/somefile.txt)
-		// apiRouter.GET("/sse/:serviceName/*action", handler.SSEProxyHandler)
-		// apiRouter.POST("/sse/:serviceName/*action", handler.SSEProxyHandler) // Also handle POST requests
+		// apiRouter.GET("/sse/:serviceName/*action", handler.ProxyHandler)
+		// apiRouter.POST("/sse/:serviceName/*action", handler.ProxyHandler) // Also handle POST requests
 
 		// New SSE Proxy routes (incorrectly placed previously)
-		// apiRouter.GET("/proxy/:serviceName/sse/*action", handler.SSEProxyHandler)
-		// apiRouter.POST("/proxy/:serviceName/sse/*action", handler.SSEProxyHandler)
+		// apiRouter.GET("/proxy/:serviceName/sse/*action", handler.ProxyHandler)
+		// apiRouter.POST("/proxy/:serviceName/sse/*action", handler.ProxyHandler)
 	}
 
 	// Define routes under /proxy, outside the /api group
@@ -152,12 +152,12 @@ func SetApiRouter(route *gin.Engine) {
 	proxyRouter.Use(middleware.GlobalAPIRateLimit())
 	{
 		// SSE proxy routes - for SSE endpoints and stdio->SSE conversion
-		proxyRouter.Any("/:serviceName/sse/*action", handler.SSEProxyHandler)
+		// proxyRouter.Any("/:serviceName/sse/*action", handler.ProxyHandler)
 
 		// HTTP proxy routes - for native HTTP MCP services
-		proxyRouter.Any("/:serviceName/mcp/*action", handler.HTTPProxyHandler)
+		// proxyRouter.Any("/:serviceName/mcp/*action", handler.HTTPProxyHandler)
 
 		// Legacy route removed to fix routing conflict with specific routes above
-		// proxyRouter.Any("/:serviceName/*action", handler.SSEProxyHandler)
+		proxyRouter.Any("/:serviceName/*action", handler.ProxyHandler)
 	}
 }
