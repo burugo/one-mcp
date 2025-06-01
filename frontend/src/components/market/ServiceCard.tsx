@@ -41,7 +41,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
                 setShowSuccessAnimation(false);
             }, 2000);
             return () => clearTimeout(timer);
-        } else if (currentStatus !== 'installing' && currentStatus !== 'success') {
+        } else if (currentStatus === 'idle' || currentStatus === 'error') {
             setShowInstallingAnimation(false);
             setShowSuccessAnimation(false);
         }

@@ -21,7 +21,9 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         updateEnvVar,
         installService,
         uninstallService,
-        updateInstallStatus
+        updateInstallStatus,
+        searchServices,
+        fetchServiceDetails
     } = useMarketStore();
 
     // State for installation log dialog
@@ -149,7 +151,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
     };
 
     // 卸载服务
-    const handleUninstall = () => {
+    const handleUninstall = async () => {
         if (!selectedService || typeof selectedService.installed_service_id !== 'number') {
             toast({
                 title: "Cannot Uninstall",
@@ -161,12 +163,24 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
 
         // 显示确认对话框
         if (window.confirm(`Are you sure you want to uninstall ${selectedService.name}?`)) {
-            uninstallService(selectedService.installed_service_id); // Use numeric ID
-            onBack(); // 返回市场页面
-            toast({
-                title: "Service Uninstalled",
-                description: `${selectedService.name} has been uninstalled.`
-            });
+            try {
+                await uninstallService(selectedService.installed_service_id); // Use numeric ID and wait for completion
+                toast({
+                    title: "Service Uninstalled",
+                    description: `${selectedService.name} has been uninstalled.`
+                });
+
+                // 刷新marketplace搜索结果和当前服务详情以更新状态
+                await searchServices(); // 这会更新marketplace的搜索结果
+                await fetchServiceDetails(selectedService.id, selectedService.name, selectedService.source); // 重新获取当前服务详情
+
+            } catch (error: any) {
+                toast({
+                    title: "Uninstall Failed",
+                    description: error.message || "Failed to uninstall service.",
+                    variant: "destructive"
+                });
+            }
         }
     };
 
@@ -334,8 +348,8 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                                             <Input
                                                 id={`env-${envVar.name}`}
                                                 type="text"
-                                                placeholder={envVar.isSecret ? "Enter secret value" : "Enter value"}
-                                                value={envVar.value || ''}
+                                                placeholder={envVar.defaultValue || (envVar.isSecret ? "Enter secret value" : "Enter value")}
+                                                value={envVar.value && envVar.value !== envVar.defaultValue ? envVar.value : ''}
                                                 onChange={(e) => handleEnvVarChange(envVar.name, e.target.value)}
                                                 className="w-full"
                                             />

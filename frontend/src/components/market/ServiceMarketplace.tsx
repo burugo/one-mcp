@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
-import { Search, Package, Star, Download, Filter } from 'lucide-react';
+import { Search, CheckCircle, XCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceCard from './ServiceCard';
 import EnvVarInputModal from './EnvVarInputModal';
@@ -17,13 +17,13 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
         searchResults,
         isSearching,
         activeTab,
-        installedServices,
         setSearchTerm,
         setActiveTab,
         searchServices,
         fetchInstalledServices,
         installService,
-        updateInstallStatus
+        updateInstallStatus,
+        installTasks
     } = useMarketStore();
 
     const { toast } = useToast();
@@ -33,6 +33,10 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
     const [missingVars, setMissingVars] = useState<string[]>([]);
     const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
     const [pendingEnvVars, setPendingEnvVars] = useState<Record<string, string>>({});
+
+    // 新增：安装进度对话框相关 state
+    const [showInstallDialog, setShowInstallDialog] = useState(false);
+    const [currentInstallingService, setCurrentInstallingService] = useState<ServiceType | null>(null);
 
     // 初始化加载
     useEffect(() => {
@@ -52,10 +56,23 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
         }
     };
 
-    // 安装服务处理函数
+    // 简化的安装服务处理函数，保持原有流程
     const handleInstallService = async (serviceId: string, extraEnvVars: Record<string, string> = {}) => {
+        // 找到对应的服务
+        const service = searchResults.find(s => s.id === serviceId);
+        if (!service) {
+            toast({
+                variant: "destructive",
+                title: "Service Not Found",
+                description: "Could not find the service to install."
+            });
+            return;
+        }
+
         setPendingServiceId(serviceId);
+        setCurrentInstallingService(service);
         let envVars = { ...extraEnvVars };
+
         while (true) {
             const response = await installService(serviceId, envVars);
             if (response && response.data && Array.isArray(response.data.required_env_vars) && response.data.required_env_vars.length > 0) {
@@ -64,8 +81,9 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                 setPendingEnvVars(envVars);
                 return; // 等待用户输入
             }
-            // 安装成功或已提交任务，关闭 Modal 并重置
+            // 安装成功或已提交任务，显示进度对话框
             setEnvModalVisible(false);
+            setShowInstallDialog(true);
             setMissingVars([]);
             setPendingEnvVars({});
             setPendingServiceId(null);
@@ -89,14 +107,43 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
         setMissingVars([]);
         setPendingEnvVars({});
         if (pendingServiceId) {
-            // 关键：重置 installTasks 状态为 idle
             updateInstallStatus(pendingServiceId, 'idle');
         }
         setPendingServiceId(null);
+        setCurrentInstallingService(null);
+    };
+
+    // 关闭安装对话框
+    const closeInstallDialog = () => {
+        const installTask = currentInstallingService ? installTasks[currentInstallingService.id] : undefined;
+
+        if (installTask?.status !== 'installing') {
+            setShowInstallDialog(false);
+            setCurrentInstallingService(null);
+            setPendingServiceId(null);
+
+            // 如果安装成功，刷新已安装服务列表
+            if (installTask?.status === 'success') {
+                fetchInstalledServices();
+                toast({
+                    title: "Installation Successful",
+                    description: `${currentInstallingService?.name} has been installed and is ready to use.`
+                });
+            }
+        } else {
+            toast({
+                title: "Installation in Progress",
+                description: "Please wait for the installation to complete.",
+                variant: "destructive"
+            });
+        }
     };
 
     // 将当前显示的服务列表计算出来
     const displayedServices = searchResults;
+
+    // 获取当前安装任务
+    const currentInstallTask = currentInstallingService ? installTasks[currentInstallingService.id] : undefined;
 
     return (
         <div className="flex-1 space-y-6">
@@ -179,12 +226,77 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                     </div>
                 </TabsContent>
             </Tabs>
+
+            {/* 环境变量输入模态框 */}
             <EnvVarInputModal
                 open={envModalVisible}
                 missingVars={missingVars}
                 onSubmit={handleEnvModalSubmit}
                 onCancel={handleEnvModalCancel}
             />
+
+            {/* 安装进度对话框 */}
+            <Dialog open={showInstallDialog} onOpenChange={closeInstallDialog}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {!currentInstallTask && 'Installing Service...'}
+                            {currentInstallTask?.status === 'installing' && 'Installing Service...'}
+                            {currentInstallTask?.status === 'success' && 'Installation Complete'}
+                            {currentInstallTask?.status === 'error' && 'Installation Failed'}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {!currentInstallTask && `Installing ${currentInstallingService?.name} from ${currentInstallingService?.source}`}
+                            {currentInstallTask?.status === 'installing' && `Installing ${currentInstallingService?.name} from ${currentInstallingService?.source}`}
+                            {currentInstallTask?.status === 'success' && 'The service was installed successfully'}
+                            {currentInstallTask?.status === 'error' && 'There was a problem during installation'}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="my-4">
+                        <div className="bg-muted p-4 rounded-md h-64 overflow-y-auto font-mono text-sm">
+                            {currentInstallTask?.logs.map((log, index) => (
+                                <div key={index} className="pb-1">
+                                    <span className="text-primary">{'>'}</span> {log}
+                                </div>
+                            ))}
+                            {(!currentInstallTask || currentInstallTask.status === 'installing') && (
+                                <div className="animate-pulse">
+                                    <span className="text-primary">{'>'}</span> _
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <DialogFooter className="flex items-center justify-between">
+                        {(!currentInstallTask || currentInstallTask.status === 'installing') && (
+                            <div className="flex items-center text-sm text-muted-foreground">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                                Installing...
+                            </div>
+                        )}
+                        {currentInstallTask?.status === 'success' && (
+                            <div className="flex items-center text-sm text-green-500">
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Installation complete
+                            </div>
+                        )}
+                        {currentInstallTask?.status === 'error' && (
+                            <div className="flex items-center text-sm text-red-500">
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Installation failed: {currentInstallTask.error}
+                            </div>
+                        )}
+
+                        <Button
+                            disabled={!currentInstallTask || currentInstallTask.status === 'installing'}
+                            onClick={closeInstallDialog}
+                        >
+                            {currentInstallTask?.status === 'success' ? 'Finish' : 'Close'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 } 
