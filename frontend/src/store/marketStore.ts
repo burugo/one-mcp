@@ -6,34 +6,35 @@ import api, { APIResponse, toastEmitter } from '@/utils/api'; // 引入 APIRespo
 export interface ServiceType {
     id: string;
     name: string;
-    description: string;
     version: string;
-    source: string;  // package_manager (npm, pypi, etc.)
-    author: string;
-    stars?: number; // Preferably GitHub stars
-    npmScore?: number; // For npm-specific score, if no GitHub stars
-    homepageUrl?: string; // URL to GitHub page or official website
-    icon?: ReactNode;
+    description: string;
+    source: 'npm' | 'pypi' | 'local' | 'recommended';
+    downloads?: number;
+    stars?: number;
+    author?: string | { name?: string; email?: string; url?: string };
+    repositoryUrl?: string;
+    homepage?: string;
+    lastUpdated?: string;
+    score?: number;
     isInstalled?: boolean;
-    health_status?: string;
-    display_name?: string;
-    enabled?: boolean;
+    installed_service_id?: number;
+    envVars: EnvVarType[];
+    readme?: string;
 }
 
 // 详细服务类型定义
 export interface ServiceDetailType extends ServiceType {
-    readme: string;
-    envVars: EnvVarType[];
+    isLoading: boolean;
 }
 
 // 环境变量类型
 export interface EnvVarType {
     name: string;
-    description: string;
-    isSecret: boolean;
-    isRequired: boolean;
-    defaultValue?: string;
     value?: string;
+    description?: string;
+    isSecret?: boolean;
+    isRequired?: boolean;
+    defaultValue?: string;
 }
 
 // 安装状态类型
@@ -91,7 +92,7 @@ interface MarketState {
     updateInstallStatus: (serviceId: string, status: InstallStatus, error?: string) => void;
     pollInstallationStatus: (serviceId: string, taskId: string) => void;
 
-    uninstallService: (serviceId: string) => Promise<void>;
+    uninstallService: (serviceId: number) => Promise<void>;
 }
 
 // 创建 Store
@@ -156,26 +157,36 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                         // 创建服务ID
                         const serviceId = item.name + '-' + item.package_manager;
 
-                        // 检查服务是否已安装
-                        const isInstalled = installedServices.some(installed =>
-                            installed.id === serviceId ||
-                            (installed.name === item.name && installed.source === item.package_manager)
-                        );
+                        // Check if the service is installed (this local check might be redundant if backend provides definitive is_installed and installed_service_id)
+                        // const isInstalled = installedServices.some(installed =>
+                        //     installed.id === serviceId ||
+                        //     (installed.name === item.name && installed.source === item.package_manager)
+                        // );
 
                         return {
                             id: serviceId,
                             name: item.name || 'Unknown Name',
-                            description: item.description || '',
                             version: item.version || '0.0.0',
+                            description: item.description || '',
                             source: item.package_manager || 'unknown',
-                            author: author,
+                            downloads: item.downloads_last_month, // Assuming this is 'downloads' from backend SearchPackageResult
                             stars: typeof item.github_stars === 'number' ? item.github_stars : undefined,
-                            npmScore: typeof item.score === 'number' ? item.score : undefined,
-                            homepageUrl: homepageUrl,
-                            isInstalled: isInstalled || item.is_installed || false,
-                            health_status: item.HealthStatus || item.health_status || '',
-                            display_name: item.DisplayName || item.display_name || item.Name || item.name,
-                            enabled: typeof item.Enabled === 'boolean' ? item.Enabled : undefined,
+                            author: author,
+                            repositoryUrl: item.repository_url,
+                            homepage: item.homepage,
+                            lastUpdated: item.last_publish, // Assuming this is 'last_updated' from backend
+                            score: typeof item.score === 'number' ? item.score : undefined,
+                            isInstalled: item.is_installed || false, // Rely on backend's is_installed
+                            installed_service_id: item.installed_service_id, // Map new field from backend
+                            envVars: item.env_vars ? item.env_vars.map((envDef: any) => ({
+                                name: envDef.name,
+                                description: envDef.description,
+                                isSecret: envDef.is_secret,
+                                isRequired: !envDef.optional,
+                                defaultValue: envDef.default_value,
+                                value: item.mcp_config?.mcpServers?.[envDef.name]?.env?.[envDef.name] !== undefined ? item.mcp_config.mcpServers[envDef.name].env[envDef.name] : (envDef.default_value || '')
+                            })) : [],
+                            readme: item.readme || '',
                         };
                     });
                     set({ searchResults: mappedResults });
@@ -218,6 +229,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     health_status: info.HealthStatus || info.health_status || '',
                     health_details: info.HealthDetails || info.health_details || '',
                     enabled: typeof info.Enabled === 'boolean' ? info.Enabled : undefined,
+                    installed_service_id: info.installed_service_id,
                 }));
 
                 set({
@@ -254,31 +266,57 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             const response = await api.get(`/mcp_market/package_details?package_name=${encodeURIComponent(packageName)}&package_manager=${packageManager}`) as APIResponse<any>;
 
             if (response.success && response.data) {
-                const details = response.data;
+                const details = response.data; // `details` here is the *entire* data object from API
+
+                // Safely extract savedValues from mcp_config
+                let savedValues: Record<string, string> = {};
+                if (details.mcp_config && details.mcp_config.mcpServers) {
+                    const serverKeys = Object.keys(details.mcp_config.mcpServers);
+                    if (serverKeys.length > 0) {
+                        // Assuming the first server key is the relevant one
+                        const primaryServerKey = serverKeys[0];
+                        savedValues = details.mcp_config.mcpServers[primaryServerKey]?.env || {};
+                    }
+                }
 
                 // 将环境变量转换为前端格式
-                const envVars = details.env_vars.map((env: any) => ({
-                    name: env.name,
-                    description: env.description,
-                    isSecret: env.is_secret,
-                    isRequired: !env.optional,
-                    defaultValue: env.default_value
+                const envVars = details.env_vars.map((envDef: any) => ({
+                    name: envDef.name,
+                    description: envDef.description,
+                    isSecret: envDef.is_secret,
+                    isRequired: !envDef.optional, // Mapping 'optional' to 'isRequired'
+                    defaultValue: envDef.default_value,
+                    value: savedValues[envDef.name] !== undefined ? savedValues[envDef.name] : (envDef.default_value || '') // Populate value
                 }));
 
                 set({
                     selectedService: {
-                        id: serviceId,
+                        id: `${details.details.name}-${packageManager}`,
                         name: details.details.name,
-                        description: details.details.description,
-                        version: details.details.version,
-                        source: packageManager,
-                        author: details.details.author || 'Unknown',
-                        stars: details.details.stars || 0,
-                        npmScore: details.details.npm_score || undefined,
-                        homepageUrl: details.details.homepage_url || undefined,
+                        version: details.details.version || 'N/A',
+                        description: details.details.description || '',
+                        source: packageManager as 'npm' | 'pypi',
+                        downloads: details.downloads_last_month,
+                        stars: details.stars,
+                        author: details.author,
+                        repositoryUrl: details.repository_url,
+                        homepage: details.details.homepage,
+                        lastUpdated: details.last_publish,
+                        score: details.score,
+                        isInstalled: details.is_installed || false,
+                        installed_service_id: details.installed_service_id,
+                        envVars: details.env_vars ? details.env_vars.map((envDef: any) => ({
+                            name: envDef.name,
+                            description: envDef.description,
+                            isSecret: envDef.is_secret,
+                            isRequired: !envDef.optional,
+                            defaultValue: envDef.default_value,
+                            value: savedValues[envDef.name] !== undefined ? savedValues[envDef.name] : (envDef.default_value || '')
+                        })) : [],
                         readme: details.readme || '',
-                        envVars
-                    }
+                        isLoading: false,
+                    },
+                    isLoadingDetails: false,
                 });
             } else {
                 throw new Error(response.message || 'Failed to fetch service details');
@@ -475,46 +513,44 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         }
     },
 
-    uninstallService: async (serviceId: string): Promise<void> => {
+    uninstallService: async (serviceId: number): Promise<void> => {
         const { searchResults, installedServices, fetchInstalledServices, activeTab, installTasks } = get();
+        const serviceIdString = String(serviceId);
         const allServices = [...searchResults, ...installedServices];
-        const service = allServices.find(s => String(s.id) === String(serviceId));
-        const serviceDisplayName = service?.name || serviceId;
+        const service = allServices.find(s => {
+            if (s.installed_service_id === serviceId) return true;
+            return String(s.installed_service_id) === serviceIdString || s.id === serviceIdString;
+        });
+        const serviceDisplayName = service?.name || String(serviceId);
 
         set(state => ({
             uninstallTasks: {
                 ...state.uninstallTasks,
-                [serviceId]: { status: 'uninstalling', error: undefined },
+                [serviceIdString]: { status: 'uninstalling', error: undefined },
             },
         }));
 
         try {
-            const serviceIdNum = parseInt(serviceId, 10);
-            if (isNaN(serviceIdNum)) {
-                throw new Error('Invalid service ID');
-            }
-
             const response = await api.post('/mcp_market/uninstall', {
-                service_id: serviceIdNum,
+                service_id: serviceId,
             }) as APIResponse<any>;
 
             if (response.success) {
                 set(state => {
-                    // 更新搜索结果中的状态
                     const updatedSearchResults = state.searchResults.map(s =>
-                        s.id === serviceId ? { ...s, isInstalled: false } : s
+                        (s.installed_service_id === serviceId || s.id === serviceIdString) ? { ...s, isInstalled: false, installed_service_id: undefined } : s
                     );
 
-                    // 更新已安装服务列表
-                    const updatedInstalledServices = state.installedServices.filter(s => s.id !== serviceId);
+                    const updatedInstalledServices = state.installedServices.filter(s =>
+                        !(s.installed_service_id === serviceId || s.id === serviceIdString)
+                    );
 
-                    // 清理 installTasks[serviceId]
-                    const { [serviceId]: _, ...restInstallTasks } = state.installTasks;
+                    const { [serviceIdString]: _, ...restInstallTasks } = state.installTasks;
 
                     return {
                         uninstallTasks: {
                             ...state.uninstallTasks,
-                            [serviceId]: { status: 'idle', error: undefined },
+                            [serviceIdString]: { status: 'idle', error: undefined },
                         },
                         installTasks: restInstallTasks,
                         searchResults: updatedSearchResults,
@@ -530,7 +566,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 set(state => ({
                     uninstallTasks: {
                         ...state.uninstallTasks,
-                        [serviceId]: { status: 'error', error: errorMsg },
+                        [serviceIdString]: { status: 'error', error: errorMsg },
                     },
                 }));
                 toastEmitter.emit({
@@ -544,7 +580,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             set(state => ({
                 uninstallTasks: {
                     ...state.uninstallTasks,
-                    [serviceId]: { status: 'error', error: errorMsg },
+                    [serviceIdString]: { status: 'error', error: errorMsg },
                 },
             }));
             toastEmitter.emit({

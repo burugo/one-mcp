@@ -37,79 +37,192 @@ func GetPackageDetails(c *gin.Context) {
 	packageName := c.Query("package_name")
 	packageManager := c.Query("package_manager")
 
-	// 参数验证
 	if packageName == "" {
 		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("package_name_required", lang))
 		return
 	}
-
 	if packageManager == "" {
 		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("package_manager_required", lang))
 		return
 	}
 
-	// 添加一个超时上下文
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second) // Increased timeout
 	defer cancel()
 
-	// 根据包管理器类型获取详情
 	switch packageManager {
 	case "npm":
-		details, err := market.GetNPMPackageDetails(ctx, packageName)
+		baseDetails, err := market.GetNPMPackageDetails(ctx, packageName)
 		if err != nil {
 			common.RespError(c, http.StatusInternalServerError, i18n.Translate("get_npm_package_details_failed", lang), err)
 			return
 		}
 
-		// 检查是否已安装
+		readme, _ := market.GetNPMPackageReadme(ctx, packageName)
+
+		npmSearchResult, searchErr := market.SearchNPMPackages(ctx, packageName, 1, 1)
+
+		type EnhancedPackageDetails struct {
+			Name            string            `json:"name"`
+			Version         string            `json:"version"`
+			Description     string            `json:"description"`
+			Homepage        string            `json:"homepage"`
+			RepositoryURL   string            `json:"repository_url"`
+			Author          string            `json:"author"`
+			Keywords        []string          `json:"keywords"`
+			License         string            `json:"license"`
+			Dependencies    map[string]string `json:"dependencies"`
+			DevDependencies map[string]string `json:"devDependencies"`
+			Stars           int               `json:"stars"`
+			Score           float64           `json:"score"`
+			LastUpdated     string            `json:"last_updated"`
+			Downloads       int               `json:"downloads,omitempty"`
+		}
+
+		enhancedDetails := EnhancedPackageDetails{
+			Name:            baseDetails.Name,
+			Version:         baseDetails.Version,
+			Description:     baseDetails.Description,
+			Homepage:        baseDetails.Homepage,
+			Keywords:        baseDetails.Keywords,
+			License:         baseDetails.License,
+			Dependencies:    baseDetails.Dependencies,
+			DevDependencies: baseDetails.DevDependencies,
+		}
+		if baseDetails.Repository.URL != "" {
+			enhancedDetails.RepositoryURL = baseDetails.Repository.URL
+		}
+
+		if searchErr == nil && npmSearchResult != nil && len(npmSearchResult.Objects) > 0 {
+			npmObject := npmSearchResult.Objects[0]
+			npmPkg := npmObject.Package
+
+			enhancedDetails.Name = npmPkg.Name
+			if npmPkg.Version != "" {
+				enhancedDetails.Version = npmPkg.Version
+			}
+			if npmPkg.Description != "" {
+				enhancedDetails.Description = npmPkg.Description
+			}
+			if npmPkg.Links.Homepage != "" {
+				enhancedDetails.Homepage = npmPkg.Links.Homepage
+			}
+			if npmPkg.Links.Repository != "" {
+				enhancedDetails.RepositoryURL = npmPkg.Links.Repository
+			}
+			if npmPkg.Publisher.Username != "" {
+				enhancedDetails.Author = npmPkg.Publisher.Username
+			} else if len(npmPkg.Maintainers) > 0 {
+				enhancedDetails.Author = npmPkg.Maintainers[0].Username
+			}
+			if npmPkg.Keywords != nil {
+				enhancedDetails.Keywords = npmPkg.Keywords
+			}
+			enhancedDetails.Score = npmObject.Score.Final
+			enhancedDetails.LastUpdated = npmPkg.Date.Format(time.RFC3339)
+
+			if strings.Contains(enhancedDetails.RepositoryURL, "github.com") {
+				owner, repo := market.ParseGitHubRepo(enhancedDetails.RepositoryURL) // Public function
+				if owner != "" && repo != "" {
+					enhancedDetails.Stars = market.FetchGitHubStars(ctx, owner, repo) // Public function, pass ctx
+				}
+			}
+		} else if searchErr != nil {
+			common.SysLog("Error fetching search details for " + packageName + ": " + searchErr.Error())
+		}
+
 		isInstalled := false
+		var installedServiceID int64
 		services, err := model.GetServicesByPackageDetails(packageManager, packageName)
 		if err == nil && len(services) > 0 {
 			isInstalled = true
+			installedServiceID = services[0].ID
 		}
 
-		// 获取README内容
-		readme, err := market.GetNPMPackageReadme(ctx, packageName)
-		if err != nil {
-			// 获取README失败不是致命错误，只记录日志
-			common.SysLog("Error getting README for " + packageName + ": " + err.Error())
+		mcpConfig, _ := market.ExtractMCPConfig(baseDetails, readme)
+
+		if isInstalled && mcpConfig != nil {
+			userID := getUserIDFromContext(c)
+			userConfigs, err_uc := model.GetUserConfigsForService(userID, installedServiceID)
+			if err_uc == nil {
+				savedEnvValues := make(map[string]string)
+				serviceConfigOptions, _ := model.GetConfigOptionsForService(installedServiceID)
+				configIDToNameMap := make(map[int64]string)
+				for _, opt := range serviceConfigOptions {
+					configIDToNameMap[opt.ID] = opt.Key
+				}
+				for _, uc := range userConfigs {
+					if varName, ok := configIDToNameMap[uc.ConfigID]; ok {
+						savedEnvValues[varName] = uc.Value
+					}
+				}
+				for serverKey, serverConf := range mcpConfig.MCPServers {
+					if serverConf.Env == nil {
+						serverConf.Env = make(map[string]string)
+					}
+					for envName := range serverConf.Env { // Iterate over template envs
+						if savedVal, ok := savedEnvValues[envName]; ok {
+							serverConf.Env[envName] = savedVal
+						}
+					}
+					mcpConfig.MCPServers[serverKey] = serverConf
+				}
+			} else {
+				common.SysLog(fmt.Sprintf("Error fetching user configs for service ID %d: %v", installedServiceID, err_uc))
+			}
 		}
 
-		// 尝试从README中提取MCP配置
-		mcpConfig, _ := market.ExtractMCPConfig(details, readme)
-
-		// 猜测可能的环境变量
-		var envVars []string
-
-		// 首先从MCP配置中提取环境变量
-		if mcpConfig != nil {
-			envVars = market.GetEnvVarsFromMCPConfig(mcpConfig)
+		// Inline Env Var Discovery Logic
+		var discoveredEnvVars []string
+		if mcpConfig != nil { // Use the potentially updated mcpConfig
+			discoveredEnvVars = market.GetEnvVarsFromMCPConfig(mcpConfig)
+		}
+		if len(discoveredEnvVars) == 0 && readme != "" {
+			discoveredEnvVars = market.GuessMCPEnvVarsFromReadme(readme)
+		}
+		if baseDetails != nil && len(baseDetails.RequiresEnv) > 0 {
+			for _, env := range baseDetails.RequiresEnv {
+				found := false
+				for _, existingEnv := range discoveredEnvVars {
+					if existingEnv == env {
+						found = true
+						break
+					}
+				}
+				if !found {
+					discoveredEnvVars = append(discoveredEnvVars, env)
+				}
+			}
 		}
 
-		// 如果MCP配置中没有找到环境变量，则从README中猜测
-		if len(envVars) == 0 {
-			envVars = market.GuessMCPEnvVarsFromReadme(readme)
-		}
-
-		// 构建环境变量定义
 		var envVarDefinitions []model.EnvVarDefinition
-		for _, env := range envVars {
+		for _, env := range discoveredEnvVars {
 			definition := model.EnvVarDefinition{
 				Name:        env,
-				Description: "From package configuration",
+				Description: "Discovered from package information",
 				IsSecret:    strings.Contains(strings.ToLower(env), "token") || strings.Contains(strings.ToLower(env), "key") || strings.Contains(strings.ToLower(env), "secret"),
 				Optional:    false,
 			}
 			envVarDefinitions = append(envVarDefinitions, definition)
 		}
+		// End Inline Env Var Discovery Logic
 
-		// 构建响应
 		response := map[string]interface{}{
-			"details":      details,
-			"is_installed": isInstalled,
-			"env_vars":     envVarDefinitions,
-			"mcp_config":   mcpConfig,
-			"readme":       readme,
+			"details":              enhancedDetails,
+			"env_vars":             envVarDefinitions,
+			"is_installed":         isInstalled,
+			"mcp_config":           mcpConfig,
+			"readme":               readme,
+			"author":               enhancedDetails.Author,
+			"stars":                enhancedDetails.Stars,
+			"repository_url":       enhancedDetails.RepositoryURL,
+			"score":                enhancedDetails.Score,
+			"version_info":         enhancedDetails.Version,
+			"last_publish":         enhancedDetails.LastUpdated,
+			"downloads_last_month": 0, // Assuming downloadsLastMonth is not available in the current implementation
+		}
+
+		if isInstalled && installedServiceID > 0 {
+			response["installed_service_id"] = installedServiceID
 		}
 
 		common.RespSuccess(c, response)
@@ -773,13 +886,13 @@ func SearchMCPMarket(c *gin.Context) {
 		if e != nil {
 			err = e
 		} else {
-			// 查询已安装包
-			installed, _ := market.GetInstalledMCPServersFromDB()
-			installedMap := make(map[string]bool)
-			for name := range installed {
-				installedMap[name] = true
+			// 查询已安装包的 numeric IDs
+			installedServiceIDs, err_installed := market.GetInstalledMCPServersFromDB() // Returns map[string]int64 now
+			if err_installed != nil {
+				common.SysLog("SearchMCPMarket: Error fetching installed server IDs: " + err_installed.Error())
+				// Continue without installed info if this fails, or handle error more strictly
 			}
-			results = append(results, market.ConvertNPMToSearchResult(npmResult, installedMap)...)
+			results = append(results, market.ConvertNPMToSearchResult(ctx, npmResult, installedServiceIDs)...)
 		}
 	}
 	// TODO: 支持 pypi、recommended

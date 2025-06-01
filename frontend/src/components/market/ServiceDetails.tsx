@@ -10,6 +10,7 @@ import { useMarketStore, InstallStatus } from '@/store/marketStore';
 import EnvVarInputModal from './EnvVarInputModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import api from '@/utils/api'; // Import api utility for saving
 
 export function ServiceDetails({ onBack }: { onBack: () => void }) {
     const { toast } = useToast();
@@ -46,11 +47,11 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         installTasks[selectedService.id] : undefined;
 
     // 处理环境变量输入变化
-    const handleEnvVarChange = (index: number, value: string) => {
+    const handleEnvVarChange = (varName: string, value: string) => {
         if (selectedService) {
             updateEnvVar(
                 selectedService.id,
-                selectedService.envVars[index].name,
+                varName,
                 value
             );
         }
@@ -60,15 +61,21 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
     const startInstallation = async (initialEnvVars?: Record<string, string>) => {
         if (!selectedService) return;
 
-        const envVarsToSubmit = initialEnvVars || {};
-        if (!initialEnvVars) { // If not from modal, collect from Configuration tab
+        const envVarsToSubmit: Record<string, string> = {};
+        const placeholderValue = "your-api-key-here"; // Define common placeholder
+
+        if (initialEnvVars) { // If env vars are explicitly passed (e.g., from modal)
+            Object.assign(envVarsToSubmit, initialEnvVars);
+        } else { // If not from modal, collect from Configuration tab
             selectedService.envVars.forEach(env => {
-                if (env.value) {
+                // Only include if value exists, is not empty, and is not the placeholder
+                if (env.value && env.value.trim() !== "" && env.value.trim().toLowerCase() !== placeholderValue.toLowerCase()) {
                     envVarsToSubmit[env.name] = env.value;
                 }
             });
         }
-        setCurrentEnvVars(envVarsToSubmit); // Store for potential re-submission
+
+        setCurrentEnvVars(envVarsToSubmit); // Store for potential re-submission if modal is needed
         setPendingServiceId(selectedService.id);
 
         try {
@@ -143,17 +150,64 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
 
     // 卸载服务
     const handleUninstall = () => {
-        if (!selectedService) return;
+        if (!selectedService || typeof selectedService.installed_service_id !== 'number') {
+            toast({
+                title: "Cannot Uninstall",
+                description: "Service data is incomplete or service ID is missing.",
+                variant: "destructive",
+            });
+            return;
+        }
 
         // 显示确认对话框
         if (window.confirm(`Are you sure you want to uninstall ${selectedService.name}?`)) {
-            uninstallService(selectedService.id);
+            uninstallService(selectedService.installed_service_id); // Use numeric ID
             onBack(); // 返回市场页面
             toast({
                 title: "Service Uninstalled",
                 description: `${selectedService.name} has been uninstalled.`
             });
         }
+    };
+
+    const handleSaveConfiguration = async () => {
+        if (!selectedService || !selectedService.isInstalled || typeof selectedService.installed_service_id !== 'number') {
+            toast({
+                title: "Cannot Save Configuration",
+                description: "Service is not installed or numeric service ID is missing.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        toast({ title: "Saving Configuration...", description: "Please wait." });
+        let allSucceeded = true;
+        try {
+            for (const envVar of selectedService.envVars) {
+                // Only save if a value is present, or handle as needed
+                // Assuming 'value' contains the current value from the input field
+                // The API structure for saving might be one var at a time or bulk
+                // Using the single var save endpoint as seen in ServicesPage.tsx
+                await api.patch('/mcp_market/env_var', {
+                    service_id: selectedService.installed_service_id,
+                    var_name: envVar.name,
+                    var_value: envVar.value || '' // Send empty string if undefined/null
+                });
+            }
+            toast({ title: "Configuration Saved", description: "Environment variables have been updated." });
+        } catch (error: any) {
+            allSucceeded = false;
+            console.error("Failed to save environment variable:", error);
+            toast({
+                title: "Save Failed",
+                description: error.message || "Could not save one or more environment variables.",
+                variant: "destructive"
+            });
+        }
+        // Optionally, re-fetch service details or update local state if necessary
+        // if (allSucceeded && selectedService) {
+        //     get().fetchServiceDetails(selectedService.id, selectedService.name, selectedService.source);
+        // }
     };
 
     // 加载状态
@@ -219,7 +273,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                             </div>
                         )}
                         <div>
-                            <span>By {selectedService.author}</span>
+                            <span>By {typeof selectedService.author === 'string' ? selectedService.author : selectedService.author?.name || 'Unknown Author'}</span>
                         </div>
                         <div>
                             <span>Source: {selectedService.source}</span>
@@ -271,18 +325,18 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                                 {selectedService.envVars.map((envVar, index) => (
                                     <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                                         <div className="md:col-span-1">
-                                            <label htmlFor={`env-${index}`} className="text-sm font-medium flex items-center gap-1">
+                                            <label htmlFor={`env-${envVar.name}`} className="text-sm font-medium flex items-center gap-1">
                                                 {envVar.name}
                                                 {envVar.isRequired && <span className="text-red-500">*</span>}
                                             </label>
                                         </div>
                                         <div className="md:col-span-3">
                                             <Input
-                                                id={`env-${index}`}
-                                                type={envVar.isSecret ? "password" : "text"}
-                                                placeholder={envVar.defaultValue ? `Default: ${envVar.defaultValue}` : ""}
-                                                value={envVar.value || ""}
-                                                onChange={(e) => handleEnvVarChange(index, e.target.value)}
+                                                id={`env-${envVar.name}`}
+                                                type="text"
+                                                placeholder={envVar.isSecret ? "Enter secret value" : "Enter value"}
+                                                value={envVar.value || ''}
+                                                onChange={(e) => handleEnvVarChange(envVar.name, e.target.value)}
                                                 className="w-full"
                                             />
                                             <p className="text-xs text-muted-foreground mt-1">{envVar.description}</p>
@@ -292,9 +346,15 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                             </div>
                         </CardContent>
                         <CardFooter>
-                            <Button onClick={() => startInstallation()} className="ml-auto">
-                                Install with Configuration
-                            </Button>
+                            {selectedService && selectedService.isInstalled ? (
+                                <Button onClick={handleSaveConfiguration} className="ml-auto">
+                                    Save Configuration
+                                </Button>
+                            ) : (
+                                <Button onClick={() => startInstallation()} className="ml-auto">
+                                    Install with Configuration
+                                </Button>
+                            )}
                         </CardFooter>
                     </Card>
                 </TabsContent>

@@ -94,22 +94,27 @@ type NPMPackageDetails struct {
 	ReadmeFilename  string            `json:"readmeFilename,omitempty"` // README文件名
 }
 
-// SearchPackageResult 表示统一的包搜索结果接口
+// SearchPackageResult 包含搜索结果中每个包的简化信息
+// 这个结构体用于在前端展示搜索结果，并且现在会包含已安装服务的数字ID
+// TODO: 和 ServiceType 统一字段，目前字段有点乱
 type SearchPackageResult struct {
-	Name           string   `json:"name"`
-	Version        string   `json:"version"`
-	Description    string   `json:"description"`
-	PackageManager string   `json:"package_manager"`
-	SourceURL      string   `json:"source_url"`
-	Homepage       string   `json:"homepage"`
-	License        string   `json:"license"`
-	IconURL        string   `json:"icon_url"`
-	Stars          int      `json:"github_stars"`
-	Downloads      int      `json:"downloads,omitempty"`
-	LastUpdated    string   `json:"last_updated,omitempty"`
-	Keywords       []string `json:"keywords,omitempty"`
-	Score          float64  `json:"score"`
-	IsInstalled    bool     `json:"is_installed"`
+	Name               string   `json:"name"`
+	Version            string   `json:"version"`
+	Description        string   `json:"description"`
+	PackageManager     string   `json:"package_manager"`
+	SourceURL          string   `json:"source_url"` // Usually NPM package URL
+	Homepage           string   `json:"homepage"`
+	RepositoryURL      string   `json:"repository_url,omitempty"`
+	License            string   `json:"license"`
+	IconURL            string   `json:"icon_url"`
+	Stars              int      `json:"github_stars"`
+	Downloads          int      `json:"downloads,omitempty"`    // Monthly downloads, if available
+	LastUpdated        string   `json:"last_updated,omitempty"` // ISO 8601 date string
+	Keywords           []string `json:"keywords,omitempty"`
+	Author             string   `json:"author,omitempty"`
+	Score              float64  `json:"score"` // Search relevance score from npm/pypi
+	IsInstalled        bool     `json:"is_installed"`
+	InstalledServiceID *int64   `json:"installed_service_id,omitempty"` // Numeric ID if installed
 }
 
 // SearchNPMPackages 搜索npm包
@@ -254,7 +259,8 @@ func GetNPMPackageReadme(ctx context.Context, packageName string) (string, error
 	return "", nil
 }
 
-// getReadmeFromRepository 尝试从代码仓库获取README
+// getReadmeFromRepository fetches the README content from a repository URL.
+// It tries to intelligently find the README file.
 func getReadmeFromRepository(ctx context.Context, repoURL, readmeFilename string) (string, error) {
 	// 目前我们只是预留这个函数，用于将来实现从GitHub/GitLab等获取README
 	// 这需要处理不同的URL格式，使用API，可能需要认证等
@@ -262,8 +268,9 @@ func getReadmeFromRepository(ctx context.Context, repoURL, readmeFilename string
 	return "", nil
 }
 
-// parseGitHubRepo 解析GitHub仓库URL，返回owner, repo，若不是GitHub仓库返回空字符串
-func parseGitHubRepo(repoURL string) (string, string) {
+// ParseGitHubRepo extracts owner and repo name from a GitHub repository URL.
+// It returns owner and repo. If parsing fails, it returns empty strings.
+func ParseGitHubRepo(repoURL string) (string, string) {
 	re := regexp.MustCompile(`github\.com[:/]+([\w.-]+)/([\w.-]+)(?:\.git)?/?$`)
 	matches := re.FindStringSubmatch(repoURL)
 	if len(matches) == 3 {
@@ -278,14 +285,13 @@ func parseGitHubRepo(repoURL string) (string, string) {
 	return "", ""
 }
 
-// fetchGitHubStars 调用GitHub API获取stars，支持token，失败返回0
-func fetchGitHubStars(owner, repo string) int {
+// FetchGitHubStars 调用GitHub API获取stars，支持token，失败返回0
+func FetchGitHubStars(ctx context.Context, owner, repo string) int {
 	if owner == "" || repo == "" {
 		log.Printf("[stars] owner/repo 为空，owner=%s repo=%s", owner, repo)
 		return 0
 	}
 	cacheKey := fmt.Sprintf("github_stars:%s:%s", owner, repo)
-	ctx := context.Background()
 	if common.RedisEnabled && common.RDB != nil {
 		val, err := common.RDB.Get(ctx, cacheKey).Result()
 		if err == nil {
@@ -336,38 +342,56 @@ func fetchGitHubStars(owner, repo string) int {
 }
 
 // ConvertNPMToSearchResult 将npm搜索结果转换为统一格式
-func ConvertNPMToSearchResult(npmResult *NPMSearchResult, installedPackages map[string]bool) []SearchPackageResult {
+func ConvertNPMToSearchResult(ctx context.Context, npmResult *NPMSearchResult, installedPackageIDs map[string]int64) []SearchPackageResult {
 	results := make([]SearchPackageResult, 0, len(npmResult.Objects))
 
 	for _, obj := range npmResult.Objects {
-		pkg := obj.Package
+		npmPkg := obj.Package
+		author := ""
+		if npmPkg.Publisher.Username != "" {
+			author = npmPkg.Publisher.Username
+		} else if len(npmPkg.Maintainers) > 0 {
+			author = npmPkg.Maintainers[0].Username
+		}
 
 		stars := 0
-		repoURL := pkg.Links.Repository
-		if strings.Contains(repoURL, "github.com") {
-			owner, repo := parseGitHubRepo(repoURL)
-			if owner != "" && repo != "" {
-				stars = fetchGitHubStars(owner, repo)
+		repoURL := ""
+		if npmPkg.Links.Repository != "" {
+			repoURL = npmPkg.Links.Repository
+			if strings.Contains(repoURL, "github.com") {
+				owner, repo := ParseGitHubRepo(repoURL)
+				if owner != "" && repo != "" {
+					stars = FetchGitHubStars(ctx, owner, repo)
+				}
 			}
 		}
 
-		result := SearchPackageResult{
-			Name:           pkg.Name,
-			Version:        pkg.Version,
-			Description:    pkg.Description,
-			PackageManager: "npm",
-			SourceURL:      pkg.Links.Repository,
-			Homepage:       pkg.Links.Homepage,
-			Keywords:       pkg.Keywords,
-			LastUpdated:    pkg.Date.Format(time.RFC3339),
-			Score:          obj.Score.Final,
-			IsInstalled:    installedPackages[pkg.Name],
-			Stars:          stars,
+		isInstalled := false
+		var installedIDPtr *int64
+		if id, ok := installedPackageIDs[npmPkg.Name]; ok {
+			isInstalled = true
+			installedIDCopy := id // Create a new variable for the address
+			installedIDPtr = &installedIDCopy
 		}
 
-		results = append(results, result)
+		searchPkg := SearchPackageResult{
+			Name:               npmPkg.Name,
+			Version:            npmPkg.Version,
+			Description:        npmPkg.Description,
+			PackageManager:     "npm",
+			SourceURL:          npmPkg.Links.NPM,
+			Homepage:           npmPkg.Links.Homepage,
+			RepositoryURL:      repoURL,
+			Keywords:           npmPkg.Keywords,
+			Author:             author,
+			Stars:              stars,
+			Score:              obj.Score.Final,
+			LastUpdated:        npmPkg.Date.Format(time.RFC3339),
+			IsInstalled:        isInstalled,
+			InstalledServiceID: installedIDPtr, // Assign the pointer
+		}
+		results = append(results, searchPkg)
 	}
-
 	return results
 }
 
@@ -690,49 +714,22 @@ type MCPServerInfo struct {
 	Capabilities    mcp.ServerCapabilities `json:"capabilities"`
 }
 
-// GetInstalledMCPServersFromDB 从数据库中获取已安装的 MCP 服务器列表
-func GetInstalledMCPServersFromDB() (map[string]*MCPServerInfo, error) {
-	result := make(map[string]*MCPServerInfo)
+// GetInstalledMCPServersFromDB 从数据库中获取已安装的 MCP 服务器的名称和数字ID.
+// 返回一个 map[SourcePackageName]ServiceID.
+func GetInstalledMCPServersFromDB() (map[string]int64, error) {
+	result := make(map[string]int64)
 
-	// 获取所有已安装的服务
-	services, err := model.GetEnabledServices()
+	// 获取所有已启用且未删除的服务 (model.GetEnabledServices should ideally filter out deleted)
+	services, err := model.GetEnabledServices() // Assuming this fetches non-deleted, enabled services
 	if err != nil {
 		return nil, fmt.Errorf("failed to get enabled services: %w", err)
 	}
 
-	// 过滤出健康状态为 healthy 的服务
 	for _, service := range services {
-		// 跳过没有健康详情的服务
-		if service.HealthDetails == "" {
-			continue
+		// Ensure SourcePackageName is not empty and ID is valid
+		if service.SourcePackageName != "" && service.ID > 0 {
+			result[service.SourcePackageName] = service.ID
 		}
-
-		// 解析健康详情
-		var healthDetails map[string]interface{}
-		if err := json.Unmarshal([]byte(service.HealthDetails), &healthDetails); err != nil {
-			// 解析失败，跳过此服务
-			continue
-		}
-
-		// 查找 mcpServer 字段
-		mcpServerInfo, exists := healthDetails["mcpServer"]
-		if !exists {
-			continue
-		}
-
-		// 尝试将 mcpServer 转换为 MCPServerInfo
-		mcpServerJSON, err := json.Marshal(mcpServerInfo)
-		if err != nil {
-			continue
-		}
-
-		var serverInfo MCPServerInfo
-		if err := json.Unmarshal(mcpServerJSON, &serverInfo); err != nil {
-			continue
-		}
-
-		// 添加到结果集
-		result[service.Name] = &serverInfo
 	}
 
 	return result, nil

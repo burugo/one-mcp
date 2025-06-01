@@ -79,8 +79,17 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
     };
 
     const executeActualUninstall = async () => {
+        if (!service || typeof service.installed_service_id !== 'number') {
+            toast({
+                variant: "destructive",
+                title: "Cannot Uninstall",
+                description: "Service data is incomplete or numeric service ID is missing for uninstall."
+            });
+            setIsConfirmUninstallOpen(false); // Close the dialog
+            return;
+        }
         try {
-            await uninstallService(service.id);
+            await uninstallService(service.installed_service_id); // Use numeric ID
             toast({
                 title: "Uninstall Complete",
                 description: `${service.name} has been successfully uninstalled.`
@@ -95,12 +104,15 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
     };
 
     const getAuthorDisplay = () => {
-        if (service.author && service.author !== 'Unknown Author') {
+        if (service.author && typeof service.author === 'string' && service.author !== 'Unknown Author') {
             return service.author;
+        } else if (service.author && typeof service.author === 'object' && service.author.name) {
+            return service.author.name;
         }
-        if (service.homepageUrl && service.homepageUrl.includes('github.com')) {
+        // Fallback for author if it's an object without a name, or if homepage is preferred for github owner
+        if (service.homepage && service.homepage.includes('github.com')) { // Changed homepageUrl to homepage
             try {
-                const url = new URL(service.homepageUrl);
+                const url = new URL(service.homepage); // Changed homepageUrl to homepage
                 const pathParts = url.pathname.split('/').filter(part => part.length > 0);
                 if (pathParts.length > 0) {
                     return pathParts[0]; // GitHub owner/org
@@ -113,7 +125,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
     };
 
     const authorDisplay = getAuthorDisplay();
-    const isGithub = !!(service.homepageUrl && service.homepageUrl.includes('github.com'));
+    const isGithub = !!(service.homepage && service.homepage.includes('github.com')); // Changed homepageUrl to homepage
 
     return (
         <div className="relative bg-card border border-border rounded-lg p-4 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow duration-200 group">
@@ -131,15 +143,15 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
                         v{service.version} &bull; {service.source}
                     </p>
                 </div>
-                {service.homepageUrl && (
+                {service.homepage && ( // Changed homepageUrl to homepage
                     <a
-                        href={service.homepageUrl}
+                        href={service.homepage} // Changed homepageUrl to homepage
                         target="_blank"
                         rel="noopener noreferrer"
                         className="ml-auto text-muted-foreground hover:text-primary transition-colors"
                         title="Visit Homepage"
                     >
-                        {service.homepageUrl.includes('github.com') ? <Github size={20} /> : <Package size={20} />}
+                        {service.homepage.includes('github.com') ? <Github size={20} /> : <Package size={20} />}
                     </a>
                 )}
             </div>
@@ -158,10 +170,10 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
                 )}
 
                 {/* npm Score Display (有值就显示) */}
-                {typeof service.npmScore === 'number' && (
-                    <div className="flex items-center gap-1" title={`${service.npmScore} npm Score`}>
+                {typeof service.score === 'number' && ( // Changed npmScore to score
+                    <div className="flex items-center gap-1" title={`${service.score} Score`}>
                         <TrendingUp size={14} className="text-blue-500" />
-                        <span>{service.npmScore.toLocaleString()}</span>
+                        <span>{service.score.toLocaleString()}</span>
                     </div>
                 )}
 
