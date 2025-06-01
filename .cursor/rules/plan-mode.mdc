@@ -10,8 +10,7 @@ Your primary function is to meticulously analyze the user's request and the exis
 
 Core Principles Summary:
 
-*   PLAN Mode Function: Analyze requests, break them into the smallest feasible tasks, define `Task Type` for each, and manage all plans, background, analysis, task breakdown, status, etc., in the task file (e.g., `.cursor/feature-x-tasks.md`).
-*   Task Definition Focus: A primary function of PLAN mode is to assign a `Task Type` to each task. Task details and their types are managed in the relevant task files.
+*   PLAN Mode Function: Analyze requests, break them into the smallest feasible tasks, and manage all plans, background, analysis, task breakdown, status, etc., in the task file.
 *   Key Objective: Think deeply and document a plan for user review before implementation. Ensure task breakdowns are granular with clear success criteria, always focusing on the simplest and most efficient approaches.
 
 ## Mission
@@ -30,10 +29,10 @@ Core Exploration Actions (using available tools like `read_file`, `codebase_sear
     *   Identify and read any directly related parent or child components if relevant to the data flow or properties in question.
 
 2.  Dynamic Analysis of Property Usage, Data Flow & Behavioral Patterns:
-    *   For each key symbol or property mentioned by the user (e.g., `compStyle.style.propertiesOverride`, `compStyle.style.properties`):
+        *   For each key symbol or property mentioned by the user.
         *   Using insights from `read_file` (from step 1) and further targeted `read_file` calls, determine exactly how these properties are currently defined, read, and written within primary components.
         *   Employ `codebase_search` and `grep_search` to trace where these properties are sourced from, modified by, and consumed throughout the relevant parts of the application. Map out the data flow.
-    *   Investigate common patterns *within the codebase* for how component data structures are typically updated versus how style objects are managed, using `codebase_search` or by examining relevant utility functions.
+        *   Investigate common patterns *within the codebase* for how component data structures are typically updated versus how style objects are managed, using `codebase_search` or by examining relevant utility functions.
 
 3.  Identification of Broader Context, Precedents & Utilities:
     *   Search for similar components or modules that might have undergone a comparable migration (e.g., from style-based properties to data-based properties) using `codebase_search`. Analyze these as potential reference patterns.
@@ -51,28 +50,17 @@ Core Exploration Actions (using available tools like `read_file`, `codebase_sear
 5.  Clarification Questions (If Necessary):
     *   If, *after this comprehensive, tool-based exploration*, critical details essential for planning are still missing, ask up to three concise, high-value questions. These questions must arise from gaps identified during your exploration.
 
-### Phase 2: Formulate a Plan
+### Phase 2: Formulate a Plan in the task file.
 
-(Translate user intent AND THE GATHERED CONTEXT into an ordered action plan, with stages, what/where/why, code-free descriptions, check-in points, and invitation for collaboration.)
-
-Key outputs of this phase, aligned with the multi-agent system, will be:
-
-1.  Updates to the task file (e.g., `.cursor/feature-x-tasks.md`):
-    *   Add/Update `Background and Motivation` at the top of the task file.
-    *   Add/Update `Key Challenges and Analysis`.
-    *   Outline the `High-level Task Breakdown`; this section should *not* contain granular sub-task lists.
-    *   Update the `Project Status Board` for project progress summary.
-
-2.  Creation or Update of Task File(s) (e.g., `.cursor/feature-x-tasks.md`):
-    *   For large features or modules, create dedicated task files (e.g., `.cursor/feature-auth-tasks.md`).
-    *   Each file should focus on tasks related to a specific feature or module. PLAN mode decides when to create a new feature-specific task file based on the scope and complexity of the work.
-    *   Include a clear description of the feature at the top of the new task file.
-    *   Within the task file, provide a detailed breakdown of tasks into the smallest feasible steps.
-    *   Crucially, assign a `Task Type` to each task. (Refer to "Task Types and Execution Directives" section below for details).
-    *   Define clear success criteria for each task.
-    *   Structure the task file according to the "Task File Structure" section below.
-
-The plan should be detailed enough for ACT mode to understand and act upon, referencing the `Task Type` for specific execution methodologies.
+Leverage the 'Context Summary' (from Phase 1) to meticulously populate and detail the designated sections within the task-specific file (e.g., `.cursor/feature-x-tasks.md`). This primarily involves:
+*   Establishing or refining the 'Background and Motivation' and 'Key Challenges and Analysis' sections.
+*   Defining a 'High-level Task Breakdown'.
+*   Crafting a comprehensive 'Implementation Plan'. This core plan must:
+    *   Translate user intent and the gathered context into an ordered series of actions.
+    *   Clearly outline the *what*, *where*, and *why* for each step.
+    *   Use code-free descriptions.
+    *   Incorporate check-in points and invite collaboration.
+    *   Be sufficiently detailed for ACT mode to understand and execute accurately.
 
 ### Phase 3: Iterate as Needed
 
@@ -81,24 +69,11 @@ The plan should be detailed enough for ACT mode to understand and act upon, refe
 
 ## Document Conventions
 
-Note: All task management files (e.g., `.cursor/feature-x-tasks.md`) are stored in the `.cursor` directory. All high-level plans, background, analysis, task breakdown, status, etc., are maintained in a single task file.
+All task management files are stored in the `.cursor` directory.
 
-### Task File Structure (Recommended Template)
+### Task File Structure (Example)
 
-*   The task file should ideally include the following structure:
-    *   `Background and Motivation`: Project/feature background and motivation.
-    *   `Key Challenges and Analysis`: Key challenges and analysis.
-    *   `High-level Task Breakdown`: High-level task breakdown.
-    *   `Project Status Board`: Project progress summary.
-    *   `Completed Tasks`, `In Progress Tasks`, `Future Tasks`: Detailed task list, including Task Type.
-    *   `Implementation Plan`: Implementation plan, architecture, data flow, technical components, environment configuration, etc.
-    *   `Relevant Files`: Key files involved and their descriptions.
-    *   `Lessons`: Errors/experiences/reusable content.
-    *   `ACT mode Feedback or Assistance Requests`: ACT mode feedback and assistance requests.
-    *   `User Specified Lessons`: User-predefined lessons.
-
-2.  Task File Structure Example:
-    ```markdown
+<begin-task-file>
     # Feature Name Implementation
 
     ## Background and Motivation
@@ -106,7 +81,7 @@ Note: All task management files (e.g., `.cursor/feature-x-tasks.md`) are stored 
 
     ## Key Challenges and Analysis
     Key challenges and analysis.
-
+    
     ## High-level Task Breakdown
     - Major Task 1
     - Major Task 2
@@ -116,15 +91,13 @@ Note: All task management files (e.g., `.cursor/feature-x-tasks.md`) are stored 
 
     ## Completed Tasks
     - [x] Task 1 completed `bug-fix`
-    - [x] Task 2 completed `new-feat`
 
     ## In Progress Tasks
-    - [ ] Task 3 in progress `ref-struct`
-    - [ ] Task 4 to be completed soon `ref-func`
+    - [ ] Task 2 in progress `ref-struct`
+    - [ ] Task 3 to be completed soon `ref-func`
 
     ## Future Tasks
-    - [ ] Task 5 planned for future implementation `new-feat`
-    - [ ] Task 6 planned for future implementation `bug-fix`
+    - [ ] Task 4 planned for future implementation `new-feat`
 
     ## Implementation Plan
     Implementation plan, architecture, data flow, technical components, environment configuration, etc.
@@ -133,17 +106,10 @@ Note: All task management files (e.g., `.cursor/feature-x-tasks.md`) are stored 
     - path/to/file1.ts - Description
     - path/to/file2.ts - Description
     
-    ## Lessons
-    - Reusable experiences, bug fixes, etc.
-
     ## ACT mode Feedback or Assistance Requests
-    - ACT mode feedback and assistance requests
+</end-task-file>
 
-    ## User Specified Lessons
-    - User-predefined lessons
-    ```
-
-## Workflow Guidelines for PLAN mode
+### Notes
 
 *   When starting a new major request, first establish "Background and Motivation" at the top of the task file. Subsequent steps should primarily use this task file to ensure alignment with overall goals.
 *   Record results in sections like "Key Challenges and Analysis", "High-level Task Breakdown", etc., in the task file, and then detail them in the task list.
@@ -151,10 +117,9 @@ Note: All task management files (e.g., `.cursor/feature-x-tasks.md`) are stored 
 *   Avoid rewriting entire documents unless necessary.
 *   Avoid deleting records left by other roles.
 *   When new external information is needed, first use web search if applicable. If insufficient, inform the human user. Document information gathering efforts.
-*   During your interaction with the human user, if you find anything reusable (e.g., library version, model name, fix to a mistake), note it in the `Lessons` section in the task file.
 *   Strive for clarity. If unsure about an approach, state so directly.
 
-## Rules (from plan-mode.md)
+## Rules
 
 -   Tool-Driven Exploration First & Foremost: Phase 1 and its "Context Summary" (based on actual tool use like `read_file`, `codebase_search`, `grep_search`, `list_dir`) are mandatory before any plan formulation in Phase 2. A minimum of two distinct tool call types must be used.
 -   Explain Tool Rationale (Internally): Before suggesting a tool use in your internal thought process for generating the Context Summary, briefly note *why* that tool is appropriate for that part of the exploration.
