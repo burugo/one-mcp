@@ -518,78 +518,77 @@ func GetInstallationStatus(c *gin.Context) {
 // @Tags Market
 // @Accept json
 // @Produce json
-// @Param body body map[string]interface{} true "请求体"
+// @Param body body struct{ ServiceID int64 `json:"service_id" binding:"required"` } true "请求体，包含 service_id"
 // @Security ApiKeyAuth
 // @Success 200 {object} common.APIResponse
 // @Failure 400 {object} common.APIResponse
+// @Failure 404 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
 // @Router /api/mcp_market/uninstall [post]
 func UninstallService(c *gin.Context) {
 	lang := c.GetString("lang")
-	var requestBody map[string]interface{}
+	var requestBody struct {
+		ServiceID int64 `json:"service_id" binding:"required"`
+	}
 
 	if err := c.ShouldBindJSON(&requestBody); err != nil {
-		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_request_data", lang), err)
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_request_data", lang)+": "+i18n.Translate("service_id_required", lang), err)
 		return
 	}
 
-	// 获取参数，支持通过configServiceID或packageName+packageManager卸载
-	_, hasConfigServiceID := requestBody["config_service_id"].(float64)
-	packageName, hasPackageName := requestBody["package_name"].(string)
-	packageManager, hasPackageManager := requestBody["package_manager"].(string)
-
-	if !hasConfigServiceID && (!hasPackageName || !hasPackageManager) {
-		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("invalid_uninstall_params", lang))
+	if requestBody.ServiceID == 0 {
+		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("invalid_service_id", lang))
 		return
 	}
 
-	// 如果有 config_service_id，尝试获取相关服务信息
-	var serviceID int64
+	serviceID := requestBody.ServiceID
 
-	if hasConfigServiceID {
-		// TODO: 当ConfigService模型完成后，这里需要从ConfigService获取MCPService信息
-		// configServiceID := int64(configServiceIDFloat)
-		// configService, err := model.GetConfigServiceByID(configServiceID)
-		// if err != nil {...}
-		// service, err := model.GetServiceByID(configService.ServiceID)
-		// packageName = service.SourcePackageName
-		// ...
-
-		// 临时方案：暂时只处理packageName+packageManager
-		common.RespErrorStr(c, http.StatusNotImplemented, "卸载通过config_service_id尚未实现，请使用package_name和package_manager")
-		return
-	} else {
-		// 通过packageName和packageManager查找服务
-		services, err := model.GetServicesByPackageDetails(packageManager, packageName)
-		if err != nil || len(services) == 0 {
-			common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
-			return
-		}
-
-		serviceID = services[0].ID
-	}
-
-	// 卸载服务
-	if packageManager == "npm" {
-		if err := market.UninstallNPMPackage(packageName); err != nil {
-			common.RespError(c, http.StatusInternalServerError, i18n.Translate("uninstall_failed", lang), err)
-			return
-		}
-	} else {
-		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("unsupported_package_manager", lang))
-		return
-	}
-
-	// 标记服务为软删除
+	// 获取服务详情
 	service, err := model.GetServiceByID(serviceID)
 	if err != nil {
-		log.Printf("Warning: Could not get service with ID %d: %v", serviceID, err)
-	} else {
-		service.Deleted = true
-		service.HealthStatus = "unknown"
-		if err := model.UpdateService(service); err != nil {
-			log.Printf("Warning: Could not update service status: %v", err)
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
+		return
+	}
+
+	// 卸载服务 - 根据 PackageManager 调用相应的卸载逻辑
+	// 注意: 只有 stdio 类型且有 PackageManager 的服务才涉及物理卸载
+	// SSE/HTTP 类型服务通常没有物理包卸载步骤，主要是DB记录的清理
+	if service.Type == model.ServiceTypeStdio && service.PackageManager != "" && service.SourcePackageName != "" {
+		switch service.PackageManager {
+		case "npm":
+			if err := market.UninstallNPMPackage(service.SourcePackageName); err != nil {
+				// Log error but proceed to mark as uninstalled, as it might be partially uninstalled or FS issues
+				log.Printf("Error during npm uninstall for service ID %d (%s): %v", serviceID, service.SourcePackageName, err)
+				// common.RespError(c, http.StatusInternalServerError, i18n.Translate("uninstall_failed", lang), err)
+				// return // Decide if this should be a hard stop or a soft failure for DB cleanup
+			}
+		case "uv", "pypi", "pip": // Assuming uv, pypi, pip might use a similar mechanism
+			// Assuming UninstallPyPIPackage exists and works similarly for these
+			if err := market.UninstallPyPIPackage(c.Request.Context(), service.SourcePackageName); err != nil {
+				log.Printf("Error during pypi/uv/pip uninstall for service ID %d (%s): %v", serviceID, service.SourcePackageName, err)
+			}
+		default:
+			log.Printf("Uninstall requested for service ID %d (%s) with unsupported package manager: %s. Skipping physical uninstall.", serviceID, service.SourcePackageName, service.PackageManager)
+			// common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("unsupported_package_manager_for_uninstall", lang)+ ": "+service.PackageManager)
+			// return
 		}
+	} else {
+		log.Printf("Service ID %d is not a stdio type with a package manager, or SourcePackageName is empty. Skipping physical uninstall.", serviceID)
+	}
+
+	// 标记服务为软删除 (or hard delete if preferred)
+	// Current logic from GetServiceByID already fetched the service
+	service.Enabled = false // Explicitly disable
+	service.Deleted = true
+	service.HealthStatus = "unknown"
+	service.InstalledVersion = "" // Clear installed version
+	if err := model.UpdateService(service); err != nil {
+		log.Printf("Warning: Could not update service (ID: %d) status to deleted: %v", serviceID, err)
+		// Even if DB update fails, if physical uninstall happened, it's a partial success.
+		// However, for the user, the service might still appear.
+		// Consider if a more robust transaction/rollback is needed if this is critical.
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("update_service_status_failed", lang), err)
+		return
 	}
 
 	// 返回成功

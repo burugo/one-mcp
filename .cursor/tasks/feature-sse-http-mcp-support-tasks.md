@@ -53,7 +53,7 @@
 3. **统一管理**：所有服务通过统一的 one-mcp 接口访问
 4. **协议透明**：前端无需关心外部服务的具体协议
 5. **扩展性**：便于未来添加认证、监控、限流等功能
-6. **代码复用**: 通过 `createMcpGoServer` 统一处理 Stdio, SSE, HTTP 后端服务的 mcp-go 客户端和服务端创建。
+6. **代码复用**: 通过 `createMcpGoServer` 统一处理 Stdio, SSE, 和 HTTP 后端服务的 mcp-go 客户端和服务端创建。
 
 ### 实现计划调整 (已演进)
 基于架构决策，通过统一的 `createMcpGoServer` 创建 `mcpserver.MCPServer`，然后根据输出需求包装：
@@ -137,6 +137,50 @@
 - [ ] **错误处理和日志**: 增强代理和MCP服务创建过程中的错误处理和日志记录。 `enhancement`
 - [ ] **安全加固**: 审查Headers传递和处理过程中的安全隐患。 `security`
 - [ ] **文档更新**: 更新项目文档，说明如何配置和使用HTTP/SSE代理服务。 `documentation`
+
+## Bug Fixes and Refinements (User Request 2024-07-01)
+
+### Issue 1: Custom Stdio Service Creation Endpoint
+
+- **Background**: Custom services of type 'stdio' created via `CustomServiceModal.tsx` are currently sent to the generic `/api/mcp_market/custom_service` endpoint. They should instead be routed to `/api/mcp_market/install_or_add_service` for consistency with how market `stdio` services are handled, allowing for proper package management and installation logic.
+- **Task Breakdown**:
+    - **[ ] Task B1.1: Modify Frontend Logic for Stdio Custom Service** `refactor` `frontend`
+        - **Description**: In `frontend/src/pages/ServicesPage.tsx`, update the `handleCreateCustomService` function.
+        - **Details**:
+            - If `serviceData.type` is `'stdio'`, call the `/api/mcp_market/install_or_add_service` endpoint.
+            - Parse `serviceData.command` (e.g., "npx my-package" or "uvx my-tool") to extract `PackageManager` ("npm" or "uv") and `PackageName` ("my-package" or "my-tool").
+            - Construct the request body for `InstallOrAddService` mapping `serviceData.name` to `DisplayName`, `serviceData.environments` to `UserProvidedEnvVars` (parsing if necessary), and extracted `PackageManager` and `PackageName`.
+            - `source_type` should be "marketplace" or a similar appropriate value if `install_or_add_service` requires it for this flow.
+            - Ensure `serviceData.arguments` are handled appropriately.
+        - **Success Criteria**: `stdio` custom services are created by calling the `install_or_add_service` endpoint with the correct payload. Other types (`sse`, `streamableHttp`) continue to use `/api/mcp_market/custom_service`.
+    - **[ ] Task B1.2: Verify Backend `InstallOrAddService` for Custom Stdio** `testing` `backend`
+        - **Description**: Ensure the existing `InstallOrAddService` handler in `backend/api/handler/market.go` correctly processes requests for custom stdio services as prepared by the updated frontend.
+        - **Details**: Pay attention to how `PackageName`, `PackageManager`, `DisplayName`, and `UserProvidedEnvVars` are used. Confirm that `Command`, `ArgsJSON` are correctly set in the `MCPService` record.
+        - **Success Criteria**: Backend successfully creates/installs custom `stdio` services sent via this route.
+
+### Issue 2: Service Uninstall Failure (404)
+
+- **Background**: Uninstalling services, particularly custom ones or those where `package_manager` might be "unknown" or `NULL` in DB, fails with a 404 because the backend `UninstallService` handler primarily relies on `package_name` and `package_manager` for lookup. The user reported this for ID=15 with `package_manager: "unknown"`. User suspects that for SSE/HTTP services installed via URL (which don't have an inherent package name), the `source_package_name` field in the database might be empty. If the frontend then sends the service's display name as `package_name` and `package_manager` as "unknown", the backend lookup `GetServicesByPackageDetails` (which queries on `source_package_name` and `package_manager`) will likely fail to find the service if `source_package_name` is indeed empty or different from the display name in the database. The most reliable identifier is the service ID.
+- **Task Breakdown**:
+    - **[ ] Task B2.1: Modify Frontend Uninstall to Send Only Service ID** `refactor` `frontend`
+        - **Description**: In `frontend/src/store/marketStore.ts`, update the `uninstallService` action.
+        - **Details**:
+            - Modify the payload sent to `/api/mcp_market/uninstall` to include *only* the `service_id`.
+            - For example: `{"service_id": serviceId}`.
+        - **Success Criteria**: Frontend sends only `service_id` in the uninstall request body.
+    - **[ ] Task B2.2: Update Backend Uninstall Logic to Use Only Service ID** `refactor` `backend`
+        - **Description**: In `backend/api/handler/market.go`, modify the `UninstallService` handler.
+        - **Details**:
+            - Expect and use *only* the `service_id` from the request body to identify the service.
+            - Fetch the `MCPService` directly using `model.GetServiceByID(serviceIDFromRequest)`.
+            - Remove the fallback logic that uses `package_name` and `package_manager`.
+            - Remove or update the `StatusNotImplemented` block for `config_service_id` as `service_id` directly addresses this.
+            - Proceed with uninstallation steps (e.g., calling package-specific uninstallers if applicable, soft-deleting the record).
+        - **Success Criteria**: Services are uninstalled using only their ID. The handler is simplified and more robust.
+    - **[ ] Task B2.3: Ensure Uninstall Cleans Up Correctly** `testing` `backend`
+        - **Description**: Verify that when a service is uninstalled (identified by ID or package details), all necessary cleanup occurs.
+        - **Details**: Test with the new ID-based lookup.
+        - **Success Criteria**: Service is correctly uninstalled and marked as deleted in the database.
 
 ## Implementation Plan
 

@@ -124,9 +124,6 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                 <Button onClick={() => searchServices()} disabled={isSearching}>
                     {isSearching ? 'Searching...' : 'Search'}
                 </Button>
-                <Button variant="outline" className="flex items-center gap-2">
-                    <Filter className="h-4 w-4" /> Filter
-                </Button>
             </div>
 
             {/* 选项卡分类 */}

@@ -55,10 +55,13 @@ export function ServicesPage() {
             var_value: value,
         }) as APIResponse<any>;
         if (res.success) {
-            toast({ title: 'Saved', description: `${varName} 已保存` });
+            toast({
+                title: 'Saved',
+                description: `${varName} has been saved.`
+            });
             fetchInstalledServices();
         } else {
-            throw new Error(res.message || '保存失败');
+            throw new Error(res.message || 'Failed to save');
         }
     };
 
@@ -75,22 +78,81 @@ export function ServicesPage() {
 
         try {
             await uninstallService(serviceToUninstallId);
-            toast({ title: '卸载成功', description: '服务已成功卸载' });
+            toast({
+                title: 'Uninstall Complete',
+                description: 'Service has been successfully uninstalled.'
+            });
             setLocalInstalledServices(prev => prev.filter(s => s.id !== serviceToUninstallId));
         } catch (e: any) {
-            toast({ title: '卸载失败', description: e?.message || '未知错误', variant: 'destructive' });
+            toast({
+                title: 'Uninstall Failed',
+                description: e?.message || 'Unknown error',
+                variant: 'destructive'
+            });
         }
+    };
+
+    const parseEnvironments = (envStr?: string): Record<string, string> => {
+        if (!envStr) return {};
+        return envStr.split('\\n').reduce((acc, line) => {
+            const [key, ...valueParts] = line.split('=');
+            if (key?.trim() && valueParts.length > 0) {
+                acc[key.trim()] = valueParts.join('=').trim();
+            }
+            return acc;
+        }, {} as Record<string, string>);
     };
 
     const handleCreateCustomService = async (serviceData: CustomServiceData) => {
         try {
-            const res = await api.post('/mcp_market/custom_service', serviceData) as APIResponse<any>;
+            let res;
+            if (serviceData.type === 'stdio') {
+                let packageName = '';
+                let packageManager = '';
+                const commandParts = serviceData.command?.split(' ');
+                if (commandParts && commandParts.length > 1) {
+                    if (commandParts[0] === 'npx') {
+                        packageManager = 'npm';
+                        packageName = commandParts.slice(1).join(' '); // Allow package names with spaces, though uncommon
+                    } else if (commandParts[0] === 'uvx') {
+                        packageManager = 'uv'; // Or 'pypi', 'pip' based on exact backend expectation for uvx
+                        packageName = commandParts.slice(1).join(' ');
+                    }
+                }
+
+                if (!packageManager || !packageName) {
+                    throw new Error('无法从命令中解析包管理器或包名称。命令必须以 "npx " 或 "uvx " 开头。');
+                }
+
+                // Arguments from serviceData.arguments are currently not passed to install_or_add_service
+                // as the backend handler InstallOrAddService typically auto-generates ArgsJSON.
+                // If custom arguments are essential here, InstallOrAddService would need modification.
+
+                const payload = {
+                    source_type: 'marketplace', // Or another suitable type if backend expects something specific for custom stdio
+                    package_name: packageName,
+                    package_manager: packageManager,
+                    display_name: serviceData.name,
+                    user_provided_env_vars: parseEnvironments(serviceData.environments),
+                    // version: 'latest', // Optional: InstallOrAddService might need a version
+                    // service_description: `Custom stdio service: ${serviceData.name}`, // Optional
+                    // category: 'utility', // Optional
+                    // headers: {}, // Not applicable for stdio
+                };
+                res = await api.post('/api/mcp_market/install_or_add_service', payload) as APIResponse<any>;
+
+            } else {
+                // For 'sse' and 'streamableHttp'
+                res = await api.post('/api/mcp_market/custom_service', serviceData) as APIResponse<any>;
+            }
+
             if (res.success) {
                 toast({
                     title: '创建成功',
-                    description: `服务 ${serviceData.name} 已成功创建`
+                    description: `服务 ${serviceData.name} 已成功创建/提交安装`
                 });
-                fetchInstalledServices();
+                fetchInstalledServices(); // Refresh the list
+                // If res.data contains the new service, could potentially return it
                 return res.data;
             } else {
                 throw new Error(res.message || '创建失败');
@@ -101,7 +163,7 @@ export function ServicesPage() {
                 description: error.message || '未知错误',
                 variant: 'destructive'
             });
-            throw error;
+            throw error; // Re-throw to be caught by the modal if necessary
         }
     };
 

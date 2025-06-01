@@ -3,6 +3,7 @@ import { ServiceType, useMarketStore, InstallTask, InstallStatus, UninstallTask 
 import { Button } from '@/components/ui/button'; // Assuming shadcn/ui button
 import { Star, TrendingUp, Github, User, Package, CheckCircle2, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'; // Import ConfirmDialog
+import { toast } from '@/hooks/use-toast';
 
 interface ServiceCardProps {
     service: ServiceType;
@@ -21,7 +22,9 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
 
     const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
     const [showInstallingAnimation, setShowInstallingAnimation] = useState(false);
-    const previousInstallStatusRef = useRef<InstallStatus | undefined>();
+    const [showUninstallSuccessAnimation, setShowUninstallSuccessAnimation] = useState(false);
+    const previousInstallStatusRef = useRef<InstallStatus | undefined>(undefined);
+    const previousUninstallStatusRef = useRef<string | undefined>(undefined);
 
     const [isConfirmUninstallOpen, setIsConfirmUninstallOpen] = useState(false);
 
@@ -46,6 +49,22 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
         previousInstallStatusRef.current = currentStatus;
     }, [installTask?.status]);
 
+    useEffect(() => {
+        const currentStatus = uninstallTask?.status;
+
+        if (currentStatus === 'uninstalling') {
+            setShowUninstallSuccessAnimation(false);
+        } else if (currentStatus === 'idle' && previousUninstallStatusRef.current === 'uninstalling') {
+            setShowUninstallSuccessAnimation(true);
+            const timer = setTimeout(() => {
+                setShowUninstallSuccessAnimation(false);
+            }, 2000);
+            return () => clearTimeout(timer);
+        }
+
+        previousUninstallStatusRef.current = currentStatus;
+    }, [uninstallTask?.status]);
+
     const handleSelect = () => {
         onSelect(service.id);
     };
@@ -59,8 +78,20 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
         setIsConfirmUninstallOpen(true);
     };
 
-    const executeActualUninstall = () => {
-        uninstallService(service.id);
+    const executeActualUninstall = async () => {
+        try {
+            await uninstallService(service.id);
+            toast({
+                title: "Uninstall Complete",
+                description: `${service.name} has been successfully uninstalled.`
+            });
+        } catch (error: any) {
+            toast({
+                variant: "destructive",
+                title: "Uninstall Failed",
+                description: error.message || "Failed to uninstall service."
+            });
+        }
     };
 
     const getAuthorDisplay = () => {
@@ -92,7 +123,9 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
                 </div>
                 <div>
                     <h3 className="text-lg font-semibold group-hover:text-primary transition-colors duration-200 truncate" title={service.name}>
-                        {service.name}
+                        <a href={`https://www.npmjs.com/package/${service.name}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                            {service.name}
+                        </a>
                     </h3>
                     <p className="text-xs text-muted-foreground">
                         v{service.version} &bull; {service.source}
@@ -117,7 +150,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
 
             <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
                 {/* GitHub Stars Display (仅主页为 GitHub 且 stars>0 时显示) */}
-                {isGithub && Number.isFinite(service.stars) && service.stars > 0 && (
+                {isGithub && typeof service.stars === 'number' && service.stars > 0 && (
                     <div className="flex items-center gap-1" title={`${service.stars} GitHub Stars`}>
                         <Star size={14} className="text-yellow-400 fill-yellow-400" />
                         <span>{service.stars.toLocaleString()}</span>
@@ -125,7 +158,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
                 )}
 
                 {/* npm Score Display (有值就显示) */}
-                {Number.isFinite(service.npmScore) && (
+                {typeof service.npmScore === 'number' && (
                     <div className="flex items-center gap-1" title={`${service.npmScore} npm Score`}>
                         <TrendingUp size={14} className="text-blue-500" />
                         <span>{service.npmScore.toLocaleString()}</span>
@@ -177,11 +210,11 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
             )}
 
             {/* Success Animation Overlay */}
-            {showSuccessAnimation && (
+            {(showSuccessAnimation || showUninstallSuccessAnimation) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-card/75 dark:bg-black/75 rounded-lg z-20 pointer-events-none">
                     <CheckCircle2
-                        size={64} // Large icon
-                        className="text-green-500 animate-success-tick"
+                        size={64}
+                        className={`${showUninstallSuccessAnimation ? 'text-red-500' : 'text-green-500'} animate-success-tick`}
                     />
                 </div>
             )}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { ChevronLeft, Package, Star, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useMarketStore } from '@/store/marketStore';
-
-
+import { useMarketStore, InstallStatus } from '@/store/marketStore';
+import EnvVarInputModal from './EnvVarInputModal';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export function ServiceDetails({ onBack }: { onBack: () => void }) {
     const { toast } = useToast();
@@ -18,11 +19,27 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         installTasks,
         updateEnvVar,
         installService,
-        uninstallService
+        uninstallService,
+        updateInstallStatus
     } = useMarketStore();
 
-    // 显示安装对话框状态
+    // State for installation log dialog
     const [showInstallDialog, setShowInstallDialog] = useState(false);
+
+    // State for EnvVarInputModal (similar to ServiceMarketplace)
+    const [envModalVisible, setEnvModalVisible] = useState(false);
+    const [missingVars, setMissingVars] = useState<string[]>([]);
+    const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
+    const [currentEnvVars, setCurrentEnvVars] = useState<Record<string, string>>({});
+
+    // Reset modal states if selectedService changes
+    useEffect(() => {
+        setEnvModalVisible(false);
+        setMissingVars([]);
+        setPendingServiceId(null);
+        setCurrentEnvVars({});
+        setShowInstallDialog(false); // Also reset log dialog
+    }, [selectedService?.id]);
 
     // 获取当前服务的安装任务（如果有）
     const installTask = selectedService ?
@@ -39,22 +56,67 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         }
     };
 
-    // 启动安装流程
-    const startInstallation = () => {
+    // Modified to handle dynamic env var requirements
+    const startInstallation = async (initialEnvVars?: Record<string, string>) => {
         if (!selectedService) return;
 
-        setShowInstallDialog(true);
+        const envVarsToSubmit = initialEnvVars || {};
+        if (!initialEnvVars) { // If not from modal, collect from Configuration tab
+            selectedService.envVars.forEach(env => {
+                if (env.value) {
+                    envVarsToSubmit[env.name] = env.value;
+                }
+            });
+        }
+        setCurrentEnvVars(envVarsToSubmit); // Store for potential re-submission
+        setPendingServiceId(selectedService.id);
 
-        // 准备环境变量
-        const envVarsObj: { [key: string]: string } = {};
-        selectedService.envVars.forEach(env => {
-            if (env.value) {
-                envVarsObj[env.name] = env.value;
+        try {
+            // Call installService from the store
+            const response = await installService(selectedService.id, envVarsToSubmit);
+
+            // Check if the response indicates missing env vars (adjust based on actual response structure)
+            if (response && response.data && Array.isArray(response.data.required_env_vars) && response.data.required_env_vars.length > 0) {
+                setMissingVars(response.data.required_env_vars);
+                setEnvModalVisible(true); // Show EnvVarInputModal
+                //setShowInstallDialog(false); // Ensure log dialog is hidden if env modal is shown
+            } else {
+                // No missing vars or successful submission, proceed to show installation log dialog
+                setEnvModalVisible(false);
+                setShowInstallDialog(true);
             }
-        });
+        } catch (error) {
+            console.error("Installation trigger error:", error);
+            toast({
+                title: "Installation Error",
+                description: "Failed to start installation process.",
+                variant: "destructive"
+            });
+            // Optionally reset state here
+            setPendingServiceId(null);
+            setCurrentEnvVars({});
+            if (selectedService) updateInstallStatus(selectedService.id, 'error', 'Failed to trigger install');
+        }
+    };
 
-        // 调用安装方法
-        installService(selectedService.id, envVarsObj);
+    const handleEnvModalSubmit = (userInputVars: Record<string, string>) => {
+        if (!pendingServiceId) return;
+        const mergedEnvVars = { ...currentEnvVars, ...userInputVars };
+        setEnvModalVisible(false);
+        // It's important to reset the status in the store so installService can be called again if needed
+        // or simply attempt install again with merged vars
+        updateInstallStatus(pendingServiceId, 'idle');
+        startInstallation(mergedEnvVars); // Re-trigger installation with new vars
+    };
+
+    const handleEnvModalCancel = () => {
+        setEnvModalVisible(false);
+        if (pendingServiceId) {
+            updateInstallStatus(pendingServiceId, 'idle'); // Reset status to allow re-initiation
+        }
+        setMissingVars([]);
+        //setCurrentEnvVars({}); // Keep current env vars from config tab if user cancels
+        setPendingServiceId(null);
     };
 
     // 关闭安装对话框
@@ -137,17 +199,25 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                 </div>
 
                 <div className="flex-grow min-w-0">
-                    <h1 className="text-3xl font-bold break-words mb-2">{selectedService.name}</h1>
+                    <h1 className="text-3xl font-bold break-words mb-2">
+                        <a href={`https://www.npmjs.com/package/${selectedService.name}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                            {selectedService.name}
+                        </a>
+                    </h1>
                     <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <div>v{selectedService.version}</div>
-                        <div className="flex items-center gap-1">
-                            <Download className="h-3.5 w-3.5" />
-                            <span>{selectedService.downloads.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            <Star className="h-3.5 w-3.5" />
-                            <span>{selectedService.stars}</span>
-                        </div>
+                        {selectedService && 'downloads' in selectedService && typeof (selectedService as { downloads?: unknown }).downloads === 'number' && (
+                            <div className="flex items-center gap-1">
+                                <Download className="h-3.5 w-3.5" />
+                                <span>{((selectedService as { downloads: number }).downloads).toLocaleString()}</span>
+                            </div>
+                        )}
+                        {typeof selectedService.stars === 'number' && (
+                            <div className="flex items-center gap-1">
+                                <Star className="h-3.5 w-3.5" />
+                                <span>{selectedService.stars}</span>
+                            </div>
+                        )}
                         <div>
                             <span>By {selectedService.author}</span>
                         </div>
@@ -163,7 +233,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                         Uninstall Service
                     </Button>
                 ) : (
-                    <Button onClick={startInstallation} className="md:self-start flex-shrink-0">
+                    <Button onClick={() => startInstallation()} className="md:self-start flex-shrink-0">
                         Install Service
                     </Button>
                 )}
@@ -180,25 +250,9 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                     <Card>
                         <CardContent className="pt-6">
                             <div className="prose dark:prose-invert max-w-none">
-                                {selectedService.readme.split('\n').map((line, index) => {
-                                    if (line.startsWith('# ')) {
-                                        return <h1 key={index} className="text-2xl font-bold mt-4 mb-2">{line.substring(2)}</h1>;
-                                    } else if (line.startsWith('## ')) {
-                                        return <h2 key={index} className="text-xl font-semibold mt-4 mb-2">{line.substring(3)}</h2>;
-                                    } else if (line.startsWith('```')) {
-                                        return (
-                                            <pre key={index} className="bg-muted p-4 rounded-md my-4 overflow-x-auto">
-                                                <code>{line.substring(3)}</code>
-                                            </pre>
-                                        );
-                                    } else if (line.startsWith('- ')) {
-                                        return <li key={index} className="ml-4">{line.substring(2)}</li>;
-                                    } else if (line === '') {
-                                        return <br key={index} />;
-                                    } else {
-                                        return <p key={index} className="my-2">{line}</p>;
-                                    }
-                                })}
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {selectedService.readme}
+                                </ReactMarkdown>
                             </div>
                         </CardContent>
                     </Card>
@@ -238,7 +292,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                             </div>
                         </CardContent>
                         <CardFooter>
-                            <Button onClick={startInstallation} className="ml-auto">
+                            <Button onClick={() => startInstallation()} className="ml-auto">
                                 Install with Configuration
                             </Button>
                         </CardFooter>
@@ -308,6 +362,13 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <EnvVarInputModal
+                open={envModalVisible}
+                missingVars={missingVars}
+                onSubmit={handleEnvModalSubmit}
+                onCancel={handleEnvModalCancel}
+            />
         </div>
     );
 } 

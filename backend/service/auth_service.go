@@ -27,7 +27,7 @@ func GenerateToken(user *model.User) (string, error) {
 		Username: user.Username,
 		Role:     user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)), // Token expires in 24 hours
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour * 7)), // Token expires in 7 days
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "one-mcp",
