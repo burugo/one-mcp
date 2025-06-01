@@ -545,7 +545,15 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                         !(s.installed_service_id === serviceId || s.id === serviceIdString)
                     );
 
-                    const { [serviceIdString]: _, ...restInstallTasks } = state.installTasks;
+                    // 修复：使用service.id来删除installTask，而不是serviceIdString
+                    const restInstallTasks = { ...state.installTasks };
+                    if (service && service.id && restInstallTasks[service.id]) {
+                        delete restInstallTasks[service.id];
+                    }
+                    // 也尝试删除serviceIdString的任务（以防万一）
+                    if (restInstallTasks[serviceIdString]) {
+                        delete restInstallTasks[serviceIdString];
+                    }
 
                     return {
                         uninstallTasks: {

@@ -47,6 +47,8 @@
 - [x] 集成terminal样式的安装进度对话框到marketplace `new-feat`
 - [x] 修复uninstall后marketplace按钮状态不更新的问题 `bug-fix`
 - [x] 修复环境变量默认值显示在value而不是placeholder的问题 `bug-fix`
+- [x] 调整uninstall后停留在详情页并刷新当前页面状态 `enhancement`
+- [x] 修复从详情页卸载后返回列表页时卡片状态未更新的问题 `bug-fix` `task-id-uninstall-list-sync`
 
 ## In Progress Tasks
 

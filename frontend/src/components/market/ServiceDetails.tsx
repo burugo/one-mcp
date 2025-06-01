@@ -129,17 +129,21 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
     };
 
     // 关闭安装对话框
-    const closeInstallDialog = () => {
+    const closeInstallDialog = async () => {
         if (installTask?.status !== 'installing') {
             setShowInstallDialog(false);
 
-            // 如果安装成功，返回上一级
+            // 如果安装成功，刷新当前页面状态而不是返回上一级
             if (installTask?.status === 'success') {
-                onBack();
                 toast({
                     title: "Installation Successful",
                     description: `${selectedService?.name} has been installed and is ready to use.`
                 });
+
+                // 刷新当前服务详情以更新安装状态
+                if (selectedService) {
+                    await fetchServiceDetails(selectedService.id, selectedService.name, selectedService.source);
+                }
             }
         } else {
             toast({
@@ -170,8 +174,8 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                     description: `${selectedService.name} has been uninstalled.`
                 });
 
-                // 刷新marketplace搜索结果和当前服务详情以更新状态
-                await searchServices(); // 这会更新marketplace的搜索结果
+                // 刷新当前服务详情以更新状态
+                // 移除 searchServices() 调用，依赖 uninstallService 中的乐观更新
                 await fetchServiceDetails(selectedService.id, selectedService.name, selectedService.source); // 重新获取当前服务详情
 
             } catch (error: any) {
