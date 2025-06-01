@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { ReactNode } from 'react';
 import api, { APIResponse, toastEmitter } from '@/utils/api'; // 引入 APIResponse 类型 和 toastEmitter
 
 // 服务类型定义
@@ -20,6 +19,10 @@ export interface ServiceType {
     installed_service_id?: number;
     envVars: EnvVarType[];
     readme?: string;
+    // 添加缺少的字段
+    display_name?: string;
+    health_status?: string;
+    enabled?: boolean;
 }
 
 // 详细服务类型定义
@@ -114,7 +117,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     setActiveTab: (tab) => set({ activeTab: tab }),
 
     searchServices: async () => {
-        const { searchTerm, activeTab, installedServices } = get();
+        const { searchTerm, activeTab } = get();
         set({ isSearching: true });
 
         // If searchTerm is empty (original logic)
@@ -255,7 +258,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         }
     },
 
-    fetchServiceDetails: async (serviceId, packageName, packageManager) => {
+    fetchServiceDetails: async (_serviceId, packageName, packageManager) => {
         set({ isLoadingDetails: true });
 
         try {
@@ -279,15 +282,15 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     }
                 }
 
-                // 将环境变量转换为前端格式
-                const envVars = details.env_vars.map((envDef: any) => ({
-                    name: envDef.name,
-                    description: envDef.description,
-                    isSecret: envDef.is_secret,
-                    isRequired: !envDef.optional, // Mapping 'optional' to 'isRequired'
-                    defaultValue: envDef.default_value,
-                    value: savedValues[envDef.name] !== undefined ? savedValues[envDef.name] : (envDef.default_value || '') // Populate value
-                }));
+                // 将环境变量转换为前端格式 (unused but kept for consistency)
+                // const _envVars = details.env_vars ? details.env_vars.map((envDef: any) => ({
+                //     name: envDef.name,
+                //     description: envDef.description,
+                //     isSecret: envDef.is_secret,
+                //     isRequired: !envDef.optional, // Mapping 'optional' to 'isRequired'
+                //     defaultValue: envDef.default_value,
+                //     value: savedValues[envDef.name] !== undefined ? savedValues[envDef.name] : (envDef.default_value || '') // Populate value
+                // })) : [];
 
                 set({
                     selectedService: {
@@ -343,7 +346,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     installService: async (serviceId, envVars): Promise<any> => {
-        const { searchResults, installedServices, activeTab } = get();
+        const { searchResults, installedServices } = get();
 
         // 直接从 searchResults 或 installedServices 查找 service 信息
         const service = [...searchResults, ...installedServices].find(s => s.id === serviceId);
@@ -514,7 +517,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     uninstallService: async (serviceId: number): Promise<void> => {
-        const { searchResults, installedServices, fetchInstalledServices, activeTab, installTasks } = get();
+        const { searchResults, installedServices } = get();
         const serviceIdString = String(serviceId);
         const allServices = [...searchResults, ...installedServices];
         const service = allServices.find(s => {

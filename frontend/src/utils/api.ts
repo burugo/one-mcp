@@ -70,8 +70,8 @@ api.interceptors.request.use(
 // 响应拦截器
 api.interceptors.response.use(
     (response) => {
-        // 直接返回响应数据
-        return response.data as APIResponse;
+        // 直接返回响应数据，使用类型断言绕过TypeScript检查但保持运行时行为不变
+        return response.data as any;
     },
     async (error) => {
         const { response } = error;

@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCaption, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, BarChart, User, PlusCircle, Trash2, Settings, Plus } from 'lucide-react';
+import { Search, PlusCircle, Trash2, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
@@ -22,7 +22,6 @@ export function ServicesPage() {
     const { toast } = useToast();
     const navigate = useNavigate();
     const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService } = useMarketStore();
-    const [localInstalledServices, setLocalInstalledServices] = useState<ServiceType[]>([]);
     const [configModalOpen, setConfigModalOpen] = useState(false);
     const [customServiceModalOpen, setCustomServiceModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<ServiceType | null>(null);
@@ -38,13 +37,9 @@ export function ServicesPage() {
         }
     }, [fetchInstalledServices]);
 
-    useEffect(() => {
-        setLocalInstalledServices(globalInstalledServices);
-    }, [globalInstalledServices]);
-
-    const allServices = localInstalledServices;
-    const activeServices = localInstalledServices.filter(s => s.health_status === 'active' || s.health_status === 'Active');
-    const inactiveServices = localInstalledServices.filter(s => s.health_status === 'inactive' || s.health_status === 'Inactive');
+    const allServices = globalInstalledServices;
+    const activeServices = globalInstalledServices.filter(s => s.health_status === 'active' || s.health_status === 'Active');
+    const inactiveServices = globalInstalledServices.filter(s => s.health_status === 'inactive' || s.health_status === 'Inactive');
 
     const handleSaveVar = async (varName: string, value: string) => {
         if (!selectedService) return;
@@ -72,23 +67,36 @@ export function ServicesPage() {
 
     const handleUninstallConfirm = async () => {
         if (!pendingUninstallId) return;
-        const serviceToUninstallId = pendingUninstallId;
+
+        const numericServiceId = parseInt(pendingUninstallId, 10);
+        if (isNaN(numericServiceId)) {
+            toast({
+                title: 'Uninstall Failed',
+                description: 'Invalid Service ID format.',
+                variant: 'destructive'
+            });
+            setUninstallDialogOpen(false);
+            setPendingUninstallId(null);
+            return;
+        }
+
         setUninstallDialogOpen(false);
-        setPendingUninstallId(null);
 
         try {
-            await uninstallService(serviceToUninstallId);
+            await uninstallService(numericServiceId);
             toast({
                 title: 'Uninstall Complete',
                 description: 'Service has been successfully uninstalled.'
             });
-            setLocalInstalledServices(prev => prev.filter(s => s.id !== serviceToUninstallId));
+            fetchInstalledServices();
         } catch (e: any) {
             toast({
                 title: 'Uninstall Failed',
                 description: e?.message || 'Unknown error',
                 variant: 'destructive'
             });
+        } finally {
+            setPendingUninstallId(null);
         }
     };
 

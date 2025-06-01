@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import api from '@/utils/api';
+import api, { APIResponse } from '@/utils/api';
 import { useServerAddressStore } from '@/hooks/useServerAddress';
 
 export function PreferencesPage() {
@@ -19,7 +19,7 @@ export function PreferencesPage() {
         setSaving(true);
         setMessage('');
         const clean = serverAddress.replace(/\/$/, '');
-        const res = await api.put('/option/', { key: 'ServerAddress', value: clean });
+        const res = await api.put('/option/', { key: 'ServerAddress', value: clean }) as APIResponse;
         if (res.success) {
             setMessage('保存成功');
             setServerAddress(clean); // 立即同步到全局

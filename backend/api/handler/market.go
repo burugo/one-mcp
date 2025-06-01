@@ -142,32 +142,49 @@ func GetPackageDetails(c *gin.Context) {
 
 		if isInstalled && mcpConfig != nil {
 			userID := getUserIDFromContext(c)
-			userConfigs, err_uc := model.GetUserConfigsForService(userID, installedServiceID)
-			if err_uc == nil {
-				savedEnvValues := make(map[string]string)
-				serviceConfigOptions, _ := model.GetConfigOptionsForService(installedServiceID)
-				configIDToNameMap := make(map[int64]string)
-				for _, opt := range serviceConfigOptions {
-					configIDToNameMap[opt.ID] = opt.Key
-				}
-				for _, uc := range userConfigs {
-					if varName, ok := configIDToNameMap[uc.ConfigID]; ok {
-						savedEnvValues[varName] = uc.Value
+			installedService, serviceErr := model.GetServiceByID(installedServiceID)
+			if serviceErr != nil {
+				common.SysLog(fmt.Sprintf("Error fetching service details for ID %d: %v", installedServiceID, serviceErr))
+			} else {
+				// 1. 从 DefaultEnvsJSON 加载默认环境变量
+				finalEnvValues := make(map[string]string)
+				if installedService.DefaultEnvsJSON != "" {
+					if err := json.Unmarshal([]byte(installedService.DefaultEnvsJSON), &finalEnvValues); err != nil {
+						common.SysLog(fmt.Sprintf("Error unmarshaling DefaultEnvsJSON for service ID %d: %v", installedServiceID, err))
 					}
 				}
+
+				// 2. 如果用户已登录，尝试加载并合并UserConfig（用户特定配置应覆盖默认配置）
+				if userID != 0 {
+					userConfigs, err_uc := model.GetUserConfigsForService(userID, installedServiceID)
+					if err_uc == nil {
+						serviceConfigOptions, _ := model.GetConfigOptionsForService(installedServiceID)
+						configIDToNameMap := make(map[int64]string)
+						for _, opt := range serviceConfigOptions {
+							configIDToNameMap[opt.ID] = opt.Key
+						}
+						for _, uc := range userConfigs {
+							if varName, ok := configIDToNameMap[uc.ConfigID]; ok {
+								finalEnvValues[varName] = uc.Value // 用户特定配置覆盖默认配置
+							}
+						}
+					} else {
+						common.SysLog(fmt.Sprintf("Error fetching user configs for service ID %d, user ID %d: %v", installedServiceID, userID, err_uc))
+					}
+				}
+
+				// 3. 使用 finalEnvValues 更新 mcpConfig
 				for serverKey, serverConf := range mcpConfig.MCPServers {
 					if serverConf.Env == nil {
 						serverConf.Env = make(map[string]string)
 					}
-					for envName := range serverConf.Env { // Iterate over template envs
-						if savedVal, ok := savedEnvValues[envName]; ok {
-							serverConf.Env[envName] = savedVal
-						}
+					// 首先用 mcp_config 本身的 env (来自 readme/package.json) 作为基础
+					// 然后用 finalEnvValues (来自DB的 DefaultEnvsJSON + UserConfig) 覆盖
+					for envNameInDB, envValueInDB := range finalEnvValues {
+						serverConf.Env[envNameInDB] = envValueInDB
 					}
 					mcpConfig.MCPServers[serverKey] = serverConf
 				}
-			} else {
-				common.SysLog(fmt.Sprintf("Error fetching user configs for service ID %d: %v", installedServiceID, err_uc))
 			}
 		}
 
@@ -482,11 +499,50 @@ func InstallOrAddService(c *gin.Context) {
 			PackageManager:        requestBody.PackageManager,
 			SourcePackageName:     requestBody.PackageName,
 			ClientConfigTemplates: "{}",
-			Enabled:               false,
+			Enabled:               true, // 安装时直接启用服务
 			HealthStatus:          string(market.StatusPending),
+			InstallerUserID:       userID, // 记录安装者
 		}
 		if newService.Category == "" {
 			newService.Category = model.CategoryAI
+		}
+
+		// 根据包管理器设置Command和ArgsJSON配置
+		log.Printf("[InstallOrAddService] Setting Command and ArgsJSON for PackageManager: %s, PackageName: %s", requestBody.PackageManager, requestBody.PackageName)
+		switch requestBody.PackageManager {
+		case "npm":
+			newService.Command = "npx"
+			args := []string{"-y", requestBody.PackageName}
+			argsJSON, err := json.Marshal(args)
+			if err != nil {
+				log.Printf("[InstallOrAddService] Error marshaling args for npm package %s: %v", requestBody.PackageName, err)
+			} else {
+				newService.ArgsJSON = string(argsJSON)
+				log.Printf("[InstallOrAddService] Set Command='%s' and ArgsJSON='%s' for npm package %s", newService.Command, newService.ArgsJSON, requestBody.PackageName)
+			}
+		case "pypi", "uv", "pip":
+			newService.Command = "uvx"
+			args := []string{"--from", requestBody.PackageName, requestBody.PackageName}
+			argsJSON, err := json.Marshal(args)
+			if err != nil {
+				log.Printf("[InstallOrAddService] Error marshaling args for python package %s: %v", requestBody.PackageName, err)
+			} else {
+				newService.ArgsJSON = string(argsJSON)
+				log.Printf("[InstallOrAddService] Set Command='%s' and ArgsJSON='%s' for python package %s", newService.Command, newService.ArgsJSON, requestBody.PackageName)
+			}
+		default:
+			log.Printf("[InstallOrAddService] Warning: Unknown package manager %s for service %s, Command field will be empty", requestBody.PackageManager, requestBody.PackageName)
+		}
+
+		// 设置DefaultEnvsJSON（安装时的环境变量作为默认配置）
+		if len(envVarsForTask) > 0 {
+			defaultEnvsJSON, err := json.Marshal(envVarsForTask)
+			if err != nil {
+				log.Printf("[InstallOrAddService] Error marshaling default envs for service %s: %v", requestBody.PackageName, err)
+			} else {
+				newService.DefaultEnvsJSON = string(defaultEnvsJSON)
+				log.Printf("[InstallOrAddService] Set DefaultEnvsJSON for service %s: %s", requestBody.PackageName, newService.DefaultEnvsJSON)
+			}
 		}
 
 		// Process Headers if provided
@@ -499,27 +555,16 @@ func InstallOrAddService(c *gin.Context) {
 			newService.HeadersJSON = string(headersJSON)
 		}
 
+		log.Printf("[InstallOrAddService] About to create service with Command='%s', ArgsJSON='%s', PackageManager='%s'", newService.Command, newService.ArgsJSON, newService.PackageManager)
 		if err := model.CreateService(&newService); err != nil {
+			log.Printf("[InstallOrAddService] Failed to create service: %v", err)
 			common.RespError(c, http.StatusInternalServerError, i18n.Translate("create_mcp_service_failed", lang), err)
 			return
 		}
+		log.Printf("[InstallOrAddService] Successfully created service with ID: %d, Command='%s', ArgsJSON='%s', DefaultEnvsJSON='%s'", newService.ID, newService.Command, newService.ArgsJSON, newService.DefaultEnvsJSON)
 
-		for envName := range envVarsForTask {
-			configServiceEntry := model.ConfigService{
-				ServiceID:   newService.ID,
-				Key:         envName,
-				DisplayName: envName,
-				Description: fmt.Sprintf("Environment variable %s for %s", envName, newService.DisplayName),
-				Type:        model.ConfigTypeString,
-				Required:    true,
-			}
-			if strings.Contains(strings.ToLower(envName), "token") || strings.Contains(strings.ToLower(envName), "key") || strings.Contains(strings.ToLower(envName), "secret") {
-				configServiceEntry.Type = model.ConfigTypeSecret
-			}
-			if err := model.CreateConfigOption(&configServiceEntry); err != nil {
-				log.Printf("Error creating ConfigService for %s (MCPService ID %d): %v", envName, newService.ID, err)
-			}
-		}
+		// 注意：不再在安装时创建ConfigService，因为安装时的环境变量是默认配置
+		// ConfigService只在用户需要个人配置时动态创建
 
 		installationTask := market.InstallationTask{
 			ServiceID:      newService.ID,
@@ -661,6 +706,15 @@ func UninstallService(c *gin.Context) {
 	if err != nil {
 		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
 		return
+	}
+
+	// Explicitly shutdown and remove client from MCPClientManager if it's a managed type (e.g., stdio)
+	if service.Type == model.ServiceTypeStdio && service.SourcePackageName != "" { // Check type and if it has a source package name
+		log.Printf("[UninstallService] Attempting to shut down and remove client for service ID %d (Name: %s, SourcePackage: %s)", service.ID, service.Name, service.SourcePackageName)
+		mcpClientManager := market.GetMCPClientManager()
+		// Assuming RemoveClient takes SourcePackageName (string) and does not return an error, based on linter feedback and InitializeClient signature.
+		mcpClientManager.RemoveClient(service.SourcePackageName)
+		log.Printf("[UninstallService] Issued RemoveClient command for service ID %d (SourcePackage: %s). Check MCPClientManager logs for confirmation if needed.", service.ID, service.SourcePackageName)
 	}
 
 	// 卸载服务 - 根据 PackageManager 调用相应的卸载逻辑
@@ -928,28 +982,38 @@ func ListInstalledMCPServices(c *gin.Context) {
 
 	var result []map[string]interface{}
 	for _, svc := range services {
-		// 获取所有环境变量定义
-		configs, _ := model.GetConfigOptionsForService(svc.ID)
-		// 获取用户配置（如有）
-		userConfigs, _ := model.GetUserConfigsForService(userID, svc.ID)
-		userConfigMap := map[int64]string{}
-		for _, uc := range userConfigs {
-			userConfigMap[uc.ConfigID] = uc.Value
-		}
-		// 组装 env_vars
-		envVars := map[string]string{}
-		for _, cfg := range configs {
-			val := cfg.DefaultValue
-			if v, ok := userConfigMap[cfg.ID]; ok && v != "" {
-				val = v
+		// 1. 从 DefaultEnvsJSON 加载默认环境变量
+		finalEnvVars := make(map[string]string)
+		if svc.DefaultEnvsJSON != "" {
+			if err := json.Unmarshal([]byte(svc.DefaultEnvsJSON), &finalEnvVars); err != nil {
+				common.SysLog(fmt.Sprintf("Error unmarshaling DefaultEnvsJSON for service ID %d: %v", svc.ID, err))
 			}
-			envVars[cfg.Key] = val
 		}
-		// 转为 map[string]interface{}，并加上 env_vars 字段
-		svcMap := map[string]interface{}{}
+
+		// 2. 如果用户已登录，获取并合并 UserConfig
+		if userID != 0 {
+			userConfigs, err_uc := model.GetUserConfigsForService(userID, svc.ID)
+			if err_uc == nil {
+				serviceConfigOptions, _ := model.GetConfigOptionsForService(svc.ID)
+				configIDToNameMap := make(map[int64]string)
+				for _, opt := range serviceConfigOptions {
+					configIDToNameMap[opt.ID] = opt.Key
+				}
+				for _, uc := range userConfigs {
+					if varName, ok := configIDToNameMap[uc.ConfigID]; ok {
+						finalEnvVars[varName] = uc.Value // 用户特定配置覆盖默认配置
+					}
+				}
+			} else {
+				common.SysLog(fmt.Sprintf("Error fetching user configs for service ID %d, user ID %d: %v", svc.ID, userID, err_uc))
+			}
+		}
+
+		// 组装结果
+		svcMap := make(map[string]interface{})
 		b, _ := json.Marshal(svc)
 		_ = json.Unmarshal(b, &svcMap)
-		svcMap["env_vars"] = envVars
+		svcMap["env_vars"] = finalEnvVars // 使用合并后的环境变量
 		result = append(result, svcMap)
 	}
 	common.RespSuccess(c, result)
@@ -957,7 +1021,7 @@ func ListInstalledMCPServices(c *gin.Context) {
 
 // PatchEnvVar godoc
 // @Summary 单独保存服务环境变量
-// @Description 更新指定服务的单个环境变量
+// @Description 更新指定服务的单个环境变量。管理员修改会更新服务默认配置，普通用户修改会保存为个人配置
 // @Tags Market
 // @Accept json
 // @Produce json
@@ -978,25 +1042,111 @@ func PatchEnvVar(c *gin.Context) {
 		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_request_data", lang), err)
 		return
 	}
+
 	userID := getUserIDFromContext(c)
-	// 查找变量定义
-	configOpt, err := model.GetConfigOptionByKey(req.ServiceID, req.VarName)
+	if userID == 0 {
+		common.RespErrorStr(c, http.StatusUnauthorized, i18n.Translate("user_not_authenticated", lang))
+		return
+	}
+
+	// 检查用户权限
+	user, err := model.GetUserById(userID, false)
 	if err != nil {
-		common.RespError(c, http.StatusNotFound, i18n.Translate("config_option_not_found", lang), err)
+		common.RespError(c, http.StatusInternalServerError, "Failed to get user info", err)
 		return
 	}
-	// 查找/保存 UserConfig
-	userConfig := &model.UserConfig{
-		UserID:    userID,
-		ServiceID: req.ServiceID,
-		ConfigID:  configOpt.ID,
-		Value:     req.VarValue,
+
+	isAdmin := user.Role == model.RoleAdminUser
+
+	if isAdmin {
+		// 管理员：更新服务的默认环境变量配置
+		service, err := model.GetServiceByID(req.ServiceID)
+		if err != nil {
+			common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
+			return
+		}
+
+		// 解析现有的默认环境变量
+		var defaultEnvs map[string]string
+		if service.DefaultEnvsJSON != "" {
+			if err := json.Unmarshal([]byte(service.DefaultEnvsJSON), &defaultEnvs); err != nil {
+				log.Printf("[PatchEnvVar] Error unmarshaling existing DefaultEnvsJSON for service %d: %v", req.ServiceID, err)
+				defaultEnvs = make(map[string]string)
+			}
+		} else {
+			defaultEnvs = make(map[string]string)
+		}
+
+		// 更新指定的环境变量
+		defaultEnvs[req.VarName] = req.VarValue
+
+		// 重新序列化并保存
+		defaultEnvsJSON, err := json.Marshal(defaultEnvs)
+		if err != nil {
+			common.RespError(c, http.StatusInternalServerError, "Failed to marshal default envs", err)
+			return
+		}
+
+		service.DefaultEnvsJSON = string(defaultEnvsJSON)
+		if err := model.UpdateService(service); err != nil {
+			common.RespError(c, http.StatusInternalServerError, "Failed to update service", err)
+			return
+		}
+
+		log.Printf("[PatchEnvVar] Admin user %d updated default env %s=%s for service %d (%s)", userID, req.VarName, req.VarValue, service.ID, service.Name)
+		common.RespSuccessStr(c, "Default environment variable updated successfully")
+
+	} else {
+		// 普通用户：保存为个人配置
+		// 查找或创建变量定义
+		configOpt, err := model.GetConfigOptionByKey(req.ServiceID, req.VarName)
+		if err != nil {
+			if err.Error() == model.ErrRecordNotFound.Error() || err.Error() == "config_service_not_found" || strings.Contains(err.Error(), "not found") {
+				// 如果ConfigService不存在，创建一个
+				service, serviceErr := model.GetServiceByID(req.ServiceID)
+				if serviceErr != nil {
+					common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), serviceErr)
+					return
+				}
+
+				newConfigOption := model.ConfigService{
+					ServiceID:   req.ServiceID,
+					Key:         req.VarName,
+					DisplayName: req.VarName,
+					Description: fmt.Sprintf("Environment variable %s for %s", req.VarName, service.DisplayName),
+					Type:        model.ConfigTypeString,
+					Required:    true,
+				}
+				if strings.Contains(strings.ToLower(req.VarName), "token") || strings.Contains(strings.ToLower(req.VarName), "key") || strings.Contains(strings.ToLower(req.VarName), "secret") {
+					newConfigOption.Type = model.ConfigTypeSecret
+				}
+				if errCreate := model.CreateConfigOption(&newConfigOption); errCreate != nil {
+					log.Printf("Failed to create ConfigService for key %s, serviceID %d: %v", req.VarName, req.ServiceID, errCreate)
+					common.RespError(c, http.StatusInternalServerError, "Failed to create config option", errCreate)
+					return
+				}
+				configOpt = &newConfigOption
+			} else {
+				common.RespError(c, http.StatusInternalServerError, "Failed to get config option", err)
+				return
+			}
+		}
+
+		// 保存用户配置
+		userConfig := &model.UserConfig{
+			UserID:    userID,
+			ServiceID: req.ServiceID,
+			ConfigID:  configOpt.ID,
+			Value:     req.VarValue,
+		}
+		if err := model.SaveUserConfig(userConfig); err != nil {
+			common.RespError(c, http.StatusInternalServerError, i18n.Translate("save_user_config_failed", lang), err)
+			return
+		}
+
+		log.Printf("[PatchEnvVar] User %d saved personal env %s=%s for service %d", userID, req.VarName, req.VarValue, req.ServiceID)
+		common.RespSuccessStr(c, i18n.Translate("env_var_saved_successfully", lang))
 	}
-	if err := model.SaveUserConfig(userConfig); err != nil {
-		common.RespError(c, http.StatusInternalServerError, i18n.Translate("save_user_config_failed", lang), err)
-		return
-	}
-	common.RespSuccessStr(c, i18n.Translate("env_var_saved_successfully", lang))
 }
 
 // CreateCustomService godoc

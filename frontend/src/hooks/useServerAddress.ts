@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import api from '@/utils/api';
+import api, { APIResponse } from '@/utils/api';
 
 interface ServerAddressState {
     serverAddress: string;
@@ -12,7 +12,7 @@ export const useServerAddressStore = create<ServerAddressState>((set) => ({
     serverAddress: '',
     setServerAddress: (addr) => set({ serverAddress: addr }),
     fetchServerAddress: async () => {
-        const res = await api.get('/option/');
+        const res = await api.get('/option/') as APIResponse;
         if (res.success && Array.isArray(res.data)) {
             const found = res.data.find((item: any) => item.key === 'ServerAddress');
             if (found) set({ serverAddress: found.value });

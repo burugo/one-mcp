@@ -32,7 +32,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     description,
     confirmText = 'Confirm',
     cancelText = 'Cancel',
-    confirmButtonVariant = 'default',
 }) => {
     if (!isOpen) {
         return null;
@@ -59,7 +58,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={handleCancel}>{cancelText}</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleConfirm} variant={confirmButtonVariant}>
+                    <AlertDialogAction onClick={handleConfirm}>
                         {confirmText}
                     </AlertDialogAction>
                 </AlertDialogFooter>

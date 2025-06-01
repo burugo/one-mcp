@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { ChevronLeft, Package, Star, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useMarketStore, InstallStatus } from '@/store/marketStore';
+import { useMarketStore } from '@/store/marketStore';
 import EnvVarInputModal from './EnvVarInputModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -22,7 +22,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         installService,
         uninstallService,
         updateInstallStatus,
-        searchServices,
+
         fetchServiceDetails
     } = useMarketStore();
 
@@ -199,7 +199,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         }
 
         toast({ title: "Saving Configuration...", description: "Please wait." });
-        let allSucceeded = true;
+        // let allSucceeded = true;
         try {
             for (const envVar of selectedService.envVars) {
                 // Only save if a value is present, or handle as needed
@@ -214,7 +214,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
             }
             toast({ title: "Configuration Saved", description: "Environment variables have been updated." });
         } catch (error: any) {
-            allSucceeded = false;
+            // allSucceeded = false;
             console.error("Failed to save environment variable:", error);
             toast({
                 title: "Save Failed",

@@ -304,7 +304,11 @@ func createMcpGoServer(
 		var stdioConf model.StdioConfig
 		stdioConf.Command = mcpDBService.Command
 		if stdioConf.Command == "" {
-			return nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) - %s, has an empty command", mcpDBService.Name, mcpDBService.ID, instanceNameDetail)
+			return nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
+				"This usually indicates the service was not properly configured during installation. "+
+				"Expected Command field to contain the executable name (e.g., 'npx' for npm packages). "+
+				"PackageManager: %s, SourcePackageName: %s, InstanceDetail: %s",
+				mcpDBService.Name, mcpDBService.ID, mcpDBService.PackageManager, mcpDBService.SourcePackageName, instanceNameDetail)
 		}
 		if mcpDBService.ArgsJSON != "" {
 			if errJson := json.Unmarshal([]byte(mcpDBService.ArgsJSON), &stdioConf.Args); errJson != nil {
