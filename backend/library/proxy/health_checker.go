@@ -2,13 +2,10 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"sync"
 	"time"
-
-	"one-mcp/backend/model"
 )
 
 // HealthChecker 负责定期检查服务的健康状态
@@ -121,45 +118,26 @@ func (hc *HealthChecker) checkService(service Service) {
 		}
 	}
 
-	// 更新数据库中的健康状态
-	hc.updateDatabaseHealthStatus(service.ID(), health)
+	// 更新缓存中的健康状态
+	hc.updateCacheHealthStatus(service.ID(), health)
 }
 
-// updateDatabaseHealthStatus 更新数据库中的服务健康状态
-func (hc *HealthChecker) updateDatabaseHealthStatus(serviceID int64, health *ServiceHealth) {
+// updateCacheHealthStatus 更新缓存中的服务健康状态
+func (hc *HealthChecker) updateCacheHealthStatus(serviceID int64, health *ServiceHealth) {
 	hc.servicesMu.Lock()
 	lastUpdate := hc.lastUpdateTimes[serviceID]
 	hc.servicesMu.Unlock()
 
-	// 如果上次更新时间距现在不到5秒，则跳过更新以减少数据库负担
+	// 如果上次更新时间距现在不到5秒，则跳过更新以减少频繁操作
 	if time.Since(lastUpdate) < 5*time.Second {
 		return
 	}
 
-	// 获取服务实例
-	service, err := model.GetServiceByID(serviceID)
-	if err != nil {
-		log.Printf("Failed to get service (ID: %d) from database: %v", serviceID, err)
-		return
-	}
+	// 获取全局健康状态缓存管理器
+	cacheManager := GetHealthCacheManager()
 
-	// 将健康详情序列化为JSON
-	healthDetails, err := json.Marshal(health)
-	if err != nil {
-		log.Printf("Failed to marshal health details for service (ID: %d): %v", serviceID, err)
-		return
-	}
-
-	// 更新服务的健康状态
-	service.HealthStatus = string(health.Status)
-	service.LastHealthCheck = health.LastChecked
-	service.HealthDetails = string(healthDetails)
-
-	// 保存到数据库
-	if err := model.UpdateService(service); err != nil {
-		log.Printf("Failed to update health status for service (ID: %d): %v", serviceID, err)
-		return
-	}
+	// 将健康状态存储到缓存中
+	cacheManager.SetServiceHealth(serviceID, health)
 
 	// 更新最后更新时间
 	hc.servicesMu.Lock()
@@ -180,15 +158,69 @@ func (hc *HealthChecker) ForceCheckService(serviceID int64) (*ServiceHealth, err
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	health, err := service.CheckHealth(ctx)
-	if err != nil {
-		return nil, err
+	startTimeForCheckAttempt := time.Now() // Record start time for the CheckHealth attempt
+
+	returnedHealthFromService, returnedErrFromService := service.CheckHealth(ctx)
+
+	if returnedErrFromService != nil {
+		log.Printf("Health check for service ID %d (%s) resulted in an error: %v", serviceID, service.Name(), returnedErrFromService)
+
+		healthForCache := returnedHealthFromService
+
+		if healthForCache == nil { // If CheckHealth returned (nil, error)
+			healthForCache = &ServiceHealth{}
+		}
+
+		// Ensure standard fields are set for an error scenario
+		healthForCache.Status = StatusUnhealthy
+		healthForCache.LastChecked = time.Now() // Always update to current time for this check event
+		if healthForCache.ErrorMessage == "" {  // If not already set by service.CheckHealth
+			healthForCache.ErrorMessage = returnedErrFromService.Error()
+		}
+		// If the specific service's CheckHealth didn't set a ResponseTime (or returned nil health object),
+		// set it to the duration of this attempt.
+		if healthForCache.ResponseTime == 0 {
+			healthForCache.ResponseTime = time.Since(startTimeForCheckAttempt).Milliseconds()
+		}
+		// Note: Fields like SuccessCount, FailureCount are expected to be handled by the service.CheckHealth() impl.
+
+		// Directly update the cache and the HealthChecker's last update time for this service
+		cacheManagerAfterError := GetHealthCacheManager()
+		cacheManagerAfterError.SetServiceHealth(serviceID, healthForCache)
+		hc.servicesMu.Lock()
+		hc.lastUpdateTimes[serviceID] = healthForCache.LastChecked // Ensure consistency for background checker
+		hc.servicesMu.Unlock()
+
+		// Return the unhealthy status object and a nil error to the caller
+		// This indicates the error was handled by creating a valid (unhealthy) health status
+		return healthForCache, nil // Return the (unhealthy) health status and nil error to indicate handling
 	}
 
-	// 更新数据库中的健康状态
-	hc.updateDatabaseHealthStatus(serviceID, health)
+	// If returnedErrFromService == nil, then 'returnedHealthFromService' is the valid, successful health status.
+	// The service.CheckHealth implementation should have set LastChecked and ResponseTime appropriately.
 
-	return health, nil
+	// For a forced check, ensure LastChecked accurately reflects the current time.
+	// service.CheckHealth() provides the status (Healthy/Unhealthy) and other details like ResponseTime.
+	if returnedHealthFromService != nil { // Guard against nil if service.CheckHealth() could return (nil, nil)
+		returnedHealthFromService.LastChecked = time.Now()
+	} else {
+		// This case should ideally not happen if CheckHealth guarantees non-nil health on nil error.
+		// However, defensively create a basic healthy status if it does.
+		log.Printf("Warning: service.CheckHealth for service ID %d returned (nil, nil). Assuming healthy.", serviceID)
+		returnedHealthFromService = &ServiceHealth{
+			Status:      StatusHealthy,
+			LastChecked: time.Now(),
+		}
+	}
+
+	// Directly update the cache and the HealthChecker's last update time for this service
+	cacheManagerSuccess := GetHealthCacheManager()
+	cacheManagerSuccess.SetServiceHealth(serviceID, returnedHealthFromService)
+	hc.servicesMu.Lock()
+	hc.lastUpdateTimes[serviceID] = returnedHealthFromService.LastChecked // Ensure consistency for background checker
+	hc.servicesMu.Unlock()
+
+	return returnedHealthFromService, nil
 }
 
 // GetServiceHealth 获取指定服务的最新健康状态

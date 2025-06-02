@@ -155,6 +155,10 @@ func (m *ServiceManager) UnregisterService(ctx context.Context, serviceID int64)
 	// 从健康检查器中移除
 	m.healthChecker.UnregisterService(serviceID)
 
+	// 从健康状态缓存中移除
+	cacheManager := GetHealthCacheManager()
+	cacheManager.DeleteServiceHealth(serviceID)
+
 	// 从服务列表中移除
 	delete(m.services, serviceID)
 
@@ -282,34 +286,18 @@ func (m *ServiceManager) GetServiceHealthJSON(serviceID int64) (string, error) {
 	return string(healthJSON), nil
 }
 
-// UpdateMCPServiceHealth 更新数据库中服务的健康状态
+// UpdateMCPServiceHealth 更新缓存中服务的健康状态
 func (m *ServiceManager) UpdateMCPServiceHealth(serviceID int64) error {
 	health, err := m.GetServiceHealth(serviceID)
 	if err != nil {
 		return err
 	}
 
-	// 获取服务
-	mcpService, err := model.GetServiceByID(serviceID)
-	if err != nil {
-		return fmt.Errorf("failed to get service from database: %w", err)
-	}
+	// 获取全局健康状态缓存管理器
+	cacheManager := GetHealthCacheManager()
 
-	// 序列化健康详情
-	healthJSON, err := json.Marshal(health)
-	if err != nil {
-		return fmt.Errorf("failed to marshal health details: %w", err)
-	}
-
-	// 更新健康状态
-	mcpService.HealthStatus = string(health.Status)
-	mcpService.LastHealthCheck = health.LastChecked
-	mcpService.HealthDetails = string(healthJSON)
-
-	// 保存到数据库
-	if err := model.UpdateService(mcpService); err != nil {
-		return fmt.Errorf("failed to update service health in database: %w", err)
-	}
+	// 将健康状态存储到缓存中
+	cacheManager.SetServiceHealth(serviceID, health)
 
 	return nil
 }

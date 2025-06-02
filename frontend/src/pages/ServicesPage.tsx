@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCaption, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, PlusCircle, Trash2, Plus } from 'lucide-react';
+import { Search, PlusCircle, Trash2, Plus, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
@@ -11,6 +11,7 @@ import ServiceConfigModal from '@/components/market/ServiceConfigModal';
 import CustomServiceModal, { CustomServiceData } from '@/components/market/CustomServiceModal';
 import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Switch } from '@/components/ui/switch';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -21,12 +22,14 @@ import {
 export function ServicesPage() {
     const { toast } = useToast();
     const navigate = useNavigate();
-    const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService } = useMarketStore();
+    const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService, toggleService, checkServiceHealth } = useMarketStore();
     const [configModalOpen, setConfigModalOpen] = useState(false);
     const [customServiceModalOpen, setCustomServiceModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<ServiceType | null>(null);
     const [uninstallDialogOpen, setUninstallDialogOpen] = useState(false);
     const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
+    const [togglingServices, setTogglingServices] = useState<Set<string>>(new Set());
+    const [checkingHealthServices, setCheckingHealthServices] = useState<Set<string>>(new Set());
 
     const hasFetched = useRef(false);
 
@@ -38,8 +41,8 @@ export function ServicesPage() {
     }, [fetchInstalledServices]);
 
     const allServices = globalInstalledServices;
-    const activeServices = globalInstalledServices.filter(s => s.health_status === 'active' || s.health_status === 'Active');
-    const inactiveServices = globalInstalledServices.filter(s => s.health_status === 'inactive' || s.health_status === 'Inactive');
+    const activeServices = globalInstalledServices.filter(s => s.enabled === true);
+    const inactiveServices = globalInstalledServices.filter(s => s.enabled === false);
 
     const handleSaveVar = async (varName: string, value: string) => {
         if (!selectedService) return;
@@ -109,6 +112,46 @@ export function ServicesPage() {
             }
             return acc;
         }, {} as Record<string, string>);
+    };
+
+    const handleToggleService = async (serviceId: string) => {
+        if (togglingServices.has(serviceId)) {
+            return; // 防止重复点击
+        }
+
+        setTogglingServices(prev => new Set(prev).add(serviceId));
+
+        try {
+            await toggleService(serviceId);
+        } catch (error: any) {
+            console.error('Toggle service failed:', error);
+        } finally {
+            setTogglingServices(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(serviceId);
+                return newSet;
+            });
+        }
+    };
+
+    const handleCheckServiceHealth = async (serviceId: string) => {
+        if (checkingHealthServices.has(serviceId)) {
+            return; // 防止重复点击
+        }
+
+        setCheckingHealthServices(prev => new Set(prev).add(serviceId));
+
+        try {
+            await checkServiceHealth(serviceId);
+        } catch (error: any) {
+            console.error('Check service health failed:', error);
+        } finally {
+            setCheckingHealthServices(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(serviceId);
+                return newSet;
+            });
+        }
     };
 
     const handleCreateCustomService = async (serviceData: CustomServiceData) => {
@@ -218,23 +261,29 @@ export function ServicesPage() {
                                 <p>No installed services.</p>
                             </div>
                         ) : allServices.map(service => (
-                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
+                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center">
                                             <div className="bg-primary/10 p-2 rounded-md mr-3">
                                                 <Search className="w-6 h-6 text-primary" />
                                             </div>
-                                            <div>
+                                            <div className="flex items-center space-x-2">
+                                                <div className="flex items-center space-x-1">
+                                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
+                                                        ? "bg-green-500"
+                                                        : "bg-gray-400"
+                                                        }`}></div>
+                                                    <button
+                                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                                                        onClick={() => handleCheckServiceHealth(service.id)}
+                                                        disabled={checkingHealthServices.has(service.id)}
+                                                        title="刷新健康状态"
+                                                    >
+                                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
+                                                    </button>
+                                                </div>
                                                 <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
-                                                <CardDescription>
-                                                    <span className={`inline-flex items-center px-2 py-1 text-xs rounded-full ${service.health_status === "active" || service.health_status === "Active"
-                                                        ? "bg-green-100 text-green-800"
-                                                        : "bg-gray-100 text-gray-800"
-                                                        }`}>
-                                                        {service.health_status || 'Unknown'}
-                                                    </span>
-                                                </CardDescription>
                                             </div>
                                         </div>
                                         <button
@@ -246,21 +295,16 @@ export function ServicesPage() {
                                         </button>
                                     </div>
                                 </CardHeader>
-                                <CardContent>
-                                    <p className="text-sm text-muted-foreground">{service.description}</p>
+                                <CardContent className="flex-grow">
+                                    <p className="text-sm text-muted-foreground line-clamp-2">{service.description}</p>
                                 </CardContent>
-                                <CardFooter className="flex justify-between">
-                                    <Button variant="outline" size="sm" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
-                                    <Button
-                                        variant={service.enabled ? "outline" : "default"}
-                                        size="sm"
-                                        onClick={() => toast({
-                                            title: `Service ${service.enabled ? "Disabled" : "Enabled"}`,
-                                            description: `${service.display_name || service.name} is now ${service.enabled ? "inactive" : "active"}.`
-                                        })}
-                                    >
-                                        {service.enabled ? "Disable" : "Enable"}
-                                    </Button>
+                                <CardFooter className="flex justify-between items-end mt-auto">
+                                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
+                                    <Switch
+                                        checked={service.enabled || false}
+                                        onCheckedChange={() => handleToggleService(service.id)}
+                                        disabled={togglingServices.has(service.id)}
+                                    />
                                 </CardFooter>
                             </Card>
                         ))}
@@ -273,20 +317,29 @@ export function ServicesPage() {
                                 <p>No active services.</p>
                             </div>
                         ) : activeServices.map(service => (
-                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
+                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center">
                                             <div className="bg-primary/10 p-2 rounded-md mr-3">
                                                 <Search className="w-6 h-6 text-primary" />
                                             </div>
-                                            <div>
+                                            <div className="flex items-center space-x-2">
+                                                <div className="flex items-center space-x-1">
+                                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
+                                                        ? "bg-green-500"
+                                                        : "bg-gray-400"
+                                                        }`}></div>
+                                                    <button
+                                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                                                        onClick={() => handleCheckServiceHealth(service.id)}
+                                                        disabled={checkingHealthServices.has(service.id)}
+                                                        title="刷新健康状态"
+                                                    >
+                                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
+                                                    </button>
+                                                </div>
                                                 <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
-                                                <CardDescription>
-                                                    <span className="inline-flex items-center px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
-                                                        Active
-                                                    </span>
-                                                </CardDescription>
                                             </div>
                                         </div>
                                         <button
@@ -298,21 +351,16 @@ export function ServicesPage() {
                                         </button>
                                     </div>
                                 </CardHeader>
-                                <CardContent>
-                                    <p className="text-sm text-muted-foreground">{(service as any).service_description || service.description}</p>
+                                <CardContent className="flex-grow">
+                                    <p className="text-sm text-muted-foreground line-clamp-2">{(service as any).service_description || service.description}</p>
                                 </CardContent>
-                                <CardFooter className="flex justify-between">
-                                    <Button variant="outline" size="sm" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => toast({
-                                            title: `Service Disabled`,
-                                            description: `${(service as any).display_name || service.name} is now inactive.`
-                                        })}
-                                    >
-                                        Disable
-                                    </Button>
+                                <CardFooter className="flex justify-between items-end mt-auto">
+                                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
+                                    <Switch
+                                        checked={service.enabled || false}
+                                        onCheckedChange={() => handleToggleService(service.id)}
+                                        disabled={togglingServices.has(service.id)}
+                                    />
                                 </CardFooter>
                             </Card>
                         ))}
@@ -325,20 +373,29 @@ export function ServicesPage() {
                                 <p>No inactive services.</p>
                             </div>
                         ) : inactiveServices.map(service => (
-                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30">
+                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center">
                                             <div className="bg-primary/10 p-2 rounded-md mr-3">
                                                 <Search className="w-6 h-6 text-primary" />
                                             </div>
-                                            <div>
+                                            <div className="flex items-center space-x-2">
+                                                <div className="flex items-center space-x-1">
+                                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
+                                                        ? "bg-green-500"
+                                                        : "bg-gray-400"
+                                                        }`}></div>
+                                                    <button
+                                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                                                        onClick={() => handleCheckServiceHealth(service.id)}
+                                                        disabled={checkingHealthServices.has(service.id)}
+                                                        title="刷新健康状态"
+                                                    >
+                                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
+                                                    </button>
+                                                </div>
                                                 <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
-                                                <CardDescription>
-                                                    <span className="inline-flex items-center px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
-                                                        Inactive
-                                                    </span>
-                                                </CardDescription>
                                             </div>
                                         </div>
                                         <button
@@ -350,21 +407,16 @@ export function ServicesPage() {
                                         </button>
                                     </div>
                                 </CardHeader>
-                                <CardContent>
-                                    <p className="text-sm text-muted-foreground">{(service as any).service_description || service.description}</p>
+                                <CardContent className="flex-grow">
+                                    <p className="text-sm text-muted-foreground line-clamp-2">{(service as any).service_description || service.description}</p>
                                 </CardContent>
-                                <CardFooter className="flex justify-between">
-                                    <Button variant="outline" size="sm" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        onClick={() => toast({
-                                            title: `Service Enabled`,
-                                            description: `${(service as any).display_name || service.name} is now active.`
-                                        })}
-                                    >
-                                        Enable
-                                    </Button>
+                                <CardFooter className="flex justify-between items-end mt-auto">
+                                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
+                                    <Switch
+                                        checked={service.enabled || false}
+                                        onCheckedChange={() => handleToggleService(service.id)}
+                                        disabled={togglingServices.has(service.id)}
+                                    />
                                 </CardFooter>
                             </Card>
                         ))}
@@ -397,32 +449,6 @@ export function ServicesPage() {
                 onConfirm={handleUninstallConfirm}
                 confirmButtonVariant="destructive"
             />
-
-            <div className="mt-12">
-                <h3 className="text-2xl font-bold mb-4">Usage Statistics</h3>
-                <Card className="shadow-sm border bg-card/30">
-                    <CardHeader>
-                        <CardTitle>Service Utilization</CardTitle>
-                        <CardDescription>Performance overview for the last 30 days</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <Table>
-                            <TableCaption>A summary of your service usage.</TableCaption>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Service</TableHead>
-                                    <TableHead>Requests</TableHead>
-                                    <TableHead>Success Rate</TableHead>
-                                    <TableHead className="text-right">Avg. Latency</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {/* 这里可后续对接真实统计数据 */}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
-            </div>
         </div>
     );
 } 

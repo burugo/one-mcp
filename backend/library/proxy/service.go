@@ -311,32 +311,147 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 		s.health.FailureCount++
 		s.health.WarningLevel = 3 // Critical if not initialized
 		healthCopy := s.health
+		// Ensure dbServiceConfig is available for re-creation attempt if this is the first check after a restart
+		if s.sharedInstance == nil && s.dbServiceConfig != nil {
+			common.SysLog(fmt.Sprintf("CheckHealth: Instance for %s (ID: %d) is nil, attempting re-initialization.", s.serviceName, s.serviceID))
+			cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
+			instanceNameDetail := fmt.Sprintf("global-shared-svc-%d-reinit", s.dbServiceConfig.ID)
+			effectiveEnvs := s.dbServiceConfig.DefaultEnvsJSON
+
+			newInstance, recreateErr := GetOrCreateSharedMcpInstanceWithKey(ctx, s.dbServiceConfig, cacheKey, instanceNameDetail, effectiveEnvs)
+			if recreateErr != nil {
+				s.health.Status = StatusUnhealthy
+				s.health.ErrorMessage = fmt.Sprintf("Initial re-creation attempt failed: %v", recreateErr)
+				common.SysError(fmt.Sprintf("Failed to recreate shared instance for %s from CheckHealth (initial nil): %v", s.serviceName, recreateErr))
+				healthCopy.Status = s.health.Status
+				healthCopy.ErrorMessage = s.health.ErrorMessage
+				healthCopy.LastChecked = s.health.LastChecked
+				healthCopy.ResponseTime = s.health.ResponseTime
+				return &healthCopy, errors.New(s.health.ErrorMessage)
+			}
+			s.sharedInstance = newInstance
+			common.SysLog(fmt.Sprintf("Successfully re-created shared MCP instance for %s from CheckHealth (initial nil). Performing immediate re-ping.", s.serviceName))
+
+			// Immediate re-ping after successful creation
+			rePingCtx, rePingCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer rePingCancel()
+			rePingErr := s.sharedInstance.Client.Ping(rePingCtx)
+
+			if rePingErr != nil {
+				s.health.Status = StatusUnhealthy
+				s.health.ErrorMessage = fmt.Sprintf("Re-ping after initial client creation failed: %v", rePingErr)
+				s.health.FailureCount++
+				common.SysError(fmt.Sprintf("Re-ping for %s failed after initial creation: %v", s.serviceName, rePingErr))
+				healthCopy.Status = s.health.Status
+				healthCopy.ErrorMessage = s.health.ErrorMessage
+				healthCopy.LastChecked = s.health.LastChecked
+				healthCopy.ResponseTime = s.health.ResponseTime
+				return &healthCopy, errors.New(s.health.ErrorMessage)
+			} else {
+				s.health.Status = StatusHealthy
+				s.health.ErrorMessage = ""
+				s.health.FailureCount = 0
+				s.health.SuccessCount++
+				common.SysLog(fmt.Sprintf("Re-ping successful for %s after initial creation. Status set to Healthy.", s.serviceName))
+				healthCopy.Status = s.health.Status
+				healthCopy.ErrorMessage = s.health.ErrorMessage
+				healthCopy.LastChecked = s.health.LastChecked
+				healthCopy.ResponseTime = s.health.ResponseTime
+				return &healthCopy, nil
+			}
+		}
 		return &healthCopy, errors.New(s.health.ErrorMessage)
 	}
 
-	// Attempt to ping the client with timeout
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	err := s.sharedInstance.Client.Ping(pingCtx)
-	responseTime := time.Since(startTime).Milliseconds()
+	originalPingErr := s.sharedInstance.Client.Ping(pingCtx)
+	finalErrToReturn := originalPingErr
 
-	if err != nil {
-		s.health.Status = StatusUnhealthy
-		s.health.ErrorMessage = fmt.Sprintf("Ping failed: %v", err)
-		s.health.FailureCount++
-		common.SysError(fmt.Sprintf("Health check for %s (ID: %d) failed: %s", s.serviceName, s.serviceID, s.health.ErrorMessage))
+	if originalPingErr != nil {
+		serviceType := s.Type() // Get the service type from BaseService
+
+		if serviceType == model.ServiceTypeSSE || serviceType == model.ServiceTypeStreamableHTTP {
+			common.SysLog(fmt.Sprintf("CheckHealth: Detected ping failure for network service %s (ID: %d, Type: %s): %v. Attempting to re-establish client.", s.serviceName, s.serviceID, serviceType, originalPingErr))
+
+			if s.dbServiceConfig == nil {
+				common.SysError(fmt.Sprintf("CheckHealth: Cannot re-create client for %s (ID: %d): dbServiceConfig is nil.", s.serviceName, s.serviceID))
+				s.health.Status = StatusUnhealthy
+				s.health.ErrorMessage = fmt.Sprintf("Ping failed (%v) and cannot re-create client (missing config).", originalPingErr)
+				// finalErrToReturn remains originalPingErr
+			} else {
+				cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
+				instanceToShutdown := s.sharedInstance
+
+				sharedMCPServersMutex.Lock()
+				delete(sharedMCPServers, cacheKey)
+				sharedMCPServersMutex.Unlock()
+				common.SysLog(fmt.Sprintf("CheckHealth: Removed instance for %s (key: %s) from global cache.", s.serviceName, cacheKey))
+
+				s.sharedInstance = nil
+
+				if instanceToShutdown != nil {
+					common.SysLog(fmt.Sprintf("CheckHealth: Shutting down old shared instance for %s (ID: %d).", s.serviceName, s.serviceID))
+					if shutdownErr := instanceToShutdown.Shutdown(ctx); shutdownErr != nil {
+						common.SysError(fmt.Sprintf("CheckHealth: Error shutting down old instance for %s: %v. Proceeding with re-creation.", s.serviceName, shutdownErr))
+					}
+				}
+
+				common.SysLog(fmt.Sprintf("CheckHealth: Attempting to get/create new shared MCP instance for %s (ID: %d).", s.serviceName, s.serviceID))
+				instanceNameDetail := fmt.Sprintf("global-shared-svc-%d-recreated", s.dbServiceConfig.ID)
+				effectiveEnvs := s.dbServiceConfig.DefaultEnvsJSON
+
+				newInstance, recreateErr := GetOrCreateSharedMcpInstanceWithKey(ctx, s.dbServiceConfig, cacheKey, instanceNameDetail, effectiveEnvs)
+				if recreateErr != nil {
+					s.health.Status = StatusUnhealthy
+					s.health.ErrorMessage = fmt.Sprintf("Client re-creation failed after ping error '%v': %v", originalPingErr, recreateErr)
+					finalErrToReturn = errors.New(s.health.ErrorMessage)
+					common.SysError(fmt.Sprintf("Failed to recreate shared instance for %s from CheckHealth: %v", s.serviceName, recreateErr))
+				} else {
+					s.sharedInstance = newInstance
+					common.SysLog(fmt.Sprintf("Successfully re-created shared MCP instance for %s from CheckHealth. Performing immediate re-ping.", s.serviceName))
+
+					// Immediate re-ping after successful re-creation
+					rePingCtx, rePingCancel := context.WithTimeout(ctx, 5*time.Second)
+					defer rePingCancel()
+					rePingErr := s.sharedInstance.Client.Ping(rePingCtx)
+
+					if rePingErr != nil {
+						s.health.Status = StatusUnhealthy
+						s.health.ErrorMessage = fmt.Sprintf("Re-ping after client re-creation failed: %v (Original ping error: %v)", rePingErr, originalPingErr)
+						finalErrToReturn = errors.New(s.health.ErrorMessage)
+						common.SysError(fmt.Sprintf("Re-ping for %s failed after re-creation: %v", s.serviceName, rePingErr))
+					} else {
+						s.health.Status = StatusHealthy
+						s.health.ErrorMessage = ""
+						s.health.FailureCount = 0
+						s.health.SuccessCount++
+						finalErrToReturn = nil
+						common.SysLog(fmt.Sprintf("Re-ping successful for %s after re-creation. Status set to Healthy.", s.serviceName))
+					}
+				}
+			}
+		} else {
+			// Ping failed, and service type is not SSE or StreamableHTTP (e.g., Stdio)
+			s.health.Status = StatusUnhealthy
+			s.health.ErrorMessage = fmt.Sprintf("Ping failed: %v", originalPingErr)
+			// finalErrToReturn remains originalPingErr
+		}
+
+		if finalErrToReturn != nil {
+			s.health.FailureCount++
+		}
 	} else {
 		s.health.Status = StatusHealthy
 		s.health.ErrorMessage = ""
 		s.health.SuccessCount++
-		common.SysLog(fmt.Sprintf("Health check for %s (ID: %d) successful.", s.serviceName, s.serviceID))
+		finalErrToReturn = nil
 	}
 
 	s.health.LastChecked = time.Now()
-	s.health.ResponseTime = responseTime
+	s.health.ResponseTime = time.Since(startTime).Milliseconds()
 
-	// Update warning level
 	if s.health.Status == StatusHealthy {
 		s.health.WarningLevel = 0
 	} else if s.health.FailureCount <= 3 {
@@ -347,13 +462,12 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 		s.health.WarningLevel = 3
 	}
 
-	// Calculate uptime if running
 	if s.running && !s.lastStartTime.IsZero() {
 		s.health.UpTime = int64(time.Since(s.lastStartTime).Seconds())
 	}
 
 	healthCopy := s.health
-	return &healthCopy, err
+	return &healthCopy, finalErrToReturn
 }
 
 // Start for MonitoredProxiedService ensures the shared instance is active

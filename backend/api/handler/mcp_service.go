@@ -535,20 +535,42 @@ func GetMCPServiceHealth(c *gin.Context) {
 		return
 	}
 
-	// 准备健康状态响应
-	healthData := map[string]interface{}{
-		"service_id":     service.ID,
-		"service_name":   service.Name,
-		"health_status":  service.HealthStatus,
-		"last_checked":   service.LastHealthCheck,
-		"health_details": nil,
-	}
+	// 尝试从缓存获取健康状态
+	cacheManager := proxy.GetHealthCacheManager()
+	cachedHealth, found := cacheManager.GetServiceHealth(id)
 
-	// 如果有健康详情，解析并添加到响应中
-	if service.HealthDetails != "" {
-		var healthDetails map[string]interface{}
-		if err := json.Unmarshal([]byte(service.HealthDetails), &healthDetails); err == nil {
-			healthData["health_details"] = healthDetails
+	var healthData map[string]interface{}
+
+	if found {
+		// 使用缓存中的健康状态
+		healthData = map[string]interface{}{
+			"service_id":     service.ID,
+			"service_name":   service.Name,
+			"health_status":  string(cachedHealth.Status),
+			"last_checked":   cachedHealth.LastChecked,
+			"health_details": cachedHealth,
+		}
+	} else {
+		// 缓存中没有数据，尝试从服务管理器获取内存状态
+		serviceManager := proxy.GetServiceManager()
+		memoryHealth, err := serviceManager.GetServiceHealth(id)
+		if err == nil && memoryHealth != nil {
+			healthData = map[string]interface{}{
+				"service_id":     service.ID,
+				"service_name":   service.Name,
+				"health_status":  string(memoryHealth.Status),
+				"last_checked":   memoryHealth.LastChecked,
+				"health_details": memoryHealth,
+			}
+		} else {
+			// 最后备选：使用默认状态
+			healthData = map[string]interface{}{
+				"service_id":     service.ID,
+				"service_name":   service.Name,
+				"health_status":  "unknown",
+				"last_checked":   nil,
+				"health_details": nil,
+			}
 		}
 	}
 

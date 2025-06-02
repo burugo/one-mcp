@@ -59,7 +59,7 @@ type MCPService struct {
 	Enabled               bool            `db:"enabled"`
 	Type                  ServiceType     `db:"type"`
 	Command               string          `db:"command"`
-	ArgsJSON              string          `db:"args_json"`
+	ArgsJSON              string          `db:"args_json,default '{}'"`
 	AllowUserOverride     bool            `db:"allow_user_override"`     // Whether users can override admin settings
 	ClientConfigTemplates string          `db:"client_config_templates"` // JSON map of client_type to template details
 	RequiredEnvVarsJSON   string          `db:"required_env_vars_json"`  // JSON array of environment variables required by the service
@@ -67,11 +67,11 @@ type MCPService struct {
 	SourcePackageName     string          `db:"source_package_name"`     // For marketplace services: package name in the repository
 	InstalledVersion      string          `db:"installed_version"`       // For marketplace services: currently installed version
 	InstallerUserID       int64           `db:"installer_user_id"`       // 记录安装者的用户ID
-	HealthStatus          string          `db:"health_status"`           // 健康状态: unknown, healthy, unhealthy, starting, stopped
-	LastHealthCheck       time.Time       `db:"last_health_check"`       // 最后健康检查时间
-	HealthDetails         string          `db:"health_details"`          // 健康详情的JSON字符串
-	DefaultEnvsJSON       string          `db:"default_envs_json"`
-	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json"` // JSON string for custom request headers map[string]string
+	HealthStatus          string          `db:"-"`                       // 健康状态: unknown, healthy, unhealthy, starting, stopped
+	LastHealthCheck       time.Time       `db:"-"`                       // 最后健康检查时间
+	HealthDetails         string          `db:"-"`                       // 健康详情的JSON字符串
+	DefaultEnvsJSON       string          `db:"default_envs_json,default '{}'"`
+	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json,default '{}'"` // JSON string for custom request headers map[string]string
 }
 
 // TableName sets the table name for the MCPService model
@@ -169,6 +169,11 @@ func GetEnabledServices() ([]*MCPService, error) {
 	return MCPServiceDB.Where("enabled = ?", true).Order("category ASC, order_num ASC").All()
 }
 
+// GetInstalledServices returns all installed MCP services (regardless of enabled status)
+func GetInstalledServices() ([]*MCPService, error) {
+	return MCPServiceDB.Order("category ASC, order_num ASC").All()
+}
+
 // GetServiceByID retrieves a specific service by ID
 func GetServiceByID(id int64) (*MCPService, error) {
 	return MCPServiceDB.ByID(id)
@@ -245,4 +250,21 @@ type StdioConfig struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
 	Env     []string `json:"env"` // Stored as "KEY=VALUE" strings
+}
+
+// GetMCPServiceThing returns the initialized Thing ORM instance for MCPService.
+// It ensures MCPServiceInit is called if the instance is not yet available.
+func GetMCPServiceThing() (*thing.Thing[*MCPService], error) {
+	if MCPServiceDB == nil {
+		// This typically should not happen if InitDB -> MCPServiceInit was successful at startup.
+		// However, as a safeguard or for contexts where InitDB might not have fully run (e.g. specific tests without full app init):
+		if err := MCPServiceInit(); err != nil {
+			return nil, fmt.Errorf("failed to explicitly initialize MCPServiceDB in GetMCPServiceThing: %w", err)
+		}
+		if MCPServiceDB == nil {
+			// If still nil after explicit init, something is seriously wrong.
+			return nil, errors.New("MCPServiceDB is nil even after explicit re-initialization attempt in GetMCPServiceThing")
+		}
+	}
+	return MCPServiceDB, nil
 }

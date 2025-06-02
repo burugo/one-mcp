@@ -22,6 +22,8 @@ export interface ServiceType {
     // 添加缺少的字段
     display_name?: string;
     health_status?: string;
+    health_details?: string;
+    last_health_check?: string;
     enabled?: boolean;
 }
 
@@ -96,6 +98,8 @@ interface MarketState {
     pollInstallationStatus: (serviceId: string, taskId: string) => void;
 
     uninstallService: (serviceId: number) => Promise<void>;
+    toggleService: (serviceId: string) => Promise<void>;
+    checkServiceHealth: (serviceId: string) => Promise<void>;
 }
 
 // 创建 Store
@@ -599,6 +603,125 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 title: "Uninstall Error",
                 description: errorMsg
             });
+        }
+    },
+
+    toggleService: async (serviceId: string): Promise<void> => {
+        const numericServiceId = parseInt(serviceId, 10);
+        if (isNaN(numericServiceId)) {
+            toastEmitter.emit({
+                variant: "destructive",
+                title: "Toggle Failed",
+                description: "Invalid Service ID format."
+            });
+            return;
+        }
+
+        // Get the current state of the service *before* toggling
+        const currentServices = get().installedServices;
+        const serviceToToggle = currentServices.find(s => s.id === serviceId);
+
+        if (!serviceToToggle) {
+            toastEmitter.emit({
+                variant: "destructive",
+                title: "Toggle Failed",
+                description: "Service not found in the local store."
+            });
+            return; // Or throw new Error("Service not found");
+        }
+        const wasEnabled = serviceToToggle.enabled;
+
+        try {
+            const response = await api.post(`/mcp_services/${numericServiceId}/toggle`) as APIResponse<any>;
+
+            if (response.success) {
+                toastEmitter.emit({
+                    title: "Service Status Updated",
+                    description: "Service status has been successfully changed."
+                });
+
+                // Update the service in the store directly
+                const newEnabledState = !wasEnabled;
+                set(state => ({
+                    installedServices: state.installedServices.map(service =>
+                        service.id === serviceId
+                            ? { ...service, enabled: newEnabledState }
+                            : service
+                    ),
+                }));
+
+                // If the service was just enabled, trigger an immediate health check
+                if (newEnabledState) { // This means wasEnabled was false, and now it's true
+                    try {
+                        await get().checkServiceHealth(serviceId);
+                        // Toast for health check success/failure is handled within checkServiceHealth
+                    } catch (healthCheckError: any) {
+                        // Optional: additional error handling specific to health check after toggle
+                        console.error(`Immediate health check for service ${serviceId} failed after enabling:`, healthCheckError);
+                        // No need to re-throw or show another toast if checkServiceHealth already does.
+                    }
+                }
+                // No longer fetching all services: await get().fetchInstalledServices();
+            } else {
+                throw new Error(response.message || 'Failed to toggle service status');
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.message || error.message || 'An unknown error occurred while toggling service status.';
+            toastEmitter.emit({
+                variant: "destructive",
+                title: "Toggle Service Failed",
+                description: errorMsg
+            });
+            throw error; // Re-throw to allow component-level error handling if needed
+        }
+    },
+
+    checkServiceHealth: async (serviceId: string): Promise<void> => {
+        const numericServiceId = parseInt(serviceId, 10);
+        if (isNaN(numericServiceId)) {
+            toastEmitter.emit({
+                variant: "destructive",
+                title: "Health Check Failed",
+                description: "Invalid Service ID format."
+            });
+            return;
+        }
+
+        try {
+            const response = await api.post(`/mcp_services/${numericServiceId}/health/check`) as APIResponse<any>;
+
+            if (response.success && response.data) {
+                toastEmitter.emit({
+                    title: "Health Check Complete",
+                    description: "Service health status has been updated."
+                });
+
+                // 直接使用返回值更新对应服务的健康状态，而不是重新拉取整个列表
+                const { health_status, health_details, last_checked } = response.data;
+
+                set(state => ({
+                    installedServices: state.installedServices.map(service =>
+                        service.id === serviceId || service.id === numericServiceId.toString()
+                            ? {
+                                ...service,
+                                health_status,
+                                health_details: typeof health_details === 'object' ? JSON.stringify(health_details) : health_details,
+                                last_health_check: last_checked
+                            }
+                            : service
+                    )
+                }));
+            } else {
+                throw new Error(response.message || 'Failed to check service health');
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.message || error.message || 'An unknown error occurred while checking service health.';
+            toastEmitter.emit({
+                variant: "destructive",
+                title: "Health Check Failed",
+                description: errorMsg
+            });
+            throw error;
         }
     },
 })); 

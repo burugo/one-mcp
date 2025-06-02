@@ -146,6 +146,16 @@ func SetApiRouter(route *gin.Engine) {
 		// apiRouter.POST("/proxy/:serviceName/sse/*action", handler.ProxyHandler)
 	}
 
+	// Analytics routes
+	analyticsRoute := apiRouter.Group("/analytics")
+	analyticsRoute.Use(middleware.JWTAuth()) // Assuming analytics requires auth
+	// Consider admin-only access if appropriate: analyticsRoute.Use(middleware.AdminAuth())
+	{
+		analyticsRoute.GET("/services/utilization", handler.GetServiceUtilization)
+		analyticsRoute.GET("/services/metrics", handler.GetServiceMetrics)
+		analyticsRoute.GET("/system/overview", handler.GetSystemOverview)
+	}
+
 	// Define routes under /proxy, outside the /api group
 	proxyRouter := route.Group("/proxy")
 	proxyRouter.Use(middleware.LangMiddleware()) // Apply similar general middlewares

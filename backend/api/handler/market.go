@@ -969,8 +969,8 @@ func SearchMCPMarket(c *gin.Context) {
 // @Failure 500 {object} common.APIResponse
 // @Router /api/mcp_market/installed [get]
 func ListInstalledMCPServices(c *gin.Context) {
-	// 获取所有已启用服务
-	services, err := model.GetEnabledServices()
+	// 获取所有已安装服务（不论启用状态）
+	services, err := model.GetInstalledServices()
 	if err != nil {
 		common.RespError(c, 500, "list_installed_failed", err)
 		return
@@ -980,6 +980,9 @@ func ListInstalledMCPServices(c *gin.Context) {
 	if uid, exists := c.Get("user_id"); exists {
 		userID, _ = uid.(int64)
 	}
+
+	// 获取缓存管理器
+	cacheManager := proxy.GetHealthCacheManager()
 
 	var result []map[string]interface{}
 	for _, svc := range services {
@@ -1015,6 +1018,56 @@ func ListInstalledMCPServices(c *gin.Context) {
 		b, _ := json.Marshal(svc)
 		_ = json.Unmarshal(b, &svcMap)
 		svcMap["env_vars"] = finalEnvVars // 使用合并后的环境变量
+
+		// 尝试从缓存获取健康状态
+		if cachedHealth, found := cacheManager.GetServiceHealth(svc.ID); found {
+			// 使用缓存中的健康状态
+			svcMap["health_status"] = string(cachedHealth.Status)
+			if !cachedHealth.LastChecked.IsZero() {
+				svcMap["last_health_check"] = cachedHealth.LastChecked.Format(time.RFC3339)
+			} else {
+				svcMap["last_health_check"] = nil
+			}
+
+			// 构造 health_details JSON
+			healthDetailsMap := map[string]interface{}{
+				"status":           string(cachedHealth.Status),
+				"response_time_ms": cachedHealth.ResponseTime,
+				"success_count":    cachedHealth.SuccessCount,
+				"failure_count":    cachedHealth.FailureCount,
+				"error_message":    cachedHealth.ErrorMessage,
+				"start_time":       cachedHealth.StartTime,
+				"up_time":          cachedHealth.UpTime,
+				"warning_level":    cachedHealth.WarningLevel,
+			}
+			if !cachedHealth.LastChecked.IsZero() {
+				healthDetailsMap["last_checked"] = cachedHealth.LastChecked.Format(time.RFC3339)
+			} else {
+				healthDetailsMap["last_checked"] = nil
+			}
+
+			if healthDetailsJSON, err_hd_marshal := json.Marshal(healthDetailsMap); err_hd_marshal == nil {
+				svcMap["health_details"] = string(healthDetailsJSON)
+			} else {
+				log.Printf("Error marshalling health_details for service ID %d: %v", svc.ID, err_hd_marshal)
+				svcMap["health_details"] = "{}" // Default to empty JSON object on error
+			}
+		} else {
+			// 缓存未命中，返回 "unknown" 状态
+			svcMap["health_status"] = string(proxy.StatusUnknown)
+			svcMap["last_health_check"] = nil
+			unknownHealthDetails := map[string]interface{}{
+				"status":        string(proxy.StatusUnknown),
+				"last_checked":  nil,
+				"error_message": "Health status not found in cache.",
+			}
+			if healthDetailsJSON, err_unknown_marshal := json.Marshal(unknownHealthDetails); err_unknown_marshal == nil {
+				svcMap["health_details"] = string(healthDetailsJSON)
+			} else {
+				log.Printf("Error marshalling unknown health_details for service ID %d: %v", svc.ID, err_unknown_marshal)
+				svcMap["health_details"] = "{\"status\": \"unknown\"}" // Minimal fallback
+			}
+		}
 		result = append(result, svcMap)
 	}
 	common.RespSuccess(c, result)

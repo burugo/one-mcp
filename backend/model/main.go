@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/gob"
 	"one-mcp/backend/common"
 
 	"github.com/burugo/thing"
@@ -12,12 +11,8 @@ import (
 // 全局变量用于兼容旧代码，后续可逐步移除
 // var DB *gorm.DB
 
-func init() {
-	gob.Register(ServiceCategory(""))
-	gob.Register(ServiceType(""))
-	gob.Register(EnvVarDefinition{})
-	gob.Register(ClientTemplateDetail{})
-}
+func init() {}
+
 func createRootAccountIfNeed() error {
 	// 检查是否有用户，无则创建 root 用户
 	userThing, err := thing.Use[*User]()
@@ -70,7 +65,7 @@ func InitDB() (err error) {
 
 	// 1. AutoMigrate all models first
 	thing.AllowDropColumn = true
-	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{})
+	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{}, &ProxyRequestStat{})
 	if err != nil {
 		return err
 	}

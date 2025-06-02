@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 
 // API响应类型
 export interface APIResponse<T = any> {
@@ -43,8 +43,20 @@ class ToastEmitter {
 
 export const toastEmitter = ToastEmitter.getInstance();
 
+// Define the custom API client interface
+// This describes the specific methods whose return types are altered by our interceptors.
+interface AppAPIClient {
+    get<T = any>(url: string, config?: AxiosRequestConfig): Promise<APIResponse<T>>;
+    post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<APIResponse<T>>;
+    put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<APIResponse<T>>;
+    delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<APIResponse<T>>;
+    patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<APIResponse<T>>;
+    // Add other HTTP methods (patch, head, options) here if they are used 
+    // and their responses are also transformed into APIResponse<T> by interceptors.
+}
+
 // 创建axios实例，统一管理API请求
-const api = axios.create({
+const apiInstance = axios.create({
     baseURL: '/api', // 使用相对路径，将由Vite代理转发到后端
     timeout: 30000,
     headers: {
@@ -53,7 +65,7 @@ const api = axios.create({
 });
 
 // 请求拦截器
-api.interceptors.request.use(
+apiInstance.interceptors.request.use(
     (config) => {
         // 从localStorage获取token
         const token = localStorage.getItem('token');
@@ -68,10 +80,11 @@ api.interceptors.request.use(
 );
 
 // 响应拦截器
-api.interceptors.response.use(
-    (response) => {
-        // 直接返回响应数据，使用类型断言绕过TypeScript检查但保持运行时行为不变
-        return response.data as any;
+apiInstance.interceptors.response.use(
+    (response: AxiosResponse) => {
+        // Per the project convention, response.data is the APIResponse object.
+        // This is returned directly by the interceptor.
+        return response.data;
     },
     async (error) => {
         const { response } = error;
@@ -112,10 +125,13 @@ api.interceptors.response.use(
                     });
                     break;
                 default: {
+                    const errorMessage = (response.data && typeof response.data === 'object' && 'message' in response.data)
+                        ? (response.data as any).message
+                        : "未知错误";
                     toastEmitter.emit({
                         variant: "destructive",
                         title: "请求失败",
-                        description: response.data?.message || "未知错误"
+                        description: errorMessage
                     });
                 }
             }
@@ -126,8 +142,12 @@ api.interceptors.response.use(
                 description: "请检查网络连接"
             });
         }
+        // It's important that the error interceptor also returns a rejected promise.
+        // Axios expects this. If response.data was the error payload, it's already part of 'error.response'.
         return Promise.reject(error);
     }
 );
 
-export default api; 
+// Export the instance, cast to our custom AppAPIClient interface.
+// This tells TypeScript that when we call api.get(), etc., it will adhere to AppAPIClient's method signatures.
+export default apiInstance as AppAPIClient; 
