@@ -4,7 +4,7 @@ module one-mcp
 go 1.24
 
 require (
-	github.com/burugo/thing v0.1.17
+	github.com/burugo/thing v0.1.18
 	github.com/gin-contrib/cors v1.7.5
 	github.com/gin-contrib/sessions v1.0.3
 	github.com/gin-contrib/static v1.1.5

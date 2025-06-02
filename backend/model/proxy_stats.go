@@ -41,16 +41,16 @@ func (prs *ProxyRequestStat) TableName() string {
 
 // proxyRequestStatThing is a global Thing ORM instance for ProxyRequestStat.
 // It's initialized once to be reused.
-var proxyRequestStatThing *thing.Thing[ProxyRequestStat]
+var proxyRequestStatThing *thing.Thing[*ProxyRequestStat]
 var initStatThingOnce sync.Once
 var initStatThingErr error // To store initialization error
 
 // GetProxyRequestStatThing initializes and returns the Thing ORM instance for ProxyRequestStat.
 // This function is now public.
-func GetProxyRequestStatThing() (*thing.Thing[ProxyRequestStat], error) {
+func GetProxyRequestStatThing() (*thing.Thing[*ProxyRequestStat], error) {
 	initStatThingOnce.Do(func() {
 		// Use thing.Use, assuming thing.Configure was called at application startup.
-		ormInstance, err := thing.Use[ProxyRequestStat]()
+		ormInstance, err := thing.Use[*ProxyRequestStat]()
 		if err != nil {
 			msg := fmt.Sprintf("Error initializing ProxyRequestStatThing with thing.Use: %v. DB might not be configured globally for Thing ORM.", err)
 			common.SysError(msg)               // Using common.SysError for consistent logging
@@ -97,7 +97,7 @@ func RecordRequestStat(serviceID int64, serviceName string, userID int64, reqTyp
 
 	// Adhering to linter: passing stat by value.
 	// This means the 'stat' variable in this function scope will not be updated with ID/timestamps post-save.
-	if err := statThing.Save(stat); err != nil {
+	if err := statThing.Save(&stat); err != nil {
 		common.SysError(fmt.Sprintf("Error saving ProxyRequestStat: %v", err))
 	}
 }

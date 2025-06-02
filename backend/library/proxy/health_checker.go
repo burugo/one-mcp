@@ -104,12 +104,17 @@ func (hc *HealthChecker) checkAllServices() {
 
 // checkService 检查单个服务的健康状态
 func (hc *HealthChecker) checkService(service Service) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	timeout := service.HealthCheckTimeout()
+	if timeout <= 0 {
+		timeout = 10 * time.Second // 如果服务未指定或指定无效值，则使用默认超时10秒
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	health, err := service.CheckHealth(ctx)
 	if err != nil {
-		log.Printf("Error checking health for service %s (ID: %d): %v", service.Name(), service.ID(), err)
+		log.Printf("Error checking health for service %s (ID: %d) with timeout %v: %v", service.Name(), service.ID(), timeout, err)
 		// 错误情况下仍然更新健康状态为异常
 		health = &ServiceHealth{
 			Status:       StatusUnhealthy,

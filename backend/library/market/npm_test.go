@@ -258,7 +258,7 @@ func TestGetInstalledMCPServersFromDB(t *testing.T) {
 	}
 
 	t.Logf("Found %d MCP servers in database:", len(servers))
-	for name, info := range servers {
-		t.Logf("- %s (%s %s)", name, info.Name, info.Version)
+	for packageName, serviceID := range servers {
+		t.Logf("- %s (Service ID: %d)", packageName, serviceID)
 	}
 }

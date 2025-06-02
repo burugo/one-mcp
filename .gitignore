@@ -28,5 +28,6 @@ go.work.sum
 one-mcp*
 .tmp
 .vscode
+.cursor
+*.db
 *.log
-/.cursor

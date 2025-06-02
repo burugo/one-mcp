@@ -277,13 +277,9 @@ func (m *InstallationManager) updateServiceStatus(task *InstallationTask, server
 	// 注意：不再在安装时保存UserConfig，因为安装时的环境变量是服务默认配置
 	// UserConfig只在用户需要个人配置时保存
 
-	// Add to client manager if it's an stdio service
-	if serviceToUpdate.Type == model.ServiceTypeStdio && serviceToUpdate.SourcePackageName != "" {
-		manager := GetMCPClientManager()
-		if err := manager.InitializeClient(serviceToUpdate.SourcePackageName, serviceToUpdate.ID); err != nil {
-			log.Printf("[InstallationManager] Warning: Failed to initialize client for %s (ID: %d): %v", serviceToUpdate.SourcePackageName, serviceToUpdate.ID, err)
-		}
-	}
+	// 服务注册和客户端初始化现在由 proxy.ServiceManager 处理
+	// 在服务被启用时会自动注册到 ServiceManager 中
+	log.Printf("[InstallationManager] Service %s (ID: %d) will be managed by ServiceManager when enabled", serviceToUpdate.Name, serviceToUpdate.ID)
 
 	log.Printf("[InstallationManager] Service processing completed for ID: %d, Name: %s", serviceToUpdate.ID, serviceToUpdate.Name)
 }

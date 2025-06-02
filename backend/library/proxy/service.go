@@ -113,6 +113,10 @@ type Service interface {
 
 	// UpdateConfig 更新服务配置
 	UpdateConfig(config map[string]interface{}) error
+
+	// HealthCheckTimeout 返回此服务进行健康检查时建议的超时时间。
+	// 如果返回 0 或负值，HealthChecker 将使用其默认超时。
+	HealthCheckTimeout() time.Duration
 }
 
 // BaseService 是一个基本的服务实现，可以被具体服务类型继承
@@ -192,6 +196,21 @@ func (s *BaseService) GetConfig() map[string]interface{} {
 	}
 
 	return configCopy
+}
+
+// HealthCheckTimeout 实现Service接口。
+// 它根据服务类型返回建议的超时时间。
+func (s *BaseService) HealthCheckTimeout() time.Duration {
+	s.mu.RLock() // 保证线程安全地读取 s.serviceType
+	defer s.mu.RUnlock()
+
+	if s.serviceType == model.ServiceTypeStdio {
+		// Stdio 服务可能需要更长的超时时间进行健康检查
+		return 30 * time.Second
+	}
+	// 对于其他类型的服务（如 http, sse），返回0，让 HealthChecker 使用其默认超时（当前为10秒）。
+	// 如果特定服务（如某个特殊的HTTP服务）需要不同的超时，它可以在自己的实现中覆盖此方法。
+	return 0
 }
 
 // UpdateConfig 实现Service接口
@@ -333,9 +352,7 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 			common.SysLog(fmt.Sprintf("Successfully re-created shared MCP instance for %s from CheckHealth (initial nil). Performing immediate re-ping.", s.serviceName))
 
 			// Immediate re-ping after successful creation
-			rePingCtx, rePingCancel := context.WithTimeout(ctx, 5*time.Second)
-			defer rePingCancel()
-			rePingErr := s.sharedInstance.Client.Ping(rePingCtx)
+			rePingErr := s.sharedInstance.Client.Ping(ctx)
 
 			if rePingErr != nil {
 				s.health.Status = StatusUnhealthy
@@ -362,11 +379,7 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 		}
 		return &healthCopy, errors.New(s.health.ErrorMessage)
 	}
-
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	originalPingErr := s.sharedInstance.Client.Ping(pingCtx)
+	originalPingErr := s.sharedInstance.Client.Ping(ctx)
 	finalErrToReturn := originalPingErr
 
 	if originalPingErr != nil {
@@ -412,10 +425,7 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 					s.sharedInstance = newInstance
 					common.SysLog(fmt.Sprintf("Successfully re-created shared MCP instance for %s from CheckHealth. Performing immediate re-ping.", s.serviceName))
 
-					// Immediate re-ping after successful re-creation
-					rePingCtx, rePingCancel := context.WithTimeout(ctx, 5*time.Second)
-					defer rePingCancel()
-					rePingErr := s.sharedInstance.Client.Ping(rePingCtx)
+					rePingErr := s.sharedInstance.Client.Ping(ctx)
 
 					if rePingErr != nil {
 						s.health.Status = StatusUnhealthy
@@ -806,38 +816,6 @@ func CacheHandler(key string, handler http.Handler) {
 	defer muStdioSSEWrappers.Unlock()
 	initializedStdioSSEWrappers[key] = handler
 }
-
-// defaultNewStdioSSEHandlerUncached is renamed to newProxyToSSEHandlerUncached
-// It creates a new, non-cached http.Handler (SSE proxy) for an MCP service.
-func newProxyToSSEHandlerUncached(ctx context.Context, mcpDBService *model.MCPService) (http.Handler, error) {
-	common.SysLog(fmt.Sprintf("newProxyToSSEHandlerUncached: Creating new SSE proxy handler for %s (ID: %d, Type: %s) via createMcpGoServer and createSSEHttpHandler.",
-		mcpDBService.Name, mcpDBService.ID, mcpDBService.Type))
-
-	// Delegate to the new core functions
-	// Configuration parsing (like StdioConfig) is now handled within createActualMcpGoServerAndClientUncached based on mcpDBService.Type
-	mcpGoSrv, mcpClient, err := createActualMcpGoServerAndClientUncached(ctx, mcpDBService, "user-specific-instance")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp-go server for %s (Type: %s, user-specific): %w", mcpDBService.Name, mcpDBService.Type, err)
-	}
-	// Note: mcpClient's lifecycle is a concern here too if not managed by the handler.
-
-	httpHandler, err := createSSEHttpHandler(mcpGoSrv, mcpDBService)
-	if err != nil {
-		if mcpClient != nil {
-			common.SysError(fmt.Sprintf("Closing MCP client for %s due to SSE handler creation failure (uncached): %v", mcpDBService.Name, err))
-			if closeErr := mcpClient.Close(); closeErr != nil {
-				common.SysError(fmt.Sprintf("Error closing MCP client for %s after SSE handler creation failure (uncached): %v", mcpDBService.Name, closeErr))
-			}
-		}
-		return nil, fmt.Errorf("failed to create SSE handler for %s (Type: %s, user-specific): %w", mcpDBService.Name, mcpDBService.Type, err)
-	}
-	return httpHandler, nil
-}
-
-// NewStdioSSEHandlerUncached is an exported variable that points to the function for creating a new http.Handler
-// for an Stdio MCP service using the provided configuration. This can be replaced in tests to mock behavior.
-// RENAMING this variable as well to reflect its general nature.
-var NewProxyToSSEHandlerUncached = newProxyToSSEHandlerUncached // Points to the renamed function
 
 // ServiceFactory 用于创建适合特定类型的服务实例，包含真实的MCP连接用于准确的健康监测
 func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {

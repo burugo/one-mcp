@@ -709,13 +709,17 @@ func UninstallService(c *gin.Context) {
 		return
 	}
 
-	// Explicitly shutdown and remove client from MCPClientManager if it's a managed type (e.g., stdio)
-	if service.Type == model.ServiceTypeStdio && service.SourcePackageName != "" { // Check type and if it has a source package name
-		log.Printf("[UninstallService] Attempting to shut down and remove client for service ID %d (Name: %s, SourcePackage: %s)", service.ID, service.Name, service.SourcePackageName)
-		mcpClientManager := market.GetMCPClientManager()
-		// Assuming RemoveClient takes SourcePackageName (string) and does not return an error, based on linter feedback and InitializeClient signature.
-		mcpClientManager.RemoveClient(service.SourcePackageName)
-		log.Printf("[UninstallService] Issued RemoveClient command for service ID %d (SourcePackage: %s). Check MCPClientManager logs for confirmation if needed.", service.ID, service.SourcePackageName)
+	// Shutdown and unregister the service from the new ServiceManager
+	if service.Type == model.ServiceTypeStdio && service.SourcePackageName != "" { // Or more broadly, any service managed by ServiceManager
+		log.Printf("[UninstallService] Attempting to unregister service ID %d (Name: %s) from ServiceManager", service.ID, service.Name)
+		serviceManager := proxy.GetServiceManager()
+		if err := serviceManager.UnregisterService(c.Request.Context(), service.ID); err != nil {
+			log.Printf("[UninstallService] Error unregistering service ID %d from ServiceManager: %v. Proceeding with uninstall.", service.ID, err)
+			// Decide if this error should be fatal for the uninstall operation or just logged.
+			// The original code also proceeded after mcpClientManager.RemoveClient.
+		} else {
+			log.Printf("[UninstallService] Successfully unregistered service ID %d from ServiceManager.", service.ID)
+		}
 	}
 
 	// 卸载服务 - 根据 PackageManager 调用相应的卸载逻辑

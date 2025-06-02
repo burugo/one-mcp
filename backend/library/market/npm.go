@@ -460,12 +460,9 @@ func InstallNPMPackage(ctx context.Context, packageName string, version string, 
 		Capabilities:    initResult.Capabilities,
 	}
 
-	// 安装成功后，将客户端添加到管理器
-	manager := GetMCPClientManager()
-	if err := manager.InitializeClient(packageName, 0); err != nil {
-		// 记录错误但不返回，因为包已经安装成功
-		log.Printf("Warning: Failed to initialize client for %s in manager: %v", packageName, err)
-	}
+	// 安装成功后，服务会通过 proxy.ServiceManager 在启用时自动初始化
+	// 这里不再需要手动初始化客户端，因为 ServiceManager 会在服务注册时处理
+	log.Printf("NPM package %s installed successfully. Service will be managed by ServiceManager.", packageName)
 
 	return serverInfo, nil
 }
@@ -701,9 +698,9 @@ func CheckNPXAvailable() bool {
 
 // ListMCPServerTools 列出 MCP 服务器提供的工具
 func ListMCPServerTools(ctx context.Context, packageName string) ([]mcp.Tool, error) {
-	// 使用全局客户端管理器
-	manager := GetMCPClientManager()
-	return manager.ListTools(ctx, packageName)
+	// 这个函数现在已经过时，应该使用 proxy.ServiceManager 来获取工具
+	// 暂时返回错误，建议调用者使用新的服务管理方式
+	return nil, fmt.Errorf("ListMCPServerTools is deprecated, please use proxy.ServiceManager to manage MCP services")
 }
 
 // MCPServerInfo 包含 MCP 服务器的详细信息
@@ -737,12 +734,12 @@ func GetInstalledMCPServersFromDB() (map[string]int64, error) {
 
 // UninstallNPMPackage 卸载npm包
 func UninstallNPMPackage(packageName string) error {
-	// 首先从管理器中移除客户端
-	manager := GetMCPClientManager()
-	manager.RemoveClient(packageName)
+	// 服务的停止和客户端清理现在由 proxy.ServiceManager.UnregisterService() 处理
+	// 这个函数现在只负责物理包的卸载逻辑（如果需要的话）
 
 	// 实际卸载逻辑可以在这里添加，比如调用 npm uninstall，或者清理相关文件
 	// 对于大多数情况，服务进程的终止就足够了，因为它们是临时启动的
+	log.Printf("NPM package %s marked for uninstallation. Service cleanup handled by ServiceManager.", packageName)
 
 	return nil
 }
