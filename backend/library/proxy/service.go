@@ -17,6 +17,41 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
+// SharedMcpInstance encapsulates a shared MCPServer and its MCPClient.
+type SharedMcpInstance struct {
+	Server *mcpserver.MCPServer
+	Client mcpclient.MCPClient
+	// consider adding createdAt time.Time for future LRU cache policies
+}
+
+// Shutdown gracefully stops the server and closes the client.
+func (s *SharedMcpInstance) Shutdown(ctx context.Context) error {
+	common.SysLog(fmt.Sprintf("Shutting down SharedMcpInstance (Server: %p, Client: %p)", s.Server, s.Client))
+	var firstErr error
+	// Note: Actual shutdown logic for s.Server depends on mcp-go's MCPServer API.
+	// This might involve calling a Stop() or Shutdown() method on s.Server if available.
+	// For example: if s.Server has a Stop method:
+	// if E, ok := s.Server.(interface{ Stop(context.Context) error }); ok {
+	//    if err := E.Stop(ctx); err != nil {
+	//        common.SysError(fmt.Sprintf("Error stopping MCPServer for SharedMcpInstance: %v", err))
+	//        if firstErr == nil { firstErr = err }
+	//    }
+	// }
+	common.SysLog(fmt.Sprintf("MCPServer %p shutdown initiated/completed (actual stop method TBD based on mcp-go API)", s.Server))
+
+	if s.Client != nil {
+		if err := s.Client.Close(); err != nil {
+			common.SysError(fmt.Sprintf("Error closing MCPClient for SharedMcpInstance: %v", err))
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			common.SysLog(fmt.Sprintf("MCPClient %p closed.", s.Client))
+		}
+	}
+	return firstErr
+}
+
 // ServiceStatus 表示服务的健康状态
 type ServiceStatus string
 
@@ -245,6 +280,136 @@ func (s *BaseService) CheckHealth(ctx context.Context) (*ServiceHealth, error) {
 	return &healthCopy, nil
 }
 
+// MonitoredProxiedService extends BaseService with a SharedMcpInstance for health checking.
+type MonitoredProxiedService struct {
+	*BaseService
+	sharedInstance  *SharedMcpInstance
+	dbServiceConfig *model.MCPService // Store original config for potential instance recreation
+}
+
+// NewMonitoredProxiedService creates a new monitored service.
+func NewMonitoredProxiedService(base *BaseService, instance *SharedMcpInstance, dbConfig *model.MCPService) *MonitoredProxiedService {
+	return &MonitoredProxiedService{
+		BaseService:     base,
+		sharedInstance:  instance,
+		dbServiceConfig: dbConfig,
+	}
+}
+
+// CheckHealth for MonitoredProxiedService performs deep health checking using the shared MCP instance
+func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHealth, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	startTime := time.Now()
+
+	if s.sharedInstance == nil || s.sharedInstance.Client == nil {
+		s.health.Status = StatusUnhealthy
+		s.health.ErrorMessage = "Shared MCP instance or client is not initialized."
+		s.health.LastChecked = time.Now()
+		s.health.ResponseTime = time.Since(startTime).Milliseconds()
+		s.health.FailureCount++
+		s.health.WarningLevel = 3 // Critical if not initialized
+		healthCopy := s.health
+		return &healthCopy, errors.New(s.health.ErrorMessage)
+	}
+
+	// Attempt to ping the client with timeout
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	err := s.sharedInstance.Client.Ping(pingCtx)
+	responseTime := time.Since(startTime).Milliseconds()
+
+	if err != nil {
+		s.health.Status = StatusUnhealthy
+		s.health.ErrorMessage = fmt.Sprintf("Ping failed: %v", err)
+		s.health.FailureCount++
+		common.SysError(fmt.Sprintf("Health check for %s (ID: %d) failed: %s", s.serviceName, s.serviceID, s.health.ErrorMessage))
+	} else {
+		s.health.Status = StatusHealthy
+		s.health.ErrorMessage = ""
+		s.health.SuccessCount++
+		common.SysLog(fmt.Sprintf("Health check for %s (ID: %d) successful.", s.serviceName, s.serviceID))
+	}
+
+	s.health.LastChecked = time.Now()
+	s.health.ResponseTime = responseTime
+
+	// Update warning level
+	if s.health.Status == StatusHealthy {
+		s.health.WarningLevel = 0
+	} else if s.health.FailureCount <= 3 {
+		s.health.WarningLevel = 1
+	} else if s.health.FailureCount <= 10 {
+		s.health.WarningLevel = 2
+	} else {
+		s.health.WarningLevel = 3
+	}
+
+	// Calculate uptime if running
+	if s.running && !s.lastStartTime.IsZero() {
+		s.health.UpTime = int64(time.Since(s.lastStartTime).Seconds())
+	}
+
+	healthCopy := s.health
+	return &healthCopy, err
+}
+
+// Start for MonitoredProxiedService ensures the shared instance is active
+func (s *MonitoredProxiedService) Start(ctx context.Context) error {
+	// Call BaseService's Start first
+	if err := s.BaseService.Start(ctx); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// If shared instance is nil, attempt to create/get it
+	if s.sharedInstance == nil && s.dbServiceConfig != nil {
+		common.SysLog(fmt.Sprintf("Attempting to (re)create shared MCP instance for health monitoring for %s (ID: %d)", s.serviceName, s.serviceID))
+
+		// Use unified global cache key and standardized parameters
+		cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
+		instanceNameDetail := fmt.Sprintf("global-shared-svc-%d", s.dbServiceConfig.ID)
+		effectiveEnvs := s.dbServiceConfig.DefaultEnvsJSON
+
+		sharedInst, err := GetOrCreateSharedMcpInstanceWithKey(ctx, s.dbServiceConfig, cacheKey, instanceNameDetail, effectiveEnvs)
+		if err != nil {
+			s.health.Status = StatusUnhealthy
+			s.health.ErrorMessage = fmt.Sprintf("Failed to recreate shared instance on Start: %v", err)
+			common.SysError(fmt.Sprintf("Failed to recreate shared instance for %s on Start: %v", s.serviceName, err))
+			return fmt.Errorf("failed to recreate shared instance for %s: %w", s.serviceName, err)
+		}
+		s.sharedInstance = sharedInst
+		s.health.Status = StatusHealthy
+		s.health.ErrorMessage = ""
+		common.SysLog(fmt.Sprintf("Successfully (re)created shared MCP instance for health monitoring for %s", s.serviceName))
+	} else if s.sharedInstance != nil {
+		s.health.Status = StatusHealthy
+		s.health.ErrorMessage = ""
+	} else {
+		// dbServiceConfig is nil, cannot recreate
+		s.health.Status = StatusUnhealthy
+		s.health.ErrorMessage = "Cannot start monitored service: dbServiceConfig is nil, unable to create shared instance."
+		common.SysError(s.health.ErrorMessage)
+		return errors.New(s.health.ErrorMessage)
+	}
+
+	return nil
+}
+
+// Stop for MonitoredProxiedService updates state; actual cleanup handled by cache management
+func (s *MonitoredProxiedService) Stop(ctx context.Context) error {
+	if err := s.BaseService.Stop(ctx); err != nil {
+		return err
+	}
+	// The SharedMcpInstance is managed by the cache and cleanup functions
+	common.SysLog(fmt.Sprintf("MonitoredProxiedService %s stopped. Underlying shared instance will be cleaned up by cache management.", s.serviceName))
+	return nil
+}
+
 // SSESvc wraps an http.Handler to act as an SSE service.
 type SSESvc struct {
 	*BaseService              // Embed BaseService
@@ -281,70 +446,76 @@ var (
 	initializedStdioSSEWrappers = make(map[string]http.Handler)
 	muStdioSSEWrappers          sync.RWMutex
 
-	// TODO: Add caches for other types if needed, e.g., direct SSE proxies
+	// New caches for the refactored architecture
+	sharedMCPServers             = make(map[string]*SharedMcpInstance)
+	sharedMCPServersMutex        = &sync.Mutex{}
+	initializedSSEProxyWrappers  = make(map[string]http.Handler)
+	sseWrappersMutex             = &sync.Mutex{}
+	initializedHTTPProxyWrappers = make(map[string]http.Handler)
+	httpWrappersMutex            = &sync.Mutex{}
 )
 
-// createMcpGoServer creates and initializes an mcp-go client and server instance.
+// createActualMcpGoServerAndClientUncached creates and initializes an mcp-go client and server instance.
 // For Stdio clients, client.Start() is not called.
 // It returns the mcp-go server, the mcp-go client, and an error.
-func createMcpGoServer(
+func createActualMcpGoServerAndClientUncached(
 	ctx context.Context,
-	mcpDBService *model.MCPService,
+	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
 ) (*mcpserver.MCPServer, mcpclient.MCPClient, error) {
-	common.SysLog(fmt.Sprintf("createMcpGoServer: Creating new MCP client and server for %s (ID: %d, Type: %s) - %s.",
-		mcpDBService.Name, mcpDBService.ID, mcpDBService.Type, instanceNameDetail))
+	common.SysLog(fmt.Sprintf("createActualMcpGoServerAndClientUncached: Creating new MCP client and server for %s (ID: %d, Type: %s) - %s.",
+		serviceConfigForInstance.Name, serviceConfigForInstance.ID, serviceConfigForInstance.Type, instanceNameDetail))
 
 	var mcpGoClient mcpclient.MCPClient
 	var err error
 	var needManualStart bool
 
-	switch mcpDBService.Type {
+	switch serviceConfigForInstance.Type {
 	case model.ServiceTypeStdio:
 		var stdioConf model.StdioConfig
-		stdioConf.Command = mcpDBService.Command
+		stdioConf.Command = serviceConfigForInstance.Command
 		if stdioConf.Command == "" {
 			return nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
 				"This usually indicates the service was not properly configured during installation. "+
 				"Expected Command field to contain the executable name (e.g., 'npx' for npm packages). "+
 				"PackageManager: %s, SourcePackageName: %s, InstanceDetail: %s",
-				mcpDBService.Name, mcpDBService.ID, mcpDBService.PackageManager, mcpDBService.SourcePackageName, instanceNameDetail)
+				serviceConfigForInstance.Name, serviceConfigForInstance.ID, serviceConfigForInstance.PackageManager, serviceConfigForInstance.SourcePackageName, instanceNameDetail)
 		}
-		if mcpDBService.ArgsJSON != "" {
-			if errJson := json.Unmarshal([]byte(mcpDBService.ArgsJSON), &stdioConf.Args); errJson != nil {
-				common.SysError(fmt.Sprintf("Failed to unmarshal ArgsJSON for service %s (ID: %d, Stdio): %v. Args will be empty.", mcpDBService.Name, mcpDBService.ID, errJson))
+		if serviceConfigForInstance.ArgsJSON != "" {
+			if errJson := json.Unmarshal([]byte(serviceConfigForInstance.ArgsJSON), &stdioConf.Args); errJson != nil {
+				common.SysError(fmt.Sprintf("Failed to unmarshal ArgsJSON for service %s (ID: %d, Stdio): %v. Args will be empty.", serviceConfigForInstance.Name, serviceConfigForInstance.ID, errJson))
 				stdioConf.Args = []string{}
 			}
 		} else {
 			stdioConf.Args = []string{}
 		}
 		stdioConf.Env = []string{}
-		if mcpDBService.DefaultEnvsJSON != "" && mcpDBService.DefaultEnvsJSON != "{}" {
+		if serviceConfigForInstance.DefaultEnvsJSON != "" && serviceConfigForInstance.DefaultEnvsJSON != "{}" {
 			var defaultEnvs map[string]string
-			if errJson := json.Unmarshal([]byte(mcpDBService.DefaultEnvsJSON), &defaultEnvs); errJson != nil {
-				common.SysError(fmt.Sprintf("Failed to unmarshal DefaultEnvsJSON for %s (ID: %d, Stdio): %v. Proceeding without them.", mcpDBService.Name, mcpDBService.ID, errJson))
+			if errJson := json.Unmarshal([]byte(serviceConfigForInstance.DefaultEnvsJSON), &defaultEnvs); errJson != nil {
+				common.SysError(fmt.Sprintf("Failed to unmarshal DefaultEnvsJSON for %s (ID: %d, Stdio): %v. Proceeding without them.", serviceConfigForInstance.Name, serviceConfigForInstance.ID, errJson))
 			} else {
 				for key, value := range defaultEnvs {
 					stdioConf.Env = append(stdioConf.Env, fmt.Sprintf("%s=%s", key, value))
 				}
 			}
 		}
-		common.SysLog(fmt.Sprintf("Stdio config for %s: Command=%s, Args=%v, Env=%v", mcpDBService.Name, stdioConf.Command, stdioConf.Args, stdioConf.Env))
+		common.SysLog(fmt.Sprintf("Stdio config for %s: Command=%s, Args=%v, Env=%v", serviceConfigForInstance.Name, stdioConf.Command, stdioConf.Args, stdioConf.Env))
 		mcpGoClient, err = mcpclient.NewStdioMCPClient(stdioConf.Command, stdioConf.Env, stdioConf.Args...)
 		needManualStart = false
 
 	case model.ServiceTypeSSE:
-		url := mcpDBService.Command // URL is stored in Command field for SSE/HTTP
+		url := serviceConfigForInstance.Command // URL is stored in Command field for SSE/HTTP
 		if url == "" {
-			return nil, nil, fmt.Errorf("URL (from Command field) is empty for SSE service %s (ID: %d)", mcpDBService.Name, mcpDBService.ID)
+			return nil, nil, fmt.Errorf("URL (from Command field) is empty for SSE service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
 		}
 		var headers map[string]string
-		if mcpDBService.HeadersJSON != "" && mcpDBService.HeadersJSON != "{}" {
-			if errJson := json.Unmarshal([]byte(mcpDBService.HeadersJSON), &headers); errJson != nil {
-				common.SysError(fmt.Sprintf("Failed to unmarshal HeadersJSON for SSE service %s (ID: %d): %v. Proceeding without custom headers.", mcpDBService.Name, mcpDBService.ID, errJson))
+		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
+			if errJson := json.Unmarshal([]byte(serviceConfigForInstance.HeadersJSON), &headers); errJson != nil {
+				common.SysError(fmt.Sprintf("Failed to unmarshal HeadersJSON for SSE service %s (ID: %d): %v. Proceeding without custom headers.", serviceConfigForInstance.Name, serviceConfigForInstance.ID, errJson))
 			}
 		}
-		common.SysLog(fmt.Sprintf("SSE config for %s: URL=%s, Headers=%v", mcpDBService.Name, url, headers))
+		common.SysLog(fmt.Sprintf("SSE config for %s: URL=%s, Headers=%v", serviceConfigForInstance.Name, url, headers))
 		if len(headers) > 0 {
 			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, mcpclient.WithHeaders(headers))
 		} else {
@@ -353,24 +524,24 @@ func createMcpGoServer(
 		needManualStart = true
 
 	case model.ServiceTypeStreamableHTTP:
-		url := mcpDBService.Command // URL is stored in Command field for SSE/HTTP
+		url := serviceConfigForInstance.Command // URL is stored in Command field for SSE/HTTP
 		if url == "" {
-			return nil, nil, fmt.Errorf("URL (from Command field) is empty for StreamableHTTP service %s (ID: %d)", mcpDBService.Name, mcpDBService.ID)
+			return nil, nil, fmt.Errorf("URL (from Command field) is empty for StreamableHTTP service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
 		}
 		var headers map[string]string
-		if mcpDBService.HeadersJSON != "" && mcpDBService.HeadersJSON != "{}" {
-			if errJson := json.Unmarshal([]byte(mcpDBService.HeadersJSON), &headers); errJson != nil {
-				common.SysError(fmt.Sprintf("Failed to unmarshal HeadersJSON for StreamableHTTP service %s (ID: %d): %v. Proceeding without custom headers.", mcpDBService.Name, mcpDBService.ID, errJson))
+		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
+			if errJson := json.Unmarshal([]byte(serviceConfigForInstance.HeadersJSON), &headers); errJson != nil {
+				common.SysError(fmt.Sprintf("Failed to unmarshal HeadersJSON for StreamableHTTP service %s (ID: %d): %v. Proceeding without custom headers.", serviceConfigForInstance.Name, serviceConfigForInstance.ID, errJson))
 			}
 		}
-		common.SysLog(fmt.Sprintf("StreamableHTTP config for %s: URL=%s, Headers (raw)=%v", mcpDBService.Name, url, headers))
+		common.SysLog(fmt.Sprintf("StreamableHTTP config for %s: URL=%s, Headers (raw)=%v", serviceConfigForInstance.Name, url, headers))
 		if len(headers) > 0 {
 			// TODO: Correctly apply HTTP headers.
 			// tdd.md and mcp-go patterns suggest `transport.WithHTTPHeaders(headers)`,
 			// which would require importing "github.com/mark3labs/mcp-go/client/transport".
 			// Due to current tool limitations on adding imports, this is omitted.
 			// mcpclient.WithHeaders is likely not the correct option for HTTP stream transport headers.
-			common.SysLog(fmt.Sprintf("WARNING: Custom headers for StreamableHTTP service %s are NOT being applied due to missing transport.WithHTTPHeaders option.", mcpDBService.Name))
+			common.SysLog(fmt.Sprintf("WARNING: Custom headers for StreamableHTTP service %s are NOT being applied due to missing transport.WithHTTPHeaders option.", serviceConfigForInstance.Name))
 			// Call without header options as the correct option builder is unavailable without new imports.
 			mcpGoClient, err = mcpclient.NewStreamableHttpClient(url)
 		} else {
@@ -379,18 +550,18 @@ func createMcpGoServer(
 		needManualStart = true
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported service type %s in createMcpGoServer", mcpDBService.Type)
+		return nil, nil, fmt.Errorf("unsupported service type %s in createActualMcpGoServerAndClientUncached", serviceConfigForInstance.Type)
 	}
 
 	if err != nil { // Consolidated error check after switch
-		errMsg := fmt.Sprintf("Failed to create mcp-go client for %s (Type: %s, %s): %v", mcpDBService.Name, mcpDBService.Type, instanceNameDetail, err)
+		errMsg := fmt.Sprintf("Failed to create mcp-go client for %s (Type: %s, %s): %v", serviceConfigForInstance.Name, serviceConfigForInstance.Type, instanceNameDetail, err)
 		common.SysError(errMsg)
 		return nil, nil, errors.New(errMsg)
 	}
 
 	// Call client.Start() if needed
 	if needManualStart {
-		common.SysLog(fmt.Sprintf("Manually starting mcp-go client for %s (%s)...", mcpDBService.Name, instanceNameDetail))
+		common.SysLog(fmt.Sprintf("Manually starting mcp-go client for %s (%s)...", serviceConfigForInstance.Name, instanceNameDetail))
 
 		var startErr error
 		switch cl := mcpGoClient.(type) {
@@ -401,14 +572,14 @@ func createMcpGoServer(
 		}
 
 		if startErr != nil {
-			errMsg := fmt.Sprintf("Failed to start mcp-go client for %s (%s): %v", mcpDBService.Name, instanceNameDetail, startErr)
+			errMsg := fmt.Sprintf("Failed to start mcp-go client for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, startErr)
 			common.SysError(errMsg)
 			if closeErr := mcpGoClient.Close(); closeErr != nil {
-				common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after Start() error: %v", mcpDBService.Name, instanceNameDetail, closeErr))
+				common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after Start() error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 			}
 			return nil, nil, errors.New(errMsg)
 		}
-		common.SysLog(fmt.Sprintf("Successfully started mcp-go client for %s (%s).", mcpDBService.Name, instanceNameDetail))
+		common.SysLog(fmt.Sprintf("Successfully started mcp-go client for %s (%s).", serviceConfigForInstance.Name, instanceNameDetail))
 
 		// Start ping task for SSE and HTTP clients
 		go func() {
@@ -418,11 +589,11 @@ func createMcpGoServer(
 			for {
 				select {
 				case <-ctx.Done():
-					common.SysLog(fmt.Sprintf("Context done, stopping ping for %s", mcpDBService.Name))
+					common.SysLog(fmt.Sprintf("Context done, stopping ping for %s", serviceConfigForInstance.Name))
 					break PingLoop
 				case <-ticker.C:
 					if err := mcpGoClient.Ping(ctx); err != nil {
-						common.SysError(fmt.Sprintf("Ping failed for %s: %v", mcpDBService.Name, err))
+						common.SysError(fmt.Sprintf("Ping failed for %s: %v", serviceConfigForInstance.Name, err))
 					}
 				}
 			}
@@ -430,13 +601,13 @@ func createMcpGoServer(
 	}
 
 	mcpGoServer := mcpserver.NewMCPServer(
-		mcpDBService.Name,
-		mcpDBService.InstalledVersion,
+		serviceConfigForInstance.Name,
+		serviceConfigForInstance.InstalledVersion,
 		mcpserver.WithResourceCapabilities(true, true),
 	)
 
 	clientInfo := mcp.Implementation{
-		Name:    fmt.Sprintf("one-mcp-proxy-for-%s-%s", mcpDBService.Name, instanceNameDetail),
+		Name:    fmt.Sprintf("one-mcp-proxy-for-%s-%s", serviceConfigForInstance.Name, instanceNameDetail),
 		Version: common.Version,
 	}
 
@@ -444,34 +615,34 @@ func createMcpGoServer(
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = clientInfo
 
-	common.SysLog(fmt.Sprintf("Initializing mcp-go client for %s (%s)...", mcpDBService.Name, instanceNameDetail))
+	common.SysLog(fmt.Sprintf("Initializing mcp-go client for %s (%s)...", serviceConfigForInstance.Name, instanceNameDetail))
 
 	_, err = mcpGoClient.Initialize(ctx, initRequest)
 	if err != nil {
 		closeErr := mcpGoClient.Close()
 		if closeErr != nil {
-			common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after initialization error: %v", mcpDBService.Name, instanceNameDetail, closeErr))
+			common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after initialization error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 		}
-		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err)
+		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err)
 		common.SysError(errMsg)
 		return nil, nil, errors.New(errMsg)
 	}
-	common.SysLog(fmt.Sprintf("Successfully initialized mcp-go client for %s (%s). Adding resources...", mcpDBService.Name, instanceNameDetail))
+	common.SysLog(fmt.Sprintf("Successfully initialized mcp-go client for %s (%s). Adding resources...", serviceConfigForInstance.Name, instanceNameDetail))
 
 	// Populate server with resources from client
-	if err := addClientToolsToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
-		common.SysError(fmt.Sprintf("Failed to add tools for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err))
+	if err := addClientToolsToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+		common.SysError(fmt.Sprintf("Failed to add tools for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	if err := addClientPromptsToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
-		common.SysError(fmt.Sprintf("Failed to add prompts for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err))
+	if err := addClientPromptsToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+		common.SysError(fmt.Sprintf("Failed to add prompts for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	if err := addClientResourcesToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
-		common.SysError(fmt.Sprintf("Failed to add resources for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err))
+	if err := addClientResourcesToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+		common.SysError(fmt.Sprintf("Failed to add resources for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	if err := addClientResourceTemplatesToMCPServer(ctx, mcpGoClient, mcpGoServer, mcpDBService.Name); err != nil {
-		common.SysError(fmt.Sprintf("Failed to add resource templates for %s (%s): %v", mcpDBService.Name, instanceNameDetail, err))
+	if err := addClientResourceTemplatesToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+		common.SysError(fmt.Sprintf("Failed to add resource templates for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	common.SysLog(fmt.Sprintf("Finished adding resources for %s (%s) to mcp-go server.", mcpDBService.Name, instanceNameDetail))
+	common.SysLog(fmt.Sprintf("Finished adding resources for %s (%s) to mcp-go server.", serviceConfigForInstance.Name, instanceNameDetail))
 
 	return mcpGoServer, mcpGoClient, nil
 }
@@ -495,6 +666,18 @@ func createSSEHttpHandler(
 	return actualMCPGoSSEServer, nil
 }
 
+// createHTTPProxyHttpHandler creates an HTTP/MCP http.Handler from an mcpserver.MCPServer.
+func createHTTPProxyHttpHandler(mcpGoServer *mcpserver.MCPServer, mcpDBService *model.MCPService) (http.Handler, error) {
+	if mcpGoServer == nil {
+		return nil, errors.New("mcpGoServer cannot be nil for createHTTPProxyHttpHandler")
+	}
+
+	// Use NewStreamableHTTPServer to create HTTP/MCP handler
+	actualMCPGoHTTPServer := mcpserver.NewStreamableHTTPServer(mcpGoServer)
+	common.SysLog(fmt.Sprintf("Successfully created HTTP/MCP handler for %s (ID: %d)", mcpDBService.Name, mcpDBService.ID))
+	return actualMCPGoHTTPServer, nil
+}
+
 // GetCachedHandler safely retrieves a handler from the cache.
 func GetCachedHandler(key string) (http.Handler, bool) {
 	muStdioSSEWrappers.RLock()
@@ -510,74 +693,6 @@ func CacheHandler(key string, handler http.Handler) {
 	initializedStdioSSEWrappers[key] = handler
 }
 
-// getOrCreateProxyToSSEHandler (renamed from getOrCreateStdioToSSEHandler)
-// creates or retrieves a cached SSE http.Handler for the given MCPService.
-// The handler proxies the backend (Stdio, SSE, or HTTP) specified in MCPService over an SSE connection.
-func getOrCreateProxyToSSEHandler(mcpDBService *model.MCPService) (http.Handler, error) {
-	// Key for caching can remain the same as it's per service ID
-	globalHandlerKey := fmt.Sprintf("global-service-%d-sseproxy", mcpDBService.ID)
-
-	common.SysLog(fmt.Sprintf("Attempting to get/create SSE proxy handler for %s (ID: %d, Type: %s) with key: %s",
-		mcpDBService.Name, mcpDBService.ID, mcpDBService.Type, globalHandlerKey))
-
-	muStdioSSEWrappers.RLock() // Using the same mutex for simplicity, consider renaming if it becomes confusing
-	existingHandler, found := initializedStdioSSEWrappers[globalHandlerKey]
-	muStdioSSEWrappers.RUnlock()
-	if found {
-		common.SysLog(fmt.Sprintf("Reusing existing SSE proxy handler for %s (Key: %s)", mcpDBService.Name, globalHandlerKey))
-		return existingHandler, nil
-	}
-
-	common.SysLog(fmt.Sprintf("No existing SSE proxy handler found for key %s. Creating new handler for %s.", globalHandlerKey, mcpDBService.Name))
-
-	ctx := context.Background() // Using a background context for global handler creation
-
-	// Create the mcp-go server. Configuration parsing is now inside createMcpGoServer.
-	mcpGoSrv, mcpClient, err := createMcpGoServer(ctx, mcpDBService, "global") // Pass mcpDBService directly
-	if err != nil {
-		return nil, fmt.Errorf("failed to create mcp-go server for %s (Type: %s): %w", mcpDBService.Name, mcpDBService.Type, err)
-	}
-	// Note: mcpClient is returned but not explicitly managed here.
-	// Its lifecycle is assumed to be tied to mcpGoSrv or the resulting http.Handler (SSEServer).
-
-	// Create the SSE handler from the mcp-go server
-	newHandlerInstance, err := createSSEHttpHandler(mcpGoSrv, mcpDBService)
-	if err != nil {
-		// If handler creation fails, attempt to close the MCP client that was created.
-		if mcpClient != nil {
-			common.SysError(fmt.Sprintf("Closing MCP client for %s due to SSE handler creation failure: %v", mcpDBService.Name, err))
-			if closeErr := mcpClient.Close(); closeErr != nil {
-				common.SysError(fmt.Sprintf("Error closing MCP client for %s after SSE handler creation failure: %v", mcpDBService.Name, closeErr))
-			}
-		}
-		return nil, fmt.Errorf("failed to create SSE handler for %s: %w", mcpDBService.Name, err)
-	}
-
-	muStdioSSEWrappers.Lock()
-	if interimHandler, exists := initializedStdioSSEWrappers[globalHandlerKey]; exists {
-		muStdioSSEWrappers.Unlock()
-		common.SysLog(fmt.Sprintf("SSE Proxy Handler for key %s was created by another goroutine. Returning existing.", globalHandlerKey))
-		// The newHandlerInstance and its associated mcpGoSrv & mcpClient are now orphaned.
-		// The SSEServer (newHandlerInstance) should ideally handle closing its mcpGoServer,
-		// which in turn should manage its client. If not, mcpClient.Close() would be needed here.
-		// This is a general concern with concurrent handler creation and resource management.
-		if mcpClient != nil {
-			common.SysLog(fmt.Sprintf("Orphaned MCP client for %s needs cleanup due to race.", mcpDBService.Name))
-			// TODO: Define clear ownership and cleanup for mcpClient if SSEServer doesn't manage it fully.
-			// For now, assuming SSEServer (as an http.Handler wrapper around mcpserver) handles this.
-			// If SSEServer is just a passthrough, then explicit mcpClient.Close() might be needed.
-			// A robust solution might involve the SSEServer itself having a Close method that propagates to the client.
-		}
-		return interimHandler, nil
-	}
-	initializedStdioSSEWrappers[globalHandlerKey] = newHandlerInstance
-	muStdioSSEWrappers.Unlock()
-
-	common.SysLog(fmt.Sprintf("Successfully created and cached global SSE proxy handler for %s (Type: %s, Key: %s)",
-		mcpDBService.Name, mcpDBService.Type, globalHandlerKey))
-	return newHandlerInstance, nil
-}
-
 // defaultNewStdioSSEHandlerUncached is renamed to newProxyToSSEHandlerUncached
 // It creates a new, non-cached http.Handler (SSE proxy) for an MCP service.
 func newProxyToSSEHandlerUncached(ctx context.Context, mcpDBService *model.MCPService) (http.Handler, error) {
@@ -585,8 +700,8 @@ func newProxyToSSEHandlerUncached(ctx context.Context, mcpDBService *model.MCPSe
 		mcpDBService.Name, mcpDBService.ID, mcpDBService.Type))
 
 	// Delegate to the new core functions
-	// Configuration parsing (like StdioConfig) is now handled within createMcpGoServer based on mcpDBService.Type
-	mcpGoSrv, mcpClient, err := createMcpGoServer(ctx, mcpDBService, "user-specific-instance")
+	// Configuration parsing (like StdioConfig) is now handled within createActualMcpGoServerAndClientUncached based on mcpDBService.Type
+	mcpGoSrv, mcpClient, err := createActualMcpGoServerAndClientUncached(ctx, mcpDBService, "user-specific-instance")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mcp-go server for %s (Type: %s, user-specific): %w", mcpDBService.Name, mcpDBService.Type, err)
 	}
@@ -610,54 +725,35 @@ func newProxyToSSEHandlerUncached(ctx context.Context, mcpDBService *model.MCPSe
 // RENAMING this variable as well to reflect its general nature.
 var NewProxyToSSEHandlerUncached = newProxyToSSEHandlerUncached // Points to the renamed function
 
-// ServiceFactory 用于创建适合特定类型的服务实例
+// ServiceFactory 用于创建适合特定类型的服务实例，包含真实的MCP连接用于准确的健康监测
 func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
-	var effectiveServiceType model.ServiceType
-	var httpHandlerForProxy http.Handler
-	var err error
+	baseService := NewBaseService(mcpDBService.ID, mcpDBService.Name, mcpDBService.Type)
 
 	switch mcpDBService.Type {
 	case model.ServiceTypeStdio, model.ServiceTypeSSE, model.ServiceTypeStreamableHTTP:
-		common.SysLog(fmt.Sprintf("ServiceFactory: %s is %s type. Attempting to wrap as SSE proxy.", mcpDBService.Name, mcpDBService.Type))
-		httpHandlerForProxy, err = getOrCreateProxyToSSEHandler(mcpDBService) // Use the renamed getter
+		common.SysLog(fmt.Sprintf("ServiceFactory: Creating MonitoredProxiedService for %s (type: %s)", mcpDBService.Name, mcpDBService.Type))
+
+		ctx := context.Background()
+		// Use unified global cache key and standardized parameters
+		cacheKey := fmt.Sprintf("global-service-%d-shared", mcpDBService.ID)
+		instanceNameDetail := fmt.Sprintf("global-shared-svc-%d", mcpDBService.ID)
+		effectiveEnvs := mcpDBService.DefaultEnvsJSON
+
+		sharedInst, err := GetOrCreateSharedMcpInstanceWithKey(ctx, mcpDBService, cacheKey, instanceNameDetail, effectiveEnvs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create SSE proxy handler for %s (type %s): %w", mcpDBService.Name, mcpDBService.Type, err)
+			common.SysError(fmt.Sprintf("ServiceFactory: Failed to get/create shared MCP instance for %s (ID: %d) with key %s: %v. Service will be unhealthy.", mcpDBService.Name, mcpDBService.ID, cacheKey, err))
+			monitoredService := NewMonitoredProxiedService(baseService, nil, mcpDBService)
+			monitoredService.UpdateHealth(StatusUnhealthy, 0, fmt.Sprintf("Failed to initialize shared MCP instance: %v", err))
+			return monitoredService, nil
 		}
-		// The effective service type from one-mcp's perspective is an SSE service,
-		// because we are proxying the backend (whatever its type) over SSE.
-		effectiveServiceType = model.ServiceTypeSSE
 
-	// case model.ServiceTypeSSE: // Combined above
-	// 	common.SysLog(fmt.Sprintf("ServiceFactory: %s is native SSE type. Attempting to wrap as SSE proxy.", mcpDBService.Name))
-	// 	httpHandlerForProxy, err = getOrCreateProxyToSSEHandler(mcpDBService)
-	// 	if err != nil {
-	// 		return nil, fmt.Errorf("failed to create SSE-to-SSE proxy handler for %s: %w", mcpDBService.Name, err)
-	// 	}
-	// 	effectiveServiceType = model.ServiceTypeSSE
-
-	// case model.ServiceTypeStreamableHTTP: // Combined above
-	// 	common.SysLog(fmt.Sprintf("ServiceFactory: %s is StreamableHTTP. Attempting to wrap as SSE proxy.", mcpDBService.Name))
-	// 	httpHandlerForProxy, err = getOrCreateProxyToSSEHandler(mcpDBService)
-	// 	if err != nil {
-	// 		return nil, fmt.Errorf("failed to create HTTP-to-SSE proxy handler for %s: %w", mcpDBService.Name, err)
-	// 	}
-	// 	effectiveServiceType = model.ServiceTypeSSE
+		common.SysLog(fmt.Sprintf("ServiceFactory: Successfully got/created shared MCP instance for %s (ID: %d) with key %s", mcpDBService.Name, mcpDBService.ID, cacheKey))
+		return NewMonitoredProxiedService(baseService, sharedInst, mcpDBService), nil
 
 	default:
-		common.SysError(fmt.Sprintf("ServiceFactory: Unsupported service type '%s' for service %s", mcpDBService.Type, mcpDBService.Name))
-		return nil, errors.New("unsupported service type: " + string(mcpDBService.Type))
+		common.SysLog(fmt.Sprintf("ServiceFactory: Creating basic BaseService for unsupported/non-proxied type %s (service: %s)", mcpDBService.Type, mcpDBService.Name))
+		return baseService, nil
 	}
-
-	proxyBaseService := NewBaseService(mcpDBService.ID, mcpDBService.Name, effectiveServiceType)
-
-	// If we successfully got a handler, and the effective type is SSE, wrap it in SSESvc
-	if httpHandlerForProxy != nil && effectiveServiceType == model.ServiceTypeSSE {
-		return NewSSESvc(proxyBaseService, httpHandlerForProxy), nil
-	}
-
-	// This path should ideally not be reached if the switch statement is comprehensive
-	// and httpHandlerForProxy is correctly assigned or an error is returned earlier.
-	return nil, fmt.Errorf("could not create a suitable proxy service for %s (type %s, effective %s)", mcpDBService.Name, mcpDBService.Type, effectiveServiceType)
 }
 
 // --- Helper functions to add resources to mcp-go server (adapted from user's example) ---
@@ -795,3 +891,97 @@ func addClientResourceTemplatesToMCPServer(ctx context.Context, mcpGoClient mcpc
 }
 
 // --- End Helper Functions ---
+
+// GetOrCreateSharedMcpInstanceWithKey manages caching of SharedMcpInstance
+// It handles both global and user-specific keys, and applies effectiveEnvsJSONForStdio for Stdio services
+func GetOrCreateSharedMcpInstanceWithKey(ctx context.Context, originalDbService *model.MCPService, cacheKey string, instanceNameDetail string, effectiveEnvsJSONForStdio string) (*SharedMcpInstance, error) {
+	sharedMCPServersMutex.Lock()
+	defer sharedMCPServersMutex.Unlock()
+
+	// Check cache first
+	if existingInstance, found := sharedMCPServers[cacheKey]; found {
+		common.SysLog(fmt.Sprintf("Reusing existing SharedMcpInstance for key: %s", cacheKey))
+		return existingInstance, nil
+	}
+
+	common.SysLog(fmt.Sprintf("Creating new SharedMcpInstance for key: %s", cacheKey))
+
+	// Prepare service config for creation
+	serviceConfigForCreation := *originalDbService // Shallow copy
+
+	// Apply user-specific environment variables for Stdio services
+	if originalDbService.Type == model.ServiceTypeStdio && effectiveEnvsJSONForStdio != "" {
+		serviceConfigForCreation.DefaultEnvsJSON = effectiveEnvsJSONForStdio
+		common.SysLog(fmt.Sprintf("Applied user-specific envs for Stdio service %s: %s", originalDbService.Name, effectiveEnvsJSONForStdio))
+	}
+
+	// Create the actual server and client
+	srv, cli, err := createActualMcpGoServerAndClientUncached(ctx, &serviceConfigForCreation, instanceNameDetail)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP server and client for %s: %w", originalDbService.Name, err)
+	}
+
+	// Create shared instance
+	instance := &SharedMcpInstance{
+		Server: srv,
+		Client: cli,
+	}
+
+	// Store in cache
+	sharedMCPServers[cacheKey] = instance
+	common.SysLog(fmt.Sprintf("Successfully created and cached SharedMcpInstance for key: %s", cacheKey))
+
+	return instance, nil
+}
+
+// GetOrCreateProxyToSSEHandler creates or retrieves a cached SSE http.Handler using shared MCP instance
+func GetOrCreateProxyToSSEHandler(ctx context.Context, mcpDBService *model.MCPService, sharedInst *SharedMcpInstance) (http.Handler, error) {
+	handlerCacheKey := fmt.Sprintf("service-%d-sseproxy", mcpDBService.ID)
+
+	sseWrappersMutex.Lock()
+	defer sseWrappersMutex.Unlock()
+
+	// Check cache first
+	if existingHandler, found := initializedSSEProxyWrappers[handlerCacheKey]; found {
+		common.SysLog(fmt.Sprintf("Reusing existing SSE proxy handler for key: %s", handlerCacheKey))
+		return existingHandler, nil
+	}
+
+	// Create new handler
+	handler, err := createSSEHttpHandler(sharedInst.Server, mcpDBService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSE handler for %s: %w", mcpDBService.Name, err)
+	}
+
+	// Cache the handler
+	initializedSSEProxyWrappers[handlerCacheKey] = handler
+	common.SysLog(fmt.Sprintf("Successfully created and cached SSE proxy handler for key: %s", handlerCacheKey))
+
+	return handler, nil
+}
+
+// GetOrCreateProxyToHTTPHandler creates or retrieves a cached HTTP/MCP http.Handler using shared MCP instance
+func GetOrCreateProxyToHTTPHandler(ctx context.Context, mcpDBService *model.MCPService, sharedInst *SharedMcpInstance) (http.Handler, error) {
+	handlerCacheKey := fmt.Sprintf("service-%d-httpproxy", mcpDBService.ID)
+
+	httpWrappersMutex.Lock()
+	defer httpWrappersMutex.Unlock()
+
+	// Check cache first
+	if existingHandler, found := initializedHTTPProxyWrappers[handlerCacheKey]; found {
+		common.SysLog(fmt.Sprintf("Reusing existing HTTP proxy handler for key: %s", handlerCacheKey))
+		return existingHandler, nil
+	}
+
+	// Create new handler
+	handler, err := createHTTPProxyHttpHandler(sharedInst.Server, mcpDBService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP handler for %s: %w", mcpDBService.Name, err)
+	}
+
+	// Cache the handler
+	initializedHTTPProxyWrappers[handlerCacheKey] = handler
+	common.SysLog(fmt.Sprintf("Successfully created and cached HTTP proxy handler for key: %s", handlerCacheKey))
+
+	return handler, nil
+}

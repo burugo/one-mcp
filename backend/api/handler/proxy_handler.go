@@ -36,46 +36,17 @@ func parseInt64(value interface{}) (int64, error) {
 	}
 }
 
-// tryGetOrCreateUserSpecificHandler attempts to find or create an SSE handler tailored for a specific user.
-func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPService, userID int64) (http.Handler, error) {
-	userHandlerKey := fmt.Sprintf("user-%d-service-%d", userID, mcpDBService.ID)
-	common.SysLog(fmt.Sprintf("[ProxyHandler] Attempting user-specific handler for key: %s", userHandlerKey))
+// tryGetOrCreateUserSpecificHandler attempts to find or create a handler tailored for a specific user.
+// proxyType should be "sseproxy" or "httpproxy"
+func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPService, userID int64, proxyType string) (http.Handler, error) {
+	common.SysLog(fmt.Sprintf("[ProxyHandler] Attempting user-specific handler for user %d, service %s with proxy type %s", userID, mcpDBService.Name, proxyType))
 
-	cachedHandler, found := proxy.GetCachedHandler(userHandlerKey)
-	if found {
-		common.SysLog(fmt.Sprintf("[ProxyHandler] Found cached user-specific handler for key: %s", userHandlerKey))
-		return cachedHandler, nil
-	}
-
-	common.SysLog(fmt.Sprintf("[ProxyHandler] No cached user-specific handler for key: %s. Attempting creation.", userHandlerKey))
-	var baseStdioConf model.StdioConfig
-
-	// Populate baseStdioConf.Command and baseStdioConf.Args from mcpDBService
-	baseStdioConf.Command = mcpDBService.Command
-	if mcpDBService.Command == "" {
-		// This is a critical issue if we expect a command for Stdio type for user-specific handler creation
-		common.SysError(fmt.Sprintf("[ProxyHandler] MCPService.Command is empty for service %s (ID: %d) when creating user-specific handler.", mcpDBService.Name, mcpDBService.ID))
-		// Depending on strictness, might return error here. For now, proceeding will likely fail in NewStdioSSEHandlerUncached.
-	}
-
-	if mcpDBService.ArgsJSON != "" {
-		if err := json.Unmarshal([]byte(mcpDBService.ArgsJSON), &baseStdioConf.Args); err != nil {
-			common.SysError(fmt.Sprintf("[ProxyHandler] Error unmarshalling ArgsJSON for service %s (user-specific base): %v. Args will be empty.", mcpDBService.Name, err))
-			baseStdioConf.Args = []string{} // Ensure Args is empty on error
-		}
-	} else {
-		baseStdioConf.Args = []string{} // Ensure Args is empty if ArgsJSON is empty
-	}
-
-	// Initialize Env, will be populated by DefaultEnvsJSON and user-specific overrides
-	baseStdioConf.Env = []string{}
-
+	// Prepare user-specific environment variables
 	currentEnvMap := make(map[string]string)
 	// Populate currentEnvMap from DefaultEnvsJSON first
 	if mcpDBService.DefaultEnvsJSON != "" && mcpDBService.DefaultEnvsJSON != "{}" {
 		if err := json.Unmarshal([]byte(mcpDBService.DefaultEnvsJSON), &currentEnvMap); err != nil {
-			common.SysError(fmt.Sprintf("[ProxyHandler] Error unmarshalling DefaultEnvsJSON for %s (user-specific base): %v", mcpDBService.Name, err))
-			// Continue with an empty map if unmarshal fails
+			common.SysError(fmt.Sprintf("[ProxyHandler] Error unmarshalling DefaultEnvsJSON for %s (user-specific): %v", mcpDBService.Name, err))
 			currentEnvMap = make(map[string]string)
 		}
 	}
@@ -84,7 +55,6 @@ func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPSe
 	userEnvs, userEnvErr := model.GetUserSpecificEnvs(userID, mcpDBService.ID)
 	if userEnvErr != nil {
 		common.SysError(fmt.Sprintf("[ProxyHandler] Error fetching user-specific ENVs for user %d, service %s: %v", userID, mcpDBService.Name, userEnvErr))
-		// Potentially return error here if user ENVs are critical and failed to load
 	}
 
 	if len(userEnvs) > 0 {
@@ -96,70 +66,84 @@ func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPSe
 		common.SysLog(fmt.Sprintf("[ProxyHandler] No user-specific ENVs found for user %d, service %s. Using defaults from DefaultEnvsJSON if any.", userID, mcpDBService.Name))
 	}
 
-	// Convert the final map to the KEY=VALUE string slice format for StdioConfig.Env
-	// This part (populating baseStdioConf.Env) is for logging or if baseStdioConf were passed directly.
-	// Since we are modifying a copy of mcpDBService.DefaultEnvsJSON, createMcpGoServer will use that.
-	// Keeping it for the log message for now.
-	tempEnvSlice := []string{}
-	for k, v := range currentEnvMap {
-		tempEnvSlice = append(tempEnvSlice, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	// Create a copy of mcpDBService to avoid modifying the original from the database/cache
-	// and to pass user-specific configurations.
-	userSpecificMcpService := *mcpDBService // Shallow copy
-
-	// Marshal the merged env map back to JSON and set it on the service copy
+	// Marshal the merged env map back to JSON
 	mergedEnvsJSONBytes, marshalErr := json.Marshal(currentEnvMap)
 	if marshalErr != nil {
 		common.SysError(fmt.Sprintf("[ProxyHandler] Error marshalling merged ENVs for user %d, service %s: %v. Proceeding with original DefaultEnvsJSON.", userID, mcpDBService.Name, marshalErr))
-		// If marshalling fails, userSpecificMcpService will retain the original DefaultEnvsJSON.
-		// The log below will show the intended envs, but the actual process might get defaults.
-	} else {
-		userSpecificMcpService.DefaultEnvsJSON = string(mergedEnvsJSONBytes)
-		common.SysLog(fmt.Sprintf("[ProxyHandler] Updated DefaultEnvsJSON for user-specific call for %s (user %d): %s", mcpDBService.Name, userID, userSpecificMcpService.DefaultEnvsJSON))
+		mergedEnvsJSONBytes = []byte(mcpDBService.DefaultEnvsJSON)
+	}
+	mergedEnvsJSON := string(mergedEnvsJSONBytes)
+
+	// Create user-specific shared MCP instance
+	ctx := c.Request.Context()
+	userSharedCacheKey := fmt.Sprintf("user-%d-service-%d-shared", userID, mcpDBService.ID)
+	instanceNameDetail := fmt.Sprintf("user-%d-shared-svc-%d", userID, mcpDBService.ID)
+
+	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, mcpDBService, userSharedCacheKey, instanceNameDetail, mergedEnvsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user-specific shared MCP instance for %s (user %d): %w", mcpDBService.Name, userID, err)
 	}
 
-	common.SysLog(fmt.Sprintf("[ProxyHandler] Effective StdioConfig (intended for user %d, service %s): Command='%s', Args=%v, Env=%v. Actual envs based on (potentially updated) DefaultEnvsJSON.", userID, mcpDBService.Name, baseStdioConf.Command, baseStdioConf.Args, tempEnvSlice))
-
-	// Pass the potentially modified service copy
-	handler, err := proxy.NewProxyToSSEHandlerUncached(c.Request.Context(), &userSpecificMcpService)
-	if err == nil {
-		common.SysLog(fmt.Sprintf("[ProxyHandler] Successfully created user-specific handler for key: %s. Caching.", userHandlerKey))
-		proxy.CacheHandler(userHandlerKey, handler)
-		return handler, nil
+	var targetHandler http.Handler
+	switch proxyType {
+	case "sseproxy":
+		targetHandler, err = proxy.GetOrCreateProxyToSSEHandler(ctx, mcpDBService, sharedInst)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user-specific SSE proxy handler for %s (user %d): %w", mcpDBService.Name, userID, err)
+		}
+	case "httpproxy":
+		targetHandler, err = proxy.GetOrCreateProxyToHTTPHandler(ctx, mcpDBService, sharedInst)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user-specific HTTP proxy handler for %s (user %d): %w", mcpDBService.Name, userID, err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported proxy type for user-specific handler: %s", proxyType)
 	}
-	return nil, fmt.Errorf("failed to create user-specific handler for %s (user %d): %w", mcpDBService.Name, userID, err)
+
+	common.SysLog(fmt.Sprintf("[ProxyHandler] Successfully created user-specific %s handler for %s (user %d)", proxyType, mcpDBService.Name, userID))
+	return targetHandler, nil
 }
 
-// tryGetOrCreateGlobalHandler attempts to find or create a global SSE handler for the service.
-func tryGetOrCreateGlobalHandler(c *gin.Context, mcpDBService *model.MCPService) (http.Handler, error) {
-	common.SysLog(fmt.Sprintf("[ProxyHandler] Attempting global handler for service %s", mcpDBService.Name))
-	globalHandlerKey := fmt.Sprintf("global-service-%d", mcpDBService.ID)
+// tryGetOrCreateGlobalHandler attempts to find or create a global handler for the service.
+// proxyType should be "sseproxy" or "httpproxy"
+func tryGetOrCreateGlobalHandler(c *gin.Context, mcpDBService *model.MCPService, proxyType string) (http.Handler, error) {
+	common.SysLog(fmt.Sprintf("[ProxyHandler] Attempting global handler for service %s with proxy type %s", mcpDBService.Name, proxyType))
 
-	cachedGlobalHandler, found := proxy.GetCachedHandler(globalHandlerKey)
-	if found {
-		common.SysLog(fmt.Sprintf("[ProxyHandler] Found cached global handler for key: %s", globalHandlerKey))
-		return cachedGlobalHandler, nil
+	// Use unified global cache key and standardized parameters (same as ServiceFactory)
+	ctx := c.Request.Context()
+	globalSharedCacheKey := fmt.Sprintf("global-service-%d-shared", mcpDBService.ID)
+	instanceNameDetail := fmt.Sprintf("global-shared-svc-%d", mcpDBService.ID)
+	effectiveEnvs := mcpDBService.DefaultEnvsJSON
+
+	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, mcpDBService, globalSharedCacheKey, instanceNameDetail, effectiveEnvs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create shared MCP instance for %s: %w", mcpDBService.Name, err)
 	}
 
-	common.SysLog(fmt.Sprintf("[ProxyHandler] No cached global handler for key: %s. Calling ServiceFactory.", globalHandlerKey))
-	createdService, factoryErr := proxy.ServiceFactory(mcpDBService) // ServiceFactory caches Stdio-based global handlers
-	if factoryErr != nil {
-		return nil, fmt.Errorf("failed to get/create global handler for service '%s' from factory: %w", mcpDBService.Name, factoryErr)
+	var targetHandler http.Handler
+	switch proxyType {
+	case "sseproxy":
+		targetHandler, err = proxy.GetOrCreateProxyToSSEHandler(ctx, mcpDBService, sharedInst)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create SSE proxy handler for %s: %w", mcpDBService.Name, err)
+		}
+	case "httpproxy":
+		targetHandler, err = proxy.GetOrCreateProxyToHTTPHandler(ctx, mcpDBService, sharedInst)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create HTTP proxy handler for %s: %w", mcpDBService.Name, err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported proxy type: %s", proxyType)
 	}
 
-	if httpHandler, ok := createdService.(http.Handler); ok {
-		common.SysLog(fmt.Sprintf("[ProxyHandler] Global handler obtained from ServiceFactory for %s.", mcpDBService.Name))
-		return httpHandler, nil
-	}
-	return nil, fmt.Errorf("global service '%s' (type %s) from factory is not a valid http.Handler", mcpDBService.Name, mcpDBService.Type)
+	common.SysLog(fmt.Sprintf("[ProxyHandler] Successfully created global %s handler for %s", proxyType, mcpDBService.Name))
+	return targetHandler, nil
 }
 
 // ProxyHandler handles GET and POST /proxy/:serviceName/*action
 func ProxyHandler(c *gin.Context) {
 	serviceName := c.Param("serviceName")
-	action := c.Param("action") // sse or mcp
+	action := c.Param("action") // /sse or /mcp
 	common.SysLog(fmt.Sprintf("[ProxyHandler] Service: %s, Action: %s, Processed Path: %s, Query: %s",
 		serviceName, action, c.Request.URL.Path, c.Request.URL.RawQuery))
 
@@ -192,7 +176,13 @@ func ProxyHandler(c *gin.Context) {
 	}
 
 	if userID > 0 && mcpDBService.AllowUserOverride && mcpDBService.Type == model.ServiceTypeStdio {
-		targetHandler, handlerErr = tryGetOrCreateUserSpecificHandler(c, mcpDBService, userID)
+		// Determine proxy type based on action (same logic as global handler)
+		proxyType := "sseproxy" // default to SSE
+		if action == "/mcp" {
+			proxyType = "httpproxy"
+		}
+
+		targetHandler, handlerErr = tryGetOrCreateUserSpecificHandler(c, mcpDBService, userID, proxyType)
 		if handlerErr != nil {
 			common.SysError(fmt.Sprintf("[ProxyHandler] Error obtaining user-specific handler for %s (user %d): %v. Falling back to global.", serviceName, userID, handlerErr))
 			// Clear handlerErr so global fallback logic doesn't use this error message if global succeeds
@@ -204,7 +194,14 @@ func ProxyHandler(c *gin.Context) {
 		if userID > 0 && mcpDBService.AllowUserOverride && mcpDBService.Type == model.ServiceTypeStdio {
 			common.SysLog(fmt.Sprintf("WARN: [ProxyHandler] User-specific handler attempt for service %s, user %d resulted in nil or error; falling back to global.", serviceName, userID))
 		}
-		targetHandler, handlerErr = tryGetOrCreateGlobalHandler(c, mcpDBService)
+
+		// Determine proxy type based on action
+		proxyType := "sseproxy" // default to SSE
+		if action == "/mcp" {
+			proxyType = "httpproxy"
+		}
+
+		targetHandler, handlerErr = tryGetOrCreateGlobalHandler(c, mcpDBService, proxyType)
 	}
 
 	if targetHandler != nil {
@@ -253,7 +250,7 @@ func HTTPProxyHandler(c *gin.Context) {
 
 	// For HTTP services, we use the global handler approach since user-specific configs
 	// are typically handled at the HTTP level rather than process level
-	targetHandler, handlerErr = tryGetOrCreateGlobalHandler(c, mcpDBService)
+	targetHandler, handlerErr = tryGetOrCreateGlobalHandler(c, mcpDBService, "httpproxy")
 
 	if targetHandler != nil {
 		common.SysLog(fmt.Sprintf("[HTTPProxyHandler] Serving request for service %s (original path %s, processed path %s) using obtained handler.", serviceName, originalPathForRequest, c.Request.URL.Path))
