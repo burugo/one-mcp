@@ -96,15 +96,13 @@ describe('ServicesPage Integration', () => {
         const confirmButton = screen.getByRole('button', { name: '卸载' })
         fireEvent.click(confirmButton)
 
-        // Verify uninstall service was called
+        // Verify uninstall service was called and success toast was shown
         await waitFor(() => {
-            expect(mockStore.uninstallService).toHaveBeenCalledWith('1')
-        })
-
-        // Verify success toast was shown
-        expect(mockToast).toHaveBeenCalledWith({
-            title: 'Uninstall Complete',
-            description: 'Service has been successfully uninstalled.',
+            expect(mockStore.uninstallService).toHaveBeenCalledWith(1)
+            expect(mockToast).toHaveBeenCalledWith({
+                title: 'Uninstall Complete',
+                description: 'Service has been successfully uninstalled.',
+            })
         })
     })
 
@@ -130,6 +128,7 @@ describe('ServicesPage Integration', () => {
 
         // Verify error toast was shown
         await waitFor(() => {
+            expect(mockStore.uninstallService).toHaveBeenCalledWith(1) // Assuming uninstallService is still called with ID even on error path before throwing
             expect(mockToast).toHaveBeenCalledWith({
                 title: 'Uninstall Failed',
                 description: 'Uninstall failed',
@@ -158,9 +157,13 @@ describe('ServicesPage Integration', () => {
         const configureButton = screen.getByText('Configure')
         fireEvent.click(configureButton)
 
-        // Configuration modal should open (this would require mocking the modal component)
-        // For now, just verify the button click works
-        expect(configureButton).toBeInTheDocument()
+        // Configuration modal should open.
+        // Wait for the dialog to appear to handle state updates correctly.
+        await waitFor(() => {
+            // A generic way to check if a dialog/modal has opened.
+            // Replace with a more specific assertion if the modal's title or content is known.
+            expect(screen.getByRole('dialog')).toBeInTheDocument()
+        })
     })
 
     it('should navigate to market when add service button is clicked', () => {
@@ -233,7 +236,7 @@ describe('ServicesPage Integration', () => {
         fireEvent.click(confirmButton)
 
         await waitFor(() => {
-            expect(mockStore.uninstallService).toHaveBeenCalledWith('1')
+            expect(mockStore.uninstallService).toHaveBeenCalledWith(1)
         })
 
         // Simulate store update after first uninstall

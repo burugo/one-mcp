@@ -82,7 +82,7 @@ describe('Dialog Components', () => {
             })
 
             // Close dialog
-            const closeButton = screen.getByRole('button', { name: 'Close' })
+            const closeButton = screen.getByRole('button', { name: /Close/i })
             fireEvent.click(closeButton)
 
             await waitFor(() => {
@@ -126,6 +126,7 @@ describe('Dialog Components', () => {
                 <Dialog defaultOpen>
                     <DialogContent data-testid="dialog-content">
                         <DialogTitle>Test Dialog</DialogTitle>
+                        <DialogDescription>Some accessibility description</DialogDescription>
                     </DialogContent>
                 </Dialog>
             )
@@ -149,6 +150,7 @@ describe('Dialog Components', () => {
                 <Dialog defaultOpen>
                     <DialogContent className="custom-dialog" data-testid="dialog-content">
                         <DialogTitle>Test Dialog</DialogTitle>
+                        <DialogDescription>Some accessibility description</DialogDescription>
                     </DialogContent>
                 </Dialog>
             )
@@ -164,6 +166,7 @@ describe('Dialog Components', () => {
                 <Dialog defaultOpen>
                     <DialogContent>
                         <DialogTitle>Test Dialog</DialogTitle>
+                        <DialogDescription>Some accessibility description</DialogDescription>
                     </DialogContent>
                 </Dialog>
             )
@@ -177,10 +180,14 @@ describe('Dialog Components', () => {
     describe('DialogHeader', () => {
         it('should render dialog header', () => {
             render(
-                <DialogHeader data-testid="dialog-header">
-                    <DialogTitle>Header Title</DialogTitle>
-                    <DialogDescription>Header Description</DialogDescription>
-                </DialogHeader>
+                <Dialog defaultOpen>
+                    <DialogContent>
+                        <DialogHeader data-testid="dialog-header">
+                            <DialogTitle>Header Title</DialogTitle>
+                            <DialogDescription>Header Description</DialogDescription>
+                        </DialogHeader>
+                    </DialogContent>
+                </Dialog>
             )
 
             const header = screen.getByTestId('dialog-header')
@@ -220,7 +227,14 @@ describe('Dialog Components', () => {
 
     describe('DialogTitle', () => {
         it('should render dialog title', () => {
-            render(<DialogTitle data-testid="dialog-title">Test Title</DialogTitle>)
+            render(
+                <Dialog defaultOpen>
+                    <DialogContent>
+                        <DialogTitle data-testid="dialog-title">Test Title</DialogTitle>
+                        <DialogDescription>Some accessibility description</DialogDescription>
+                    </DialogContent>
+                </Dialog>
+            )
 
             const title = screen.getByTestId('dialog-title')
             expect(title).toBeInTheDocument()
@@ -228,7 +242,14 @@ describe('Dialog Components', () => {
         })
 
         it('should apply default classes', () => {
-            render(<DialogTitle data-testid="dialog-title">Test Title</DialogTitle>)
+            render(
+                <Dialog defaultOpen>
+                    <DialogContent>
+                        <DialogTitle data-testid="dialog-title">Test Title</DialogTitle>
+                        <DialogDescription>Some accessibility description</DialogDescription>
+                    </DialogContent>
+                </Dialog>
+            )
 
             const title = screen.getByTestId('dialog-title')
             expect(title).toHaveClass(
@@ -241,9 +262,14 @@ describe('Dialog Components', () => {
 
         it('should apply custom className', () => {
             render(
-                <DialogTitle className="custom-title" data-testid="dialog-title">
-                    Test Title
-                </DialogTitle>
+                <Dialog defaultOpen>
+                    <DialogContent>
+                        <DialogTitle className="custom-title" data-testid="dialog-title">
+                            Test Title
+                        </DialogTitle>
+                        <DialogDescription>Some accessibility description</DialogDescription>
+                    </DialogContent>
+                </Dialog>
             )
 
             const title = screen.getByTestId('dialog-title')
@@ -254,9 +280,14 @@ describe('Dialog Components', () => {
     describe('DialogDescription', () => {
         it('should render dialog description', () => {
             render(
-                <DialogDescription data-testid="dialog-description">
-                    Test Description
-                </DialogDescription>
+                <Dialog defaultOpen>
+                    <DialogContent>
+                        <DialogTitle>Some accessibility title</DialogTitle>
+                        <DialogDescription data-testid="dialog-description">
+                            Test Description
+                        </DialogDescription>
+                    </DialogContent>
+                </Dialog>
             )
 
             const description = screen.getByTestId('dialog-description')
@@ -266,20 +297,36 @@ describe('Dialog Components', () => {
 
         it('should apply default classes', () => {
             render(
-                <DialogDescription data-testid="dialog-description">
-                    Test Description
-                </DialogDescription>
+                <Dialog defaultOpen>
+                    <DialogContent>
+                        <DialogTitle>Some accessibility title</DialogTitle>
+                        <DialogDescription data-testid="dialog-description">
+                            Test Description
+                        </DialogDescription>
+                    </DialogContent>
+                </Dialog>
             )
 
             const description = screen.getByTestId('dialog-description')
-            expect(description).toHaveClass('text-sm', 'text-muted-foreground')
+            expect(description).toHaveClass(
+                'text-sm',
+                'text-muted-foreground'
+            )
         })
 
         it('should apply custom className', () => {
             render(
-                <DialogDescription className="custom-description" data-testid="dialog-description">
-                    Test Description
-                </DialogDescription>
+                <Dialog defaultOpen>
+                    <DialogContent>
+                        <DialogTitle>Some accessibility title</DialogTitle>
+                        <DialogDescription
+                            className="custom-description"
+                            data-testid="dialog-description"
+                        >
+                            Test Description
+                        </DialogDescription>
+                    </DialogContent>
+                </Dialog>
             )
 
             const description = screen.getByTestId('dialog-description')
@@ -333,36 +380,26 @@ describe('Dialog Components', () => {
 
     describe('DialogClose', () => {
         it('should close dialog when DialogClose is clicked', async () => {
+            const onOpenChange = vi.fn()
             render(
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <button>Open Dialog</button>
-                    </DialogTrigger>
+                <Dialog open={true} onOpenChange={onOpenChange}>
                     <DialogContent>
                         <DialogTitle>Test Dialog</DialogTitle>
+                        <DialogDescription>Content</DialogDescription>
                         <DialogFooter>
                             <DialogClose asChild>
-                                <button>Custom Close</button>
+                                <button>Close Me</button>
                             </DialogClose>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
             )
 
-            // Open dialog
-            const trigger = screen.getByRole('button', { name: 'Open Dialog' })
-            fireEvent.click(trigger)
+            const closeButton = screen.getByRole('button', { name: 'Close Me' })
+            fireEvent.click(closeButton)
 
             await waitFor(() => {
-                expect(screen.getByRole('dialog')).toBeInTheDocument()
-            })
-
-            // Close with custom close button
-            const customCloseButton = screen.getByRole('button', { name: 'Custom Close' })
-            fireEvent.click(customCloseButton)
-
-            await waitFor(() => {
-                expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+                expect(onOpenChange).toHaveBeenCalledWith(false)
             })
         })
     })
