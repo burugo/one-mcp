@@ -147,11 +147,11 @@ export function ServicesPage() {
                     // category: 'utility', // Optional
                     // headers: {}, // Not applicable for stdio
                 };
-                res = await api.post('/api/mcp_market/install_or_add_service', payload) as APIResponse<any>;
+                res = await api.post('/mcp_market/install_or_add_service', payload) as APIResponse<any>;
 
             } else {
                 // For 'sse' and 'streamableHttp'
-                res = await api.post('/api/mcp_market/custom_service', serviceData) as APIResponse<any>;
+                res = await api.post('/mcp_market/custom_service', serviceData) as APIResponse<any>;
             }
 
             if (res.success) {

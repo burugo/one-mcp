@@ -892,16 +892,20 @@ func addClientResourceTemplatesToMCPServer(ctx context.Context, mcpGoClient mcpc
 
 // --- End Helper Functions ---
 
-// GetOrCreateSharedMcpInstanceWithKey manages caching of SharedMcpInstance
-// It handles both global and user-specific keys, and applies effectiveEnvsJSONForStdio for Stdio services
-func GetOrCreateSharedMcpInstanceWithKey(ctx context.Context, originalDbService *model.MCPService, cacheKey string, instanceNameDetail string, effectiveEnvsJSONForStdio string) (*SharedMcpInstance, error) {
+// GetOrCreateSharedMcpInstanceWithKeyFunc defines the type for the GetOrCreateSharedMcpInstanceWithKey function.
+// This allows it to be replaced in tests.
+var GetOrCreateSharedMcpInstanceWithKey GetOrCreateSharedMcpInstanceWithKeyFuncType = getOrCreateSharedMcpInstanceWithKeyInternal
+
+type GetOrCreateSharedMcpInstanceWithKeyFuncType func(ctx context.Context, originalDbService *model.MCPService, cacheKey string, instanceNameDetail string, effectiveEnvsJSONForStdio string) (*SharedMcpInstance, error)
+
+// getOrCreateSharedMcpInstanceWithKeyInternal is the actual implementation.
+func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDbService *model.MCPService, cacheKey string, instanceNameDetail string, effectiveEnvsJSONForStdio string) (*SharedMcpInstance, error) {
 	sharedMCPServersMutex.Lock()
 	defer sharedMCPServersMutex.Unlock()
 
-	// Check cache first
-	if existingInstance, found := sharedMCPServers[cacheKey]; found {
+	if inst, found := sharedMCPServers[cacheKey]; found && inst != nil {
 		common.SysLog(fmt.Sprintf("Reusing existing SharedMcpInstance for key: %s", cacheKey))
-		return existingInstance, nil
+		return inst, nil
 	}
 
 	common.SysLog(fmt.Sprintf("Creating new SharedMcpInstance for key: %s", cacheKey))

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"one-mcp/backend/common"
 	"one-mcp/backend/library/proxy"
@@ -176,11 +177,12 @@ func ProxyHandler(c *gin.Context) {
 	}
 
 	if userID > 0 && mcpDBService.AllowUserOverride && mcpDBService.Type == model.ServiceTypeStdio {
-		// Determine proxy type based on action (same logic as global handler)
+		// Determine proxy type based on action (SSE vs Streamable endpoint routing)
 		proxyType := "sseproxy" // default to SSE
 		if action == "/mcp" {
-			proxyType = "httpproxy"
+			proxyType = "httpproxy" // Streamable endpoint
 		}
+		// Note: Both /sse and /message are SSE type endpoints and use sseproxy
 
 		targetHandler, handlerErr = tryGetOrCreateUserSpecificHandler(c, mcpDBService, userID, proxyType)
 		if handlerErr != nil {
@@ -195,10 +197,15 @@ func ProxyHandler(c *gin.Context) {
 			common.SysLog(fmt.Sprintf("WARN: [ProxyHandler] User-specific handler attempt for service %s, user %d resulted in nil or error; falling back to global.", serviceName, userID))
 		}
 
-		// Determine proxy type based on action
-		proxyType := "sseproxy" // default to SSE
+		// Determine proxy type based on action (SSE vs Streamable endpoint routing)
+		proxyType := "sseproxy" // default to SSE for /sse and /message endpoints
 		if action == "/mcp" {
-			proxyType = "httpproxy"
+			proxyType = "httpproxy" // Streamable endpoint uses HTTP proxy
+		}
+		// Additional routing validation for better error messages
+		if action != "/sse" && action != "/message" && action != "/mcp" &&
+			!strings.HasPrefix(action, "/sse/") && !strings.HasPrefix(action, "/message/") && !strings.HasPrefix(action, "/mcp/") {
+			common.SysLog(fmt.Sprintf("WARN: [ProxyHandler] Unrecognized action %s for service %s, defaulting to SSE proxy", action, serviceName))
 		}
 
 		targetHandler, handlerErr = tryGetOrCreateGlobalHandler(c, mcpDBService, proxyType)

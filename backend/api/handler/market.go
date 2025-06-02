@@ -9,6 +9,7 @@ import (
 	"one-mcp/backend/common"
 	"one-mcp/backend/common/i18n"
 	"one-mcp/backend/library/market"
+	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 	"strconv"
 	"strings"
@@ -1187,33 +1188,52 @@ func CreateCustomService(c *gin.Context) {
 		serviceType = model.ServiceTypeStdio
 	case "sse":
 		serviceType = model.ServiceTypeSSE
-	case "streamableHttp":
+	case "streamableHttp": // 前端发送的是 streamableHttp
 		serviceType = model.ServiceTypeStreamableHTTP
 	default:
-		common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("invalid_service_type", lang))
+		common.RespErrorStr(c, http.StatusBadRequest, "无效的服务类型")
 		return
 	}
 
-	// 基本验证
-	if requestBody.Type == "stdio" {
-		if requestBody.Command == "" {
-			common.RespErrorStr(c, http.StatusBadRequest, "stdio类型服务需要提供command参数")
-			return
+	// 生成服务描述
+	var description string
+	serviceTypeForDisplay := strings.ToLower(requestBody.Type) // Use the raw string from request
+
+	switch requestBody.Type { // Compare with raw string type from request
+	case "stdio":
+		cmdDisplay := requestBody.Command
+		if len(cmdDisplay) > 50 {
+			cmdDisplay = cmdDisplay[:47] + "..."
 		}
-	} else if requestBody.Type == "sse" || requestBody.Type == "streamableHttp" {
-		if requestBody.URL == "" {
-			common.RespErrorStr(c, http.StatusBadRequest, "sse/streamableHttp类型服务需要提供url参数")
-			return
+		argsDisplay := requestBody.Arguments // This is a string
+		if argsDisplay == "" {
+			argsDisplay = "no args"
+		} else if len(argsDisplay) > 30 {
+			argsDisplay = argsDisplay[:27] + "..."
 		}
+		description = fmt.Sprintf("%s/%s (%s)", cmdDisplay, argsDisplay, serviceTypeForDisplay)
+	case "sse", "streamableHttp":
+		urlDisplay := requestBody.URL
+		if len(urlDisplay) > 80 {
+			urlDisplay = urlDisplay[:77] + "..."
+		}
+		if urlDisplay == "" {
+			description = fmt.Sprintf("URL not set (%s)", serviceTypeForDisplay)
+		} else {
+			description = fmt.Sprintf("%s (%s)", urlDisplay, serviceTypeForDisplay)
+		}
+	default:
+		// This case should ideally not be reached due to prior validation of requestBody.Type
+		description = fmt.Sprintf("Custom service (%s)", serviceTypeForDisplay)
 	}
 
 	// 创建新服务
 	newService := model.MCPService{
 		Name:                  requestBody.Name,
 		DisplayName:           requestBody.Name,
-		Description:           fmt.Sprintf("Custom %s service", requestBody.Type),
+		Description:           description, // 使用新的动态描述
 		Category:              model.CategoryUtil,
-		Type:                  serviceType,
+		Type:                  serviceType, // Use the model.ServiceType constant
 		ClientConfigTemplates: "{}",
 		Enabled:               true, // 自定义服务默认启用
 		HealthStatus:          "unknown",
@@ -1296,6 +1316,33 @@ func CreateCustomService(c *gin.Context) {
 	if err := model.CreateService(&newService); err != nil {
 		common.RespError(c, http.StatusInternalServerError, i18n.Translate("create_mcp_service_failed", lang), err)
 		return
+	}
+
+	// 自动注册服务到 ServiceManager 以启用健康检查
+	serviceManager := proxy.GetServiceManager()
+	ctx := c.Request.Context()
+	if err := serviceManager.RegisterService(ctx, &newService); err != nil {
+		// 记录错误但不让API调用失败，因为服务已经成功创建
+		log.Printf("Warning: Failed to register custom service %s (ID: %d) with ServiceManager: %v", newService.Name, newService.ID, err)
+		// 在响应中包含警告信息
+		common.RespSuccess(c, gin.H{
+			"message":        "自定义服务创建成功，但服务注册出现警告",
+			"mcp_service_id": newService.ID,
+			"service":        newService,
+			"warning":        fmt.Sprintf("服务健康检查可能无法正常工作: %v", err),
+		})
+		return
+	}
+
+	log.Printf("Successfully registered custom service %s (ID: %d) with ServiceManager", newService.Name, newService.ID)
+
+	// 注册后立即主动健康检查并刷新数据库状态
+	if _, err := serviceManager.ForceCheckServiceHealth(newService.ID); err != nil {
+		log.Printf("Warning: Force health check failed for custom service %s (ID: %d): %v", newService.Name, newService.ID, err)
+	} else {
+		if err := serviceManager.UpdateMCPServiceHealth(newService.ID); err != nil {
+			log.Printf("Warning: UpdateMCPServiceHealth failed for custom service %s (ID: %d): %v", newService.Name, newService.ID, err)
+		}
 	}
 
 	common.RespSuccess(c, gin.H{
