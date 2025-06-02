@@ -14,7 +14,6 @@ export interface ServiceType {
     repositoryUrl?: string;
     homepage?: string;
     lastUpdated?: string;
-    score?: number;
     isInstalled?: boolean;
     installed_service_id?: number;
     envVars: EnvVarType[];
@@ -176,13 +175,12 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                             version: item.version || '0.0.0',
                             description: item.description || '',
                             source: item.package_manager || 'unknown',
-                            downloads: item.downloads_last_month, // Assuming this is 'downloads' from backend SearchPackageResult
+                            downloads: item.downloads, // Use item.downloads for weekly downloads
                             stars: typeof item.github_stars === 'number' ? item.github_stars : undefined,
                             author: author,
                             repositoryUrl: item.repository_url,
                             homepage: item.homepage,
                             lastUpdated: item.last_publish, // Assuming this is 'last_updated' from backend
-                            score: typeof item.score === 'number' ? item.score : undefined,
                             isInstalled: item.is_installed || false, // Rely on backend's is_installed
                             installed_service_id: item.installed_service_id, // Map new field from backend
                             envVars: item.env_vars ? item.env_vars.map((envDef: any) => ({
@@ -303,13 +301,12 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                         version: details.details.version || 'N/A',
                         description: details.details.description || '',
                         source: packageManager as 'npm' | 'pypi',
-                        downloads: details.downloads_last_month,
+                        downloads: details.downloads,
                         stars: details.stars,
                         author: details.author,
                         repositoryUrl: details.repository_url,
                         homepage: details.details.homepage,
                         lastUpdated: details.last_publish,
-                        score: details.score,
                         isInstalled: details.is_installed || false,
                         installed_service_id: details.installed_service_id,
                         envVars: details.env_vars ? details.env_vars.map((envDef: any) => ({

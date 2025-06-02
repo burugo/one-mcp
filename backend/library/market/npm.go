@@ -53,6 +53,10 @@ type NPMSearchResult struct {
 				Email    string `json:"email"`
 			} `json:"maintainers"`
 		} `json:"package"`
+		Downloads struct {
+			Monthly int `json:"monthly"`
+			Weekly  int `json:"weekly"`
+		} `json:"downloads"`
 		Score struct {
 			Final  float64 `json:"final"`
 			Detail struct {
@@ -161,6 +165,7 @@ func SearchNPMPackages(ctx context.Context, query string, limit int, page int) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+	// log.Printf("[NPM_SEARCH_API_RESPONSE] Query: %s, Response Body: %s", reqURL.String(), string(data))
 
 	// 检查HTTP状态码
 	if resp.StatusCode != http.StatusOK {
@@ -208,6 +213,7 @@ func GetNPMPackageDetails(ctx context.Context, packageName string) (*NPMPackageD
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+	// log.Printf("[NPM_PACKAGE_API_RESPONSE] Package: %s, Response Body: %s", packageName, string(data))
 
 	// 检查HTTP状态码
 	if resp.StatusCode != http.StatusOK {
@@ -301,7 +307,7 @@ func FetchGitHubStars(ctx context.Context, owner, repo string) int {
 		}
 	}
 	apiURL := "https://api.github.com/repos/" + owner + "/" + repo
-	log.Printf("[stars] 请求 GitHub API: %s", apiURL)
+	// log.Printf("[stars] 请求 GitHub API: %s", apiURL)
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		log.Printf("[stars] 创建请求失败: %v", err)
@@ -321,9 +327,9 @@ func FetchGitHubStars(ctx context.Context, owner, repo string) int {
 		return 0
 	}
 	defer resp.Body.Close()
-	log.Printf("[stars] GitHub API 响应状态码: %d", resp.StatusCode)
+	// log.Printf("[stars] GitHub API 响应状态码: %d", resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
-	log.Printf("[stars] GitHub API 响应体: %s", string(body))
+	// log.Printf("[stars] GitHub API 响应体: %s", string(body))
 	if resp.StatusCode != 200 {
 		return 0
 	}
@@ -385,6 +391,7 @@ func ConvertNPMToSearchResult(ctx context.Context, npmResult *NPMSearchResult, i
 			Keywords:           npmPkg.Keywords,
 			Author:             author,
 			Stars:              stars,
+			Downloads:          obj.Downloads.Weekly,
 			Score:              obj.Score.Final,
 			LastUpdated:        npmPkg.Date.Format(time.RFC3339),
 			IsInstalled:        isInstalled,

@@ -60,6 +60,7 @@ func GetPackageDetails(c *gin.Context) {
 
 		readme, _ := market.GetNPMPackageReadme(ctx, packageName)
 
+		// Reverted: Original logic, search with packageName directly for score enrichment
 		npmSearchResult, searchErr := market.SearchNPMPackages(ctx, packageName, 1, 1)
 
 		type EnhancedPackageDetails struct {
@@ -119,6 +120,7 @@ func GetPackageDetails(c *gin.Context) {
 				enhancedDetails.Keywords = npmPkg.Keywords
 			}
 			enhancedDetails.Score = npmObject.Score.Final
+			enhancedDetails.Downloads = npmObject.Downloads.Weekly
 			enhancedDetails.LastUpdated = npmPkg.Date.Format(time.RFC3339)
 
 			if strings.Contains(enhancedDetails.RepositoryURL, "github.com") {
@@ -225,18 +227,17 @@ func GetPackageDetails(c *gin.Context) {
 		// End Inline Env Var Discovery Logic
 
 		response := map[string]interface{}{
-			"details":              enhancedDetails,
-			"env_vars":             envVarDefinitions,
-			"is_installed":         isInstalled,
-			"mcp_config":           mcpConfig,
-			"readme":               readme,
-			"author":               enhancedDetails.Author,
-			"stars":                enhancedDetails.Stars,
-			"repository_url":       enhancedDetails.RepositoryURL,
-			"score":                enhancedDetails.Score,
-			"version_info":         enhancedDetails.Version,
-			"last_publish":         enhancedDetails.LastUpdated,
-			"downloads_last_month": 0, // Assuming downloadsLastMonth is not available in the current implementation
+			"details":        enhancedDetails,
+			"env_vars":       envVarDefinitions,
+			"is_installed":   isInstalled,
+			"mcp_config":     mcpConfig,
+			"readme":         readme,
+			"author":         enhancedDetails.Author,
+			"stars":          enhancedDetails.Stars,
+			"repository_url": enhancedDetails.RepositoryURL,
+			"version_info":   enhancedDetails.Version,
+			"last_publish":   enhancedDetails.LastUpdated,
+			"downloads":      enhancedDetails.Downloads,
 		}
 
 		if isInstalled && installedServiceID > 0 {

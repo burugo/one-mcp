@@ -278,16 +278,16 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                     </h1>
                     <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <div>v{selectedService.version}</div>
-                        {selectedService && 'downloads' in selectedService && typeof (selectedService as { downloads?: unknown }).downloads === 'number' && (
-                            <div className="flex items-center gap-1">
-                                <Download className="h-3.5 w-3.5" />
-                                <span>{((selectedService as { downloads: number }).downloads).toLocaleString()}</span>
+                        {typeof selectedService.stars === 'number' && (
+                            <div className="flex items-center gap-1" title={`${selectedService.stars.toLocaleString()} Stars`}>
+                                <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
+                                <span>{selectedService.stars.toLocaleString()}</span>
                             </div>
                         )}
-                        {typeof selectedService.stars === 'number' && (
-                            <div className="flex items-center gap-1">
-                                <Star className="h-3.5 w-3.5" />
-                                <span>{selectedService.stars}</span>
+                        {typeof selectedService.downloads === 'number' && (
+                            <div className="flex items-center gap-1" title={`${selectedService.downloads.toLocaleString()} Weekly Downloads`}>
+                                <Download className="h-3.5 w-3.5 text-green-500" />
+                                <span>{selectedService.downloads.toLocaleString()}</span>
                             </div>
                         )}
                         <div>
@@ -391,62 +391,10 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                         <DialogDescription>
                             {!installTask && `Installing ${selectedService.name} from ${selectedService.source}`}
                             {installTask?.status === 'installing' && `Installing ${selectedService.name} from ${selectedService.source}`}
-                            {installTask?.status === 'success' && 'The service was installed successfully'}
-                            {installTask?.status === 'error' && 'There was a problem during installation'}
                         </DialogDescription>
                     </DialogHeader>
-
-                    <div className="my-4">
-                        <div className="bg-muted p-4 rounded-md h-64 overflow-y-auto font-mono text-sm">
-                            {installTask?.logs.map((log, index) => (
-                                <div key={index} className="pb-1">
-                                    <span className="text-primary">{'>'}</span> {log}
-                                </div>
-                            ))}
-                            {(!installTask || installTask.status === 'installing') && (
-                                <div className="animate-pulse">
-                                    <span className="text-primary">{'>'}</span> _
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <DialogFooter className="flex items-center justify-between">
-                        {(!installTask || installTask.status === 'installing') && (
-                            <div className="flex items-center text-sm text-muted-foreground">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                                Installing...
-                            </div>
-                        )}
-                        {installTask?.status === 'success' && (
-                            <div className="flex items-center text-sm text-green-500">
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Installation complete
-                            </div>
-                        )}
-                        {installTask?.status === 'error' && (
-                            <div className="flex items-center text-sm text-red-500">
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Installation failed: {installTask.error}
-                            </div>
-                        )}
-
-                        <Button
-                            disabled={!installTask || installTask.status === 'installing'}
-                            onClick={closeInstallDialog}
-                        >
-                            {installTask?.status === 'success' ? 'Finish' : 'Close'}
-                        </Button>
-                    </DialogFooter>
                 </DialogContent>
             </Dialog>
-
-            <EnvVarInputModal
-                open={envModalVisible}
-                missingVars={missingVars}
-                onSubmit={handleEnvModalSubmit}
-                onCancel={handleEnvModalCancel}
-            />
         </div>
     );
-} 
+}

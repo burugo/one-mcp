@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ServiceType, useMarketStore, InstallTask, InstallStatus, UninstallTask } from '@/store/marketStore'; // Adjust path if store is elsewhere
 import { Button } from '@/components/ui/button'; // Assuming shadcn/ui button
-import { Star, TrendingUp, Github, User, Package, CheckCircle2, Loader2 } from 'lucide-react';
+import { Star, Download, Github, User, Package, CheckCircle2, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'; // Import ConfirmDialog
 import { toast } from '@/hooks/use-toast';
 
@@ -170,10 +170,10 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, onSelect, onInstall 
                 )}
 
                 {/* npm Score Display (有值就显示) */}
-                {typeof service.score === 'number' && ( // Changed npmScore to score
-                    <div className="flex items-center gap-1" title={`${service.score} Score`}>
-                        <TrendingUp size={14} className="text-blue-500" />
-                        <span>{service.score.toLocaleString()}</span>
+                {typeof service.downloads === 'number' && ( // Changed service.score to service.downloads
+                    <div className="flex items-center gap-1" title={`${service.downloads.toLocaleString()} Weekly Downloads`}> {/* Changed title and label */}
+                        <Download size={14} className="text-green-500" /> {/* Changed TrendingUp to Download, and color */}
+                        <span>{service.downloads.toLocaleString()}</span>
                     </div>
                 )}
 
