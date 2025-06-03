@@ -2,10 +2,12 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 
+	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
 )
 
@@ -220,41 +223,39 @@ func ProxyHandler(c *gin.Context) {
 	if targetHandler != nil {
 		common.SysLog(fmt.Sprintf("[ProxyHandler] Serving request for service %s (processed path %s) using obtained handler.", serviceName, c.Request.URL.Path))
 
+		// Unified logic for determining if this request should be recorded for statistics
 		shouldRecordStat := false
 		requestTypeForStat := ""
 		methodForStat := ""
-		var bodyToRestore io.ReadCloser // For restoring request body if read
 
-		// Determine if this request should be recorded for statistics
-		if action == "/message" && requestMethod == http.MethodPost {
-			shouldRecordStat = true
-			requestTypeForStat = "sse"
-			methodForStat = "message"
-		} else if action == "/mcp" && requestMethod == http.MethodPost {
-			if c.Request.Body != nil {
-				bodyBytes, err := io.ReadAll(c.Request.Body)
-				if err != nil {
-					common.SysError(fmt.Sprintf("[ProxyHandler-STATS] Error reading request body for %s: %v", serviceName, err))
-					// Proceed without stat recording if body read fails
-				} else {
-					bodyToRestore = c.Request.Body                            // Save original closer to close it later if it's not nil
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Restore body for actual handler
-
-					var parsedBody map[string]interface{}
-					if err := json.Unmarshal(bodyBytes, &parsedBody); err != nil {
-						common.SysLog(fmt.Sprintf("[ProxyHandler-STATS] Failed to parse JSON body for %s: %v. Body: %s", serviceName, err, string(bodyBytes)))
-						// Proceed without stat recording if JSON parse fails
+		if requestMethod == http.MethodPost {
+			if action == "/message" || action == "/mcp" {
+				if c.Request.Body != nil {
+					bodyBytes, err := io.ReadAll(c.Request.Body)
+					if err != nil {
+						c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 					} else {
-						if method, ok := parsedBody["method"].(string); ok && method == "tools/call" {
-							shouldRecordStat = true
-							requestTypeForStat = "http"
-							methodForStat = "tools/call"
+						c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+						var parsedBody map[string]interface{}
+						if errUnmarshal := json.Unmarshal(bodyBytes, &parsedBody); errUnmarshal != nil {
 						} else {
-							// common.SysLog(fmt.Sprintf("[ProxyHandler-STATS] HTTP /mcp request for %s is not a 'tools/call' method. Method: %v. Body: %s", serviceName, parsedBody["method"], string(bodyBytes)))
+							if actualMethod, ok := parsedBody["method"].(string); ok && actualMethod == "tools/call" {
+								shouldRecordStat = true
+								methodForStat = "tools/call"
+								if action == "/message" {
+									requestTypeForStat = "sse"
+								} else { // action == "/mcp"
+									requestTypeForStat = "http"
+								}
+							}
 						}
 					}
+				} else { // c.Request.Body == nil
 				}
+			} else {
 			}
+		} else {
 		}
 
 		if shouldRecordStat {
@@ -267,12 +268,7 @@ func ProxyHandler(c *gin.Context) {
 			statusCode := c.Writer.Status()
 			success := statusCode >= 200 && statusCode < 300
 
-			// Ensure original body is closed if it was read and replaced
-			if bodyToRestore != nil {
-				bodyToRestore.Close()
-			}
-
-			// Record the statistic
+			// Record the statistic to database
 			go model.RecordRequestStat(
 				mcpDBService.ID,
 				mcpDBService.Name, // Service Name
@@ -285,13 +281,50 @@ func ProxyHandler(c *gin.Context) {
 				success,
 			)
 
+			// Record daily request count to cache only if status is 200 or 202
+			if statusCode == http.StatusOK || statusCode == http.StatusAccepted {
+				go func() {
+					cacheClient := thing.Cache()
+					if cacheClient == nil {
+						common.SysError(fmt.Sprintf("[ProxyHandler-CACHE] Cache client is nil for service %s", serviceName))
+						return
+					}
+
+					today := time.Now().Format("2006-01-02")
+					cacheKey := fmt.Sprintf("request:%s:%d:count", today, mcpDBService.ID)
+
+					ctx := context.Background()
+
+					// Get current count first
+					currentValue, err := cacheClient.Get(ctx, cacheKey)
+					var count int64 = 1
+					if err == nil {
+						if currentCount, parseErr := strconv.ParseInt(currentValue, 10, 64); parseErr == nil {
+							count = currentCount + 1
+						}
+					}
+
+					// Set the incremented value with expiration
+					err = cacheClient.Set(ctx, cacheKey, strconv.FormatInt(count, 10), 24*time.Hour)
+					if err != nil {
+						common.SysError(fmt.Sprintf("[ProxyHandler-CACHE] Error setting daily count for service %s: %v", serviceName, err))
+						return
+					}
+
+					if count == 1 {
+						common.SysLog(fmt.Sprintf("[ProxyHandler-CACHE] Created daily count key %s for service %s", cacheKey, serviceName))
+					}
+
+					common.SysLog(fmt.Sprintf("[ProxyHandler-CACHE] Daily count for service %s: %d", serviceName, count))
+				}()
+			} else {
+				common.SysLog(fmt.Sprintf("[ProxyHandler-CACHE] Daily count for service %s not incremented due to status code: %d", serviceName, statusCode))
+			}
+
 		} else {
 			// If not recording stats, just serve the request
 			// If body was read for a non-stat HTTP/MCP call, it should have been restored already.
 			targetHandler.ServeHTTP(c.Writer, c.Request)
-			if bodyToRestore != nil { // Should only be non-nil if body was read during HTTP/MCP check but didn't qualify for stats
-				bodyToRestore.Close()
-			}
 		}
 
 	} else {
@@ -300,115 +333,6 @@ func ProxyHandler(c *gin.Context) {
 			finalErrMsg = fmt.Sprintf("Service handler unavailable for %s: %s", serviceName, handlerErr.Error())
 		}
 		common.SysError(fmt.Sprintf("[ProxyHandler] Error: %s", finalErrMsg))
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": finalErrMsg})
-	}
-}
-
-// HTTPProxyHandler handles ANY /proxy/:serviceName/mcp/*action
-func HTTPProxyHandler(c *gin.Context) {
-	serviceName := c.Param("serviceName")
-	requestPath := c.Request.URL.Path
-	requestMethod := c.Request.Method
-	userID := int64(0) // Initialize userID
-	if idVal, exists := c.Get("userID"); exists {
-		if parsedID, parseErr := parseInt64(idVal); parseErr == nil {
-			userID = parsedID
-		}
-	}
-
-	originalPathForRequest := c.Request.URL.Path // Preserve for logging
-
-	common.SysLog(fmt.Sprintf("[HTTPProxyHandler] Service: %s, Original ActionParam: %s, Method: %s, Path: %s, Query: %s",
-		serviceName, c.Param("action"), requestMethod, originalPathForRequest, c.Request.URL.RawQuery))
-
-	mcpDBService, err := model.GetServiceByName(serviceName)
-	if err != nil || mcpDBService == nil {
-		common.SysError(fmt.Sprintf("[HTTPProxyHandler] Service not found: %s, error: %v", serviceName, err))
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Service not found: " + serviceName})
-		return
-	}
-	if !mcpDBService.Enabled {
-		common.SysLog(fmt.Sprintf("WARN: [HTTPProxyHandler] Service not enabled: %s", serviceName))
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Service not enabled: " + serviceName})
-		return
-	}
-
-	// HTTP proxy only handles StreamableHTTP type services
-	if mcpDBService.Type != model.ServiceTypeStreamableHTTP {
-		common.SysError(fmt.Sprintf("[HTTPProxyHandler] Service %s is not of type StreamableHTTP (actual: %s)", serviceName, mcpDBService.Type))
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Service is not of type Streamable HTTP"})
-		return
-	}
-
-	var targetHandler http.Handler
-	var handlerErr error
-
-	// For HTTP services, we use the global handler approach since user-specific configs
-	// are typically handled at the HTTP level rather than process level
-	targetHandler, handlerErr = tryGetOrCreateGlobalHandler(c, mcpDBService, "httpproxy")
-
-	if targetHandler != nil {
-		common.SysLog(fmt.Sprintf("[HTTPProxyHandler] Serving request for service %s (original path %s, processed path %s) using obtained handler.", serviceName, originalPathForRequest, c.Request.URL.Path))
-
-		shouldRecordStat := false
-		var bodyToRestore io.ReadCloser
-
-		// HTTPProxyHandler specifically handles /mcp actions which are HTTP type for stats
-		if requestMethod == http.MethodPost { // Only POST for tools/call
-			if c.Request.Body != nil {
-				bodyBytes, err := io.ReadAll(c.Request.Body)
-				if err != nil {
-					common.SysError(fmt.Sprintf("[HTTPProxyHandler-STATS] Error reading request body for %s: %v", serviceName, err))
-				} else {
-					bodyToRestore = c.Request.Body
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-					var parsedBody map[string]interface{}
-					if err := json.Unmarshal(bodyBytes, &parsedBody); err != nil {
-						common.SysLog(fmt.Sprintf("[HTTPProxyHandler-STATS] Failed to parse JSON body for %s: %v. Body: %s", serviceName, err, string(bodyBytes)))
-					} else {
-						if method, ok := parsedBody["method"].(string); ok && method == "tools/call" {
-							shouldRecordStat = true
-						}
-					}
-				}
-			}
-		}
-
-		if shouldRecordStat {
-			startTime := time.Now()
-			targetHandler.ServeHTTP(c.Writer, c.Request)
-			duration := time.Since(startTime)
-			statusCode := c.Writer.Status()
-			success := statusCode >= 200 && statusCode < 300
-
-			if bodyToRestore != nil {
-				bodyToRestore.Close()
-			}
-
-			go model.RecordRequestStat(
-				mcpDBService.ID,
-				mcpDBService.Name, // Service Name
-				userID,
-				model.ProxyRequestTypeHTTP, // HTTPProxyHandler implies HTTP type
-				"tools/call",               // Method is explicitly tools/call
-				requestPath,                // Use the captured requestPath
-				duration.Milliseconds(),
-				statusCode,
-				success,
-			)
-		} else {
-			targetHandler.ServeHTTP(c.Writer, c.Request)
-			if bodyToRestore != nil {
-				bodyToRestore.Close()
-			}
-		}
-	} else {
-		finalErrMsg := "critical: unable to obtain any valid handler for service " + serviceName
-		if handlerErr != nil {
-			finalErrMsg = fmt.Sprintf("Service handler unavailable for %s: %s", serviceName, handlerErr.Error())
-		}
-		common.SysError(fmt.Sprintf("[HTTPProxyHandler] Error: %s", finalErrMsg))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": finalErrMsg})
 	}
 }

@@ -9,10 +9,12 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
 
 interface ServiceUtilizationStat {
+    service_id: number;
     service_name: string;
-    total_requests: number;
-    success_rate: number;
-    avg_latency_ms: number;
+    display_name: string;
+    enabled: boolean;
+    today_request_count: number;
+    today_avg_latency_ms: number;
 }
 
 export function AnalyticsPage() {
@@ -81,9 +83,9 @@ export function AnalyticsPage() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Service</TableHead>
-                                        <TableHead className="text-right">Total Requests</TableHead>
-                                        <TableHead className="text-right">Success Rate</TableHead>
-                                        <TableHead className="text-right">Avg. Latency (ms)</TableHead>
+                                        <TableHead className="text-right">Status</TableHead>
+                                        <TableHead className="text-right">Today's Requests</TableHead>
+                                        <TableHead className="text-right">Today's Avg. Latency (ms)</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -95,11 +97,17 @@ export function AnalyticsPage() {
                                         </TableRow>
                                     ) : (
                                         utilizationStats.map((stat) => (
-                                            <TableRow key={stat.service_name}>
-                                                <TableCell className="font-medium">{stat.service_name}</TableCell>
-                                                <TableCell className="text-right">{stat.total_requests}</TableCell>
-                                                <TableCell className="text-right">{(stat.success_rate * 100).toFixed(2)}%</TableCell>
-                                                <TableCell className="text-right">{stat.avg_latency_ms.toFixed(2)}</TableCell>
+                                            <TableRow key={stat.service_id}>
+                                                <TableCell className="font-medium">{stat.display_name || stat.service_name}</TableCell>
+                                                <TableCell className="text-right">
+                                                    <span className={`px-2 py-1 rounded-full text-xs ${stat.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                        {stat.enabled ? 'Enabled' : 'Disabled'}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell className="text-right">{stat.today_request_count || 0}</TableCell>
+                                                <TableCell className="text-right">
+                                                    {stat.today_avg_latency_ms ? stat.today_avg_latency_ms.toFixed(2) : '0.00'}
+                                                </TableCell>
                                             </TableRow>
                                         ))
                                     )}
