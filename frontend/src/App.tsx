@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Link, Outlet, useLocation, Navigate } from 'react-router-dom'
+import React, { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Link, Outlet, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -29,6 +29,7 @@ const AppLayout = () => {
   const [showLoginDialog, setShowLoginDialog] = React.useState(false)
   const location = useLocation()
   const { currentUser, logout, isLoading } = useAuth()
+  const navigate = useNavigate()
 
   const NavLink = ({ to, children, isTopNav }: { to: string, children: React.ReactNode, isTopNav?: boolean }) => {
     const isActive = location.pathname === to || (to === '/' && location.pathname === '/dashboard')
@@ -64,19 +65,8 @@ const AppLayout = () => {
             <Globe className="h-6 w-6 text-primary" />
             <h1 className="text-xl font-semibold">One MCP</h1>
           </Link>
-          <div className="mx-auto max-w-md w-full hidden md:block px-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-10 bg-muted/40 border-muted rounded-md"
-                placeholder="Search services..."
-              />
-            </div>
-          </div>
           <div className="flex items-center ml-auto gap-6">
             <nav className="hidden md:flex items-center gap-6">
-              <NavLink to="/api" isTopNav>API</NavLink>
-              <NavLink to="/models" isTopNav>Models</NavLink>
               <NavLink to="/" isTopNav>Dashboard</NavLink>
               <NavLink to="/docs" isTopNav>Docs</NavLink>
             </nav>

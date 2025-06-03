@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Search, CheckCircle, XCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useMarketStore, ServiceType } from '@/store/marketStore';
+import { useMarketStore, ServiceType, MarketSource } from '@/store/marketStore';
 import ServiceCard from './ServiceCard';
 import EnvVarInputModal from './EnvVarInputModal';
 import { useToast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export function ServiceMarketplace({ onSelectService }: { onSelectService: (serviceId: string) => void }) {
 
@@ -16,14 +16,14 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
         searchTerm,
         searchResults,
         isSearching,
-        activeTab,
         setSearchTerm,
-        setActiveTab,
         searchServices,
         fetchInstalledServices,
         installService,
         updateInstallStatus,
-        installTasks
+        installTasks,
+        activeMarketTab,
+        setActiveMarketTab
     } = useMarketStore();
 
     const { toast } = useToast();
@@ -38,16 +38,14 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
     const [showInstallDialog, setShowInstallDialog] = useState(false);
     const [currentInstallingService, setCurrentInstallingService] = useState<ServiceType | null>(null);
 
-    // 初始化加载
+    // Effect to fetch services when activeMarketTab changes or on initial load. --> Changed to: Effect for initial load only.
     useEffect(() => {
+        // This will be called on initial load.
+        // searchServices in the store uses the initial activeMarketTab ('npm') 
+        // and initial searchTerm (empty), which clears results.
+        // This provides an empty state for the initially active tab, awaiting user search.
         searchServices();
-    }, [activeTab, searchServices]);
-
-    // 处理标签页切换
-    const handleTabChange = (value: string) => {
-        setActiveTab(value as 'all' | 'npm');
-        searchServices();
-    };
+    }, [searchServices]); // Now only depends on stable searchServices, so runs once on mount.
 
     // 处理搜索框按下回车
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -173,13 +171,14 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                 </Button>
             </div>
 
-            {/* 选项卡分类 */}
-            <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
-                <TabsList className="w-full max-w-lg grid grid-cols-2 gap-4">
-                    <TabsTrigger value="all" className="px-4">All</TabsTrigger>
+            {/* Tabs for market sources */}
+            <Tabs value={activeMarketTab} onValueChange={(value) => setActiveMarketTab(value as MarketSource)} className="mb-6">
+                <TabsList className="w-full max-w-lg grid grid-cols-1 gap-4"> {/* Initially 1 column for NPM, can be grid-cols-2 for NPM & PyPI */}
                     <TabsTrigger value="npm" className="px-4">NPM</TabsTrigger>
+                    {/* <TabsTrigger value="pypi" className="px-4">PyPI</TabsTrigger> */}
                 </TabsList>
-                <TabsContent value="all" className="mt-6">
+
+                <TabsContent value="npm" className="mt-6">
                     <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                         {displayedServices.map(service => (
                             <ServiceCard
@@ -197,34 +196,17 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                         )}
                         {!isSearching && displayedServices.length === 0 && (
                             <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                <p>No services found. Try a different search term.</p>
+                                <p>No services found. Try a different search term or select a source.</p>
                             </div>
                         )}
                     </div>
                 </TabsContent>
-                <TabsContent value="npm" className="mt-6">
+                {/* Placeholder for PyPI content */}
+                {/* <TabsContent value="pypi" className="mt-6">
                     <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                        {displayedServices.filter(service => service.source === 'npm').map(service => (
-                            <ServiceCard
-                                key={service.id}
-                                service={service}
-                                onSelect={onSelectService}
-                                onInstall={handleInstallService}
-                            />
-                        ))}
-                        {isSearching && (
-                            <div className="col-span-3 text-center py-8">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                                <p className="mt-4 text-muted-foreground">Searching for services...</p>
-                            </div>
-                        )}
-                        {!isSearching && displayedServices.filter(service => service.source === 'npm').length === 0 && (
-                            <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                <p>No npm services available.</p>
-                            </div>
-                        )}
+                        // Similar rendering logic for PyPI services 
                     </div>
-                </TabsContent>
+                </TabsContent> */}
             </Tabs>
 
             {/* 环境变量输入模态框 */}

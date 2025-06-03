@@ -391,10 +391,65 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                         <DialogDescription>
                             {!installTask && `Installing ${selectedService.name} from ${selectedService.source}`}
                             {installTask?.status === 'installing' && `Installing ${selectedService.name} from ${selectedService.source}`}
+                            {installTask?.status === 'success' && 'The service was installed successfully'}
+                            {installTask?.status === 'error' && 'There was a problem during installation'}
                         </DialogDescription>
                     </DialogHeader>
+
+                    <div className="my-4">
+                        <div className="bg-muted p-4 rounded-md h-64 overflow-y-auto font-mono text-sm">
+                            {installTask?.logs.map((log, index) => (
+                                <div key={index} className="pb-1">
+                                    <span className="text-primary">{'>'}</span> {log}
+                                </div>
+                            ))}
+                            {(!installTask || installTask.status === 'installing') && (
+                                <div className="animate-pulse">
+                                    <span className="text-primary">{'>'}</span> _
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <DialogFooter className="flex items-center justify-between">
+                        {(!installTask || installTask.status === 'installing') && (
+                            <div className="flex items-center text-sm text-muted-foreground">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                                Installing...
+                            </div>
+                        )}
+                        {installTask?.status === 'success' && (
+                            <div className="flex items-center text-sm text-green-500">
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Installation complete
+                            </div>
+                        )}
+                        {installTask?.status === 'error' && (
+                            <div className="flex items-center text-sm text-red-500">
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Installation failed: {installTask.error}
+                            </div>
+                        )}
+
+                        <Button
+                            disabled={!installTask || installTask.status === 'installing'}
+                            onClick={closeInstallDialog}
+                        >
+                            {installTask?.status === 'success' ? 'Finish' : 'Close'}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* 环境变量输入模态框 */}
+            <EnvVarInputModal
+                open={envModalVisible}
+                missingVars={missingVars}
+                onSubmit={handleEnvModalSubmit}
+                onCancel={handleEnvModalCancel}
+            // Optional: Pass service name if your modal supports it for better UX
+            // serviceName={selectedService?.name}
+            />
         </div>
     );
 }

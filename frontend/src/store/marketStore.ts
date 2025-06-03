@@ -59,13 +59,16 @@ export interface UninstallTask {
     error?: string;
 }
 
+// 新：市场来源类型
+export type MarketSource = 'npm' | 'pypi';
+
 // 定义 Store 状态类型
 interface MarketState {
     // 搜索相关
     searchTerm: string;
     searchResults: ServiceType[];
     isSearching: boolean;
-    activeTab: 'all' | 'npm' | 'pypi' | 'recommended' | 'installed';
+    activeMarketTab: MarketSource; // 新增：当前激活的市场选项卡
 
     // 已安装服务
     installedServices: ServiceType[];
@@ -81,21 +84,17 @@ interface MarketState {
 
     // 操作方法
     setSearchTerm: (term: string) => void;
-    setActiveTab: (tab: 'all' | 'npm' | 'pypi' | 'recommended' | 'installed') => void;
-    searchServices: () => Promise<void>;
+    setActiveMarketTab: (tab: MarketSource) => void; // 新增：设置激活的市场选项卡
+    searchServices: (sourceArg?: 'installed') => Promise<void>; // 修改 searchServices 签名
     fetchInstalledServices: () => Promise<void>;
-
     selectService: (serviceId: string) => void;
     fetchServiceDetails: (serviceId: string, packageName?: string, packageManager?: string) => Promise<void>;
     clearSelectedService: () => void;
-
     updateEnvVar: (serviceId: string, envVarName: string, value: string) => void;
-
     installService: (serviceId: string, envVars: { [key: string]: string }) => Promise<any>;
     updateInstallProgress: (serviceId: string, log: string) => void;
     updateInstallStatus: (serviceId: string, status: InstallStatus, error?: string) => void;
     pollInstallationStatus: (serviceId: string, taskId: string) => void;
-
     uninstallService: (serviceId: number) => Promise<void>;
     toggleService: (serviceId: string) => Promise<void>;
     checkServiceHealth: (serviceId: string) => Promise<void>;
@@ -107,7 +106,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     searchTerm: '',
     searchResults: [],
     isSearching: false,
-    activeTab: 'all',
+    activeMarketTab: 'npm', // 新增：初始化 activeMarketTab
     installedServices: [],
     selectedService: null,
     isLoadingDetails: false,
@@ -117,29 +116,29 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     // 操作方法
     setSearchTerm: (term) => set({ searchTerm: term }),
 
-    setActiveTab: (tab) => set({ activeTab: tab }),
+    setActiveMarketTab: (tab) => set({ activeMarketTab: tab }), // 新增：实现 setActiveMarketTab
 
-    searchServices: async () => {
-        const { searchTerm, activeTab } = get();
+    searchServices: async (sourceArg) => { // Renamed param from 'source' to 'sourceArg' to avoid conflict if any local var named 'source'
+        const { searchTerm, fetchInstalledServices, activeMarketTab } = get();
         set({ isSearching: true });
 
-        // If searchTerm is empty (original logic)
-        // and not looking at installed tab, clear results and stop.
-        if (!searchTerm && activeTab !== 'installed') { // Reverted to original searchTerm check
+        // 如果是请求已安装的服务
+        if (sourceArg === 'installed') {
+            await fetchInstalledServices();
+            set({ isSearching: false });
+            return;
+        }
+
+        // 如果搜索词为空 (且不是请求已安装服务)，则清空结果并停止
+        if (!searchTerm) {
             set({ searchResults: [], isSearching: false });
             return;
         }
 
         try {
-            // 构建搜索来源参数
-            let sources = '';
-            switch (activeTab) {
-                case 'all': sources = 'npm,pypi,recommended'; break;
-                case 'installed': return get().fetchInstalledServices();
-                default: sources = activeTab;
-            }
-
-            const response = await api.get(`/mcp_market/search?query=${encodeURIComponent(searchTerm)}&sources=${sources}`) as APIResponse<any>;
+            // sources 由 activeMarketTab 决定
+            const currentSearchSource = activeMarketTab;
+            const response = await api.get(`/mcp_market/search?query=${encodeURIComponent(searchTerm)}&sources=${currentSearchSource}`) as APIResponse<any>;
 
             if (response.success) {
                 if (Array.isArray(response.data)) {
@@ -239,7 +238,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 
                 set({
                     installedServices,
-                    searchResults: get().activeTab === 'installed' ? installedServices : get().searchResults
+                    searchResults: get().searchResults
                 });
             } else {
                 throw new Error(response.message || 'Failed to fetch installed services');
