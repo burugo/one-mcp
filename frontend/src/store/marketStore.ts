@@ -29,6 +29,13 @@ export interface ServiceType {
 // 详细服务类型定义
 export interface ServiceDetailType extends ServiceType {
     isLoading: boolean;
+    mcpConfig?: {
+        mcpServers?: {
+            [key: string]: {
+                env?: { [key: string]: string };
+            }
+        }
+    };
 }
 
 // 环境变量类型
@@ -38,6 +45,7 @@ export interface EnvVarType {
     description?: string;
     isSecret?: boolean;
     isRequired?: boolean;
+    optional?: boolean;
     defaultValue?: string;
 }
 
@@ -313,10 +321,12 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                             description: envDef.description,
                             isSecret: envDef.is_secret,
                             isRequired: !envDef.optional,
+                            optional: envDef.optional,
                             defaultValue: envDef.default_value,
-                            value: savedValues[envDef.name] !== undefined ? savedValues[envDef.name] : (envDef.default_value || '')
+                            value: details.is_installed && savedValues[envDef.name] !== undefined ? savedValues[envDef.name] : ''
                         })) : [],
                         readme: details.readme || '',
+                        mcpConfig: details.mcp_config,
                         isLoading: false,
                     },
                     isLoadingDetails: false,

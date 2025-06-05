@@ -34,7 +34,6 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
     const [missingVars, setMissingVars] = useState<string[]>([]);
     const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
     const [currentEnvVars, setCurrentEnvVars] = useState<Record<string, string>>({});
-
     // Reset modal states if selectedService changes
     useEffect(() => {
         setEnvModalVisible(false);
@@ -59,22 +58,99 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         }
     };
 
+    // Helper function to get placeholder for env var
+    const getEnvVarPlaceholder = (envVar: any): string => {
+        // Try to get placeholder from mcp_config first
+        if (selectedService?.mcpConfig?.mcpServers) {
+            const servers = selectedService.mcpConfig.mcpServers;
+            for (const serverKey in servers) {
+                const server = servers[serverKey];
+                if (server.env && server.env[envVar.name]) {
+                    const configValue = server.env[envVar.name];
+                    // If it looks like a placeholder (contains "your-" or similar patterns)
+                    if (typeof configValue === 'string' &&
+                        (configValue.toLowerCase().includes('your-') ||
+                            configValue.toLowerCase().includes('enter-') ||
+                            configValue.toLowerCase().includes('api-key') ||
+                            configValue.toLowerCase().includes('token'))) {
+                        return configValue;
+                    }
+                }
+            }
+        }
+
+        // Fallback to default value or generated placeholder
+        if (envVar.defaultValue && envVar.defaultValue.trim() !== '') {
+            return envVar.defaultValue;
+        }
+
+        // Generate placeholder based on variable name and type
+        if (envVar.isSecret) {
+            if (envVar.name.toLowerCase().includes('token')) {
+                return 'your-api-token';
+            } else if (envVar.name.toLowerCase().includes('key')) {
+                return 'your-api-key';
+            } else {
+                return 'Enter secret value';
+            }
+        }
+
+        return 'Enter value';
+    };
+
+    // Helper function to check if a value is a placeholder/example value
+    const isPlaceholderValue = (value: string): boolean => {
+        if (!value || value.trim() === '') return true;
+
+        const lowerValue = value.toLowerCase().trim();
+
+        // Common placeholder patterns
+        const placeholderPatterns = [
+            'your-',
+            'enter-',
+            'api-key-here',
+            'api-token-here',
+            'token-here',
+            'key-here',
+            'secret-here',
+            'paste-',
+            'insert-',
+            'add-'
+        ];
+
+        return placeholderPatterns.some(pattern => lowerValue.includes(pattern));
+    };
+
     // Modified to handle dynamic env var requirements
     const startInstallation = async (initialEnvVars?: Record<string, string>) => {
         if (!selectedService) return;
 
         const envVarsToSubmit: Record<string, string> = {};
-        const placeholderValue = "your-api-key-here"; // Define common placeholder
+        const missingRequiredVars: string[] = [];
 
         if (initialEnvVars) { // If env vars are explicitly passed (e.g., from modal)
             Object.assign(envVarsToSubmit, initialEnvVars);
         } else { // If not from modal, collect from Configuration tab
-            selectedService.envVars.forEach(env => {
-                // Only include if value exists, is not empty, and is not the placeholder
-                if (env.value && env.value.trim() !== "" && env.value.trim().toLowerCase() !== placeholderValue.toLowerCase()) {
-                    envVarsToSubmit[env.name] = env.value;
+            (selectedService.envVars || []).forEach(env => {
+                const value = env.value?.trim() || '';
+
+                // Only include if value exists, is not empty, and is not a placeholder
+                if (value && !isPlaceholderValue(value)) {
+                    envVarsToSubmit[env.name] = value;
+                } else if (!env.optional) {
+                    // If required env var is missing or is a placeholder, add to missing list
+                    missingRequiredVars.push(env.name);
                 }
             });
+        }
+
+        // If there are missing required vars and we haven't already shown the modal
+        if (missingRequiredVars.length > 0 && !initialEnvVars) {
+            setMissingVars(missingRequiredVars);
+            setCurrentEnvVars(envVarsToSubmit);
+            setPendingServiceId(selectedService.id);
+            setEnvModalVisible(true);
+            return;
         }
 
         setCurrentEnvVars(envVarsToSubmit); // Store for potential re-submission if modal is needed
@@ -201,7 +277,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         toast({ title: "Saving Configuration...", description: "Please wait." });
         // let allSucceeded = true;
         try {
-            for (const envVar of selectedService.envVars) {
+            for (const envVar of (selectedService.envVars || [])) {
                 // Only save if a value is present, or handle as needed
                 // Assuming 'value' contains the current value from the input field
                 // The API structure for saving might be one var at a time or bulk
@@ -340,20 +416,20 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">
-                                {selectedService.envVars.map((envVar, index) => (
+                                {(selectedService.envVars || []).map((envVar, index) => (
                                     <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                                         <div className="md:col-span-1">
                                             <label htmlFor={`env-${envVar.name}`} className="text-sm font-medium flex items-center gap-1">
                                                 {envVar.name}
-                                                {envVar.isRequired && <span className="text-red-500">*</span>}
+                                                {!envVar.optional && <span className="text-red-500">*</span>}
                                             </label>
                                         </div>
                                         <div className="md:col-span-3">
                                             <Input
                                                 id={`env-${envVar.name}`}
                                                 type="text"
-                                                placeholder={envVar.defaultValue || (envVar.isSecret ? "Enter secret value" : "Enter value")}
-                                                value={envVar.value && envVar.value !== envVar.defaultValue ? envVar.value : ''}
+                                                placeholder={getEnvVarPlaceholder(envVar)}
+                                                value={envVar.value || ''}
                                                 onChange={(e) => handleEnvVarChange(envVar.name, e.target.value)}
                                                 className="w-full"
                                             />
@@ -398,7 +474,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
 
                     <div className="my-4">
                         <div className="bg-muted p-4 rounded-md h-64 overflow-y-auto font-mono text-sm">
-                            {installTask?.logs.map((log, index) => (
+                            {(installTask?.logs || []).map((log, index) => (
                                 <div key={index} className="pb-1">
                                     <span className="text-primary">{'>'}</span> {log}
                                 </div>
