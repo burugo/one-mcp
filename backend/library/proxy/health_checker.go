@@ -36,9 +36,19 @@ func NewHealthChecker(checkInterval time.Duration) *HealthChecker {
 // RegisterService 注册一个服务到健康检查管理器
 func (hc *HealthChecker) RegisterService(service Service) {
 	hc.servicesMu.Lock()
-	defer hc.servicesMu.Unlock()
-
+	_, exists := hc.services[service.ID()]
 	hc.services[service.ID()] = service
+	// Read hc.running while under lock to ensure consistency with a potential Stop() call.
+	// This determines if an immediate check should be scheduled for a new service.
+	shouldCheckImmediately := !exists && hc.running
+	hc.servicesMu.Unlock() // Unlock before logging or spawning a goroutine.
+
+	if shouldCheckImmediately {
+		// Log that an immediate check is being scheduled for the new service.
+		log.Printf("HealthChecker: New service %s (ID: %d) registered, scheduling immediate check.", service.Name(), service.ID())
+		// Perform the check in a new goroutine to avoid blocking the registration process.
+		go hc.checkService(service)
+	}
 }
 
 // UnregisterService 从健康检查管理器移除一个服务
