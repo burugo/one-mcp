@@ -40,7 +40,7 @@ func GetServiceManager() *ServiceManager {
 	managerOnce.Do(func() {
 		globalManager = &ServiceManager{
 			services:      make(map[int64]Service),
-			healthChecker: NewHealthChecker(1 * time.Minute),
+			healthChecker: NewHealthChecker(10 * time.Minute),
 			initialized:   false,
 		}
 	})

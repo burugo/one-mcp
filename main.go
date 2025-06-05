@@ -44,8 +44,13 @@ func main() {
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	// Initialize Redis
+	err := common.InitRedisClient()
+	if err != nil {
+		common.FatalLog(err)
+	}
 	// Initialize SQL Database
-	err := model.InitDB()
+	err = model.InitDB()
 	if err != nil {
 		common.FatalLog(err)
 	}
@@ -55,12 +60,6 @@ func main() {
 			common.FatalLog(err)
 		}
 	}()
-
-	// Initialize Redis
-	err = common.InitRedisClient()
-	if err != nil {
-		common.FatalLog(err)
-	}
 
 	// Seed default services
 	// if err := model.SeedDefaultServices(); err != nil {

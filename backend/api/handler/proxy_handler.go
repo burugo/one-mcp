@@ -2,12 +2,10 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 
-	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
 )
 
@@ -268,7 +265,7 @@ func ProxyHandler(c *gin.Context) {
 			statusCode := c.Writer.Status()
 			success := statusCode >= 200 && statusCode < 300
 
-			// Record the statistic to database
+			// Record the statistic to database (and now also cache)
 			go model.RecordRequestStat(
 				mcpDBService.ID,
 				mcpDBService.Name, // Service Name
@@ -280,46 +277,6 @@ func ProxyHandler(c *gin.Context) {
 				statusCode,
 				success,
 			)
-
-			// Record daily request count to cache only if status is 200 or 202
-			if statusCode == http.StatusOK || statusCode == http.StatusAccepted {
-				go func() {
-					cacheClient := thing.Cache()
-					if cacheClient == nil {
-						common.SysError(fmt.Sprintf("[ProxyHandler-CACHE] Cache client is nil for service %s", serviceName))
-						return
-					}
-
-					today := time.Now().Format("2006-01-02")
-					cacheKey := fmt.Sprintf("request:%s:%d:count", today, mcpDBService.ID)
-
-					ctx := context.Background()
-
-					// Get current count first
-					currentValue, err := cacheClient.Get(ctx, cacheKey)
-					var count int64 = 1
-					if err == nil {
-						if currentCount, parseErr := strconv.ParseInt(currentValue, 10, 64); parseErr == nil {
-							count = currentCount + 1
-						}
-					}
-
-					// Set the incremented value with expiration
-					err = cacheClient.Set(ctx, cacheKey, strconv.FormatInt(count, 10), 24*time.Hour)
-					if err != nil {
-						common.SysError(fmt.Sprintf("[ProxyHandler-CACHE] Error setting daily count for service %s: %v", serviceName, err))
-						return
-					}
-
-					if count == 1 {
-						common.SysLog(fmt.Sprintf("[ProxyHandler-CACHE] Created daily count key %s for service %s", cacheKey, serviceName))
-					}
-
-					common.SysLog(fmt.Sprintf("[ProxyHandler-CACHE] Daily count for service %s: %d", serviceName, count))
-				}()
-			} else {
-				common.SysLog(fmt.Sprintf("[ProxyHandler-CACHE] Daily count for service %s not incremented due to status code: %d", serviceName, statusCode))
-			}
 
 		} else {
 			// If not recording stats, just serve the request

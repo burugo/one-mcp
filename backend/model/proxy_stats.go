@@ -1,9 +1,12 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
+	"time"
 
 	"one-mcp/backend/common" // For SysError logging, if available and configured
 
@@ -91,14 +94,49 @@ func RecordRequestStat(serviceID int64, serviceName string, userID int64, reqTyp
 		ResponseTimeMs: responseTimeMs,
 		StatusCode:     statusCode,
 		Success:        success,
-		// BaseModel fields (ID, CreatedAt, etc.) are handled by Thing ORM when passed by value to Save
-		// if the ORM supports it, or are set to zero/defaults if not.
 	}
 
-	// Adhering to linter: passing stat by value.
-	// This means the 'stat' variable in this function scope will not be updated with ID/timestamps post-save.
 	if err := statThing.Save(&stat); err != nil {
 		common.SysError(fmt.Sprintf("Error saving ProxyRequestStat: %v", err))
+		// Do not return here, try to update cache even if DB save fails for some reason?
+		// Or should we return? For now, let's try to update cache.
+		// User's original code proceeded with cache update irrespective of this specific error.
+	}
+
+	// Record daily request count to cache only if status is 200 or 202
+	if statusCode == http.StatusOK || statusCode == http.StatusAccepted {
+		cacheClient := thing.Cache()
+		if cacheClient == nil {
+			common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Cache client is nil for service %s (ID: %d)", serviceName, serviceID))
+			return
+		}
+
+		today := time.Now().Format("2006-01-02")
+		cacheKey := fmt.Sprintf("request:%s:%d:count", today, serviceID)
+
+		ctx := context.Background() // Using background context as in original handler
+
+		newCount, err := cacheClient.Incr(ctx, cacheKey)
+		if err != nil {
+			common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Error incrementing daily count for service %s (ID: %d): %v", serviceName, serviceID, err))
+			// If Incr fails, we probably shouldn't proceed to log a count or try to expire.
+			return
+		}
+
+		if newCount == 1 {
+			// Key was newly created by Incr, set expiration
+			err = cacheClient.Expire(ctx, cacheKey, 24*time.Hour)
+			if err != nil {
+				// Log error for expiry failure, but the count was successfully incremented.
+				common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Error setting expiration for new daily count key %s (service %s, ID: %d): %v", cacheKey, serviceName, serviceID, err))
+				common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Created daily count key %s for service %s (ID: %d) (expiration set failed).", cacheKey, serviceName, serviceID))
+			} else {
+				common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Created daily count key %s for service %s (ID: %d) and set expiration.", cacheKey, serviceName, serviceID))
+			}
+		}
+		common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Daily count for service %s (ID: %d): %d", serviceName, serviceID, newCount))
+	} else {
+		common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Daily count for service %s (ID: %d) not incremented due to status code: %d", serviceName, serviceID, statusCode))
 	}
 }
 
