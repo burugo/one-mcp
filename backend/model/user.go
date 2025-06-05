@@ -33,8 +33,9 @@ type User struct {
 	Role             int    `json:"role" db:"role"`
 	Status           int    `json:"status" db:"status"`
 	Email            string `json:"email" db:"email"`
-	GitHubId         string `json:"-" db:"github_id"`
-	WeChatId         string `json:"-" db:"wechat_id"`
+	GitHubId         string `json:"github_id" db:"github_id"`
+	GoogleId         string `json:"google_id" db:"google_id"`
+	WeChatId         string `json:"wechat_id" db:"wechat_id"`
 	VerificationCode string `json:"verification_code" db:"-"`
 	Token            string `json:"token" db:"token"`
 
@@ -197,6 +198,18 @@ func (user *User) FillUserByGitHubId() error {
 	return nil
 }
 
+func (user *User) FillUserByGoogleId() error {
+	if user.GoogleId == "" {
+		return errors.New("empty_google_id")
+	}
+	users, err := UserDB.Where("google_id = ?", user.GoogleId).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return errors.New("user_not_found")
+	}
+	*user = *users[0]
+	return nil
+}
+
 func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
 		return errors.New("empty_wechat_id")
@@ -239,6 +252,11 @@ func IsWeChatIdAlreadyTaken(wechatId string) bool {
 
 func IsGitHubIdAlreadyTaken(githubId string) bool {
 	users, err := UserDB.Where("github_id = ?", githubId).Fetch(0, 1)
+	return err == nil && len(users) > 0
+}
+
+func IsGoogleIdAlreadyTaken(googleId string) bool {
+	users, err := UserDB.Where("google_id = ?", googleId).Fetch(0, 1)
 	return err == nil && len(users) > 0
 }
 

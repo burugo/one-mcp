@@ -55,6 +55,7 @@ func SetApiRouter(route *gin.Engine) {
 				selfRoute.PUT("/self", handler.UpdateSelf)
 				selfRoute.DELETE("/self", handler.DeleteSelf)
 				selfRoute.GET("/token", handler.GenerateToken)
+				selfRoute.POST("/change-password", handler.ChangePassword)
 			}
 
 			// Admin-only endpoints
