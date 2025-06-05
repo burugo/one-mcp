@@ -85,6 +85,8 @@ func (m *InstallationManager) SubmitTask(task InstallationTask) {
 	// 如果已经有任务在运行，不重复提交
 	if existingTask, exists := m.tasks[task.ServiceID]; exists &&
 		(existingTask.Status == StatusPending || existingTask.Status == StatusInstalling) {
+		log.Printf("[SubmitTask] Task already exists for ServiceID=%d with status=%s, skipping duplicate submission",
+			task.ServiceID, existingTask.Status)
 		return
 	}
 
@@ -102,7 +104,6 @@ func (m *InstallationManager) SubmitTask(task InstallationTask) {
 
 // runInstallationTask 运行安装任务
 func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
-	log.Printf("[InstallTask] 开始安装任务: ServiceID=%d, UserID=%d, Package=%s, Manager=%s, Version=%s", task.ServiceID, task.UserID, task.PackageName, task.PackageManager, task.Version)
 	// 更新任务状态为安装中
 	m.tasksMutex.Lock()
 	task.Status = StatusInstalling
@@ -118,7 +119,6 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 
 	switch task.PackageManager {
 	case "npm":
-		log.Printf("[InstallTask] 调用 InstallNPMPackage: %s@%s", task.PackageName, task.Version)
 		serverInfo, err = InstallNPMPackage(ctx, task.PackageName, task.Version, "", task.EnvVars)
 		if err == nil && serverInfo != nil {
 			output = fmt.Sprintf("NPM package %s initialized. Server: %s, Version: %s, Protocol: %s", task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
@@ -128,7 +128,6 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 			output = fmt.Sprintf("InstallNPMPackage error: %v", err)
 		}
 	case "pypi", "uv", "pip":
-		log.Printf("[InstallTask] 调用 InstallPyPIPackage: %s@%s", task.PackageName, task.Version)
 		serverInfo, err = InstallPyPIPackage(ctx, task.PackageName, task.Version, "", task.EnvVars)
 		if err == nil && serverInfo != nil {
 			output = fmt.Sprintf("PyPI package %s initialized. Server: %s, Version: %s, Protocol: %s", task.PackageName, serverInfo.Name, serverInfo.Version, serverInfo.ProtocolVersion)
@@ -150,10 +149,20 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 	if err != nil {
 		task.Status = StatusFailed
 		task.Error = err.Error()
-		log.Printf("[InstallTask] 任务失败: ServiceID=%d, Error=%v", task.ServiceID, err)
+		log.Printf("[InstallTask] 任务失败: ServiceID=%d, Package=%s, Error=%v", task.ServiceID, task.PackageName, err)
+
+		// 新增：尝试删除因此次失败安装而在数据库中预先创建的服务记录
+		log.Printf("[InstallTask] 安装失败，尝试删除预创建的服务记录: ServiceID=%d", task.ServiceID)
+		if deleteErr := model.DeleteService(task.ServiceID); deleteErr != nil {
+			log.Printf("[InstallTask] 删除服务记录失败 ServiceID=%d: %v. 原始安装错误: %v", task.ServiceID, deleteErr, err)
+			// 注意：即使删除失败，也应继续报告原始安装失败。
+			// 这里的删除失败是一个次要问题，主要问题是安装失败。
+		} else {
+			log.Printf("[InstallTask] 成功删除因安装失败而产生的服务记录: ServiceID=%d", task.ServiceID)
+		}
 	} else {
 		task.Status = StatusCompleted
-		log.Printf("[InstallTask] 任务完成: ServiceID=%d, Output=%s", task.ServiceID, output)
+		log.Printf("[InstallTask] 任务完成: ServiceID=%d, Package=%s", task.ServiceID, task.PackageName)
 		// 更新数据库中的服务状态
 		go m.updateServiceStatus(task, serverInfo)
 	}

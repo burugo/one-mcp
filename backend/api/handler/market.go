@@ -577,7 +577,12 @@ func InstallOrAddService(c *gin.Context) {
 			EnvVars:        envVarsForTask,
 		}
 
+		log.Printf("[InstallOrAddService] About to submit installation task for ServiceID=%d, Package=%s, Manager=%s, Version=%s, EnvVars=%v",
+			newService.ID, requestBody.PackageName, requestBody.PackageManager, requestBody.Version, envVarsForTask)
+
 		market.GetInstallationManager().SubmitTask(installationTask)
+
+		log.Printf("[InstallOrAddService] Installation task submitted successfully for ServiceID=%d", newService.ID)
 
 		common.RespSuccess(c, gin.H{
 			"message":        i18n.Translate("installation_submitted", lang),
@@ -710,43 +715,63 @@ func UninstallService(c *gin.Context) {
 		return
 	}
 
-	// Shutdown and unregister the service from the new ServiceManager
-	if service.Type == model.ServiceTypeStdio && service.SourcePackageName != "" { // Or more broadly, any service managed by ServiceManager
+	// 检查是否是处于安装中的服务
+	isPendingOrInstalling := false
+	if service.InstalledVersion == "" || service.InstalledVersion == "installing" {
+		// 进一步检查安装任务状态
+		installationManager := market.GetInstallationManager()
+		if task, exists := installationManager.GetTaskStatus(service.ID); exists {
+			if task.Status == market.StatusPending || task.Status == market.StatusInstalling {
+				isPendingOrInstalling = true
+				log.Printf("[UninstallService] Service ID %d is in %s state, will skip physical uninstall and proceed with soft delete only", service.ID, task.Status)
+			}
+		} else if service.InstalledVersion == "" {
+			// 没有安装任务但也没有安装版本，可能是之前失败的安装遗留
+			isPendingOrInstalling = true
+			log.Printf("[UninstallService] Service ID %d has no installed version and no running task, treating as pending installation - will skip physical uninstall", service.ID)
+		}
+	}
+
+	// 对于非安装中的服务，进行ServiceManager注销
+	if !isPendingOrInstalling && service.Type == model.ServiceTypeStdio && service.SourcePackageName != "" {
 		log.Printf("[UninstallService] Attempting to unregister service ID %d (Name: %s) from ServiceManager", service.ID, service.Name)
 		serviceManager := proxy.GetServiceManager()
 		if err := serviceManager.UnregisterService(c.Request.Context(), service.ID); err != nil {
 			log.Printf("[UninstallService] Error unregistering service ID %d from ServiceManager: %v. Proceeding with uninstall.", service.ID, err)
-			// Decide if this error should be fatal for the uninstall operation or just logged.
-			// The original code also proceeded after mcpClientManager.RemoveClient.
 		} else {
 			log.Printf("[UninstallService] Successfully unregistered service ID %d from ServiceManager.", service.ID)
 		}
+	} else if isPendingOrInstalling {
+		log.Printf("[UninstallService] Skipping ServiceManager unregistration for pending/installing service ID %d", service.ID)
 	}
 
-	// 卸载服务 - 根据 PackageManager 调用相应的卸载逻辑
-	// 注意: 只有 stdio 类型且有 PackageManager 的服务才涉及物理卸载
-	// SSE/HTTP 类型服务通常没有物理包卸载步骤，主要是DB记录的清理
-	if service.Type == model.ServiceTypeStdio && service.PackageManager != "" && service.SourcePackageName != "" {
-		switch service.PackageManager {
-		case "npm":
-			if err := market.UninstallNPMPackage(service.SourcePackageName); err != nil {
-				// Log error but proceed to mark as uninstalled, as it might be partially uninstalled or FS issues
-				log.Printf("Error during npm uninstall for service ID %d (%s): %v", serviceID, service.SourcePackageName, err)
-				// common.RespError(c, http.StatusInternalServerError, i18n.Translate("uninstall_failed", lang), err)
-				// return // Decide if this should be a hard stop or a soft failure for DB cleanup
-			}
-		case "uv", "pypi", "pip": // Assuming uv, pypi, pip might use a similar mechanism
-			// Assuming UninstallPyPIPackage exists and works similarly for these
-			if err := market.UninstallPyPIPackage(c.Request.Context(), service.SourcePackageName); err != nil {
-				log.Printf("Error during pypi/uv/pip uninstall for service ID %d (%s): %v", serviceID, service.SourcePackageName, err)
-			}
-		default:
-			log.Printf("Uninstall requested for service ID %d (%s) with unsupported package manager: %s. Skipping physical uninstall.", serviceID, service.SourcePackageName, service.PackageManager)
-			// common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("unsupported_package_manager_for_uninstall", lang)+ ": "+service.PackageManager)
-			// return
-		}
+	// 对于安装中的服务，跳过物理卸载，直接进行软删除
+	if isPendingOrInstalling {
+		log.Printf("[UninstallService] Service ID %d is pending/installing, skipping physical package uninstall", service.ID)
 	} else {
-		log.Printf("Service ID %d is not a stdio type with a package manager, or SourcePackageName is empty. Skipping physical uninstall.", serviceID)
+		// 卸载服务 - 根据 PackageManager 调用相应的卸载逻辑
+		// 注意: 只有 stdio 类型且有 PackageManager 的服务才涉及物理卸载
+		// SSE/HTTP 类型服务通常没有物理包卸载步骤，主要是DB记录的清理
+		if service.Type == model.ServiceTypeStdio && service.PackageManager != "" && service.SourcePackageName != "" {
+			switch service.PackageManager {
+			case "npm":
+				if err := market.UninstallNPMPackage(service.SourcePackageName); err != nil {
+					// Log error but proceed to mark as uninstalled, as it might be partially uninstalled or FS issues
+					log.Printf("Error during npm uninstall for service ID %d (%s): %v", serviceID, service.SourcePackageName, err)
+					// common.RespError(c, http.StatusInternalServerError, i18n.Translate("uninstall_failed", lang), err)
+					// return // Decide if this should be a hard stop or a soft failure for DB cleanup
+				}
+			case "uv", "pypi", "pip": // Assuming uv, pypi, pip might use a similar mechanism
+				// Assuming UninstallPyPIPackage exists and works similarly for these
+				if err := market.UninstallPyPIPackage(c.Request.Context(), service.SourcePackageName); err != nil {
+					log.Printf("Error during pypi/uv/pip uninstall for service ID %d (%s): %v", serviceID, service.SourcePackageName, err)
+				}
+			default:
+				log.Printf("Uninstall requested for service ID %d (%s) with unsupported package manager: %s. Skipping physical uninstall.", serviceID, service.SourcePackageName, service.PackageManager)
+			}
+		} else {
+			log.Printf("Service ID %d is not a stdio type with a package manager, or SourcePackageName is empty. Skipping physical uninstall.", serviceID)
+		}
 	}
 
 	// 标记服务为软删除 (or hard delete if preferred)
