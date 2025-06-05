@@ -90,8 +90,23 @@ func GetUser(c *gin.Context) {
 
 func GenerateToken(c *gin.Context) {
 	lang := c.GetString("lang")
-	id := c.GetInt("id")
-	user, err := model.GetUserById(int64(id), true)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "user_id not found in context",
+		})
+		return
+	}
+	id, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "invalid user_id type",
+		})
+		return
+	}
+	user, err := model.GetUserById(id, true)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -137,8 +152,23 @@ func GenerateToken(c *gin.Context) {
 }
 
 func GetSelf(c *gin.Context) {
-	id := c.GetInt("id")
-	user, err := model.GetUserById(int64(id), false)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "user_id not found in context",
+		})
+		return
+	}
+	id, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "invalid user_id type",
+		})
+		return
+	}
+	user, err := model.GetUserById(id, false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -238,18 +268,45 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
-	cleanUser := model.User{
-		BaseModel:   thing.BaseModel{ID: int64(c.GetInt("id"))},
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.DisplayName,
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "user_id not found in context",
+		})
+		return
 	}
-	if user.Password == "$I_LOVE_U" {
-		user.Password = "" // rollback to what it should be
-		cleanUser.Password = ""
+	id, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "invalid user_id type",
+		})
+		return
 	}
-	updatePassword := user.Password != ""
-	if err := cleanUser.Update(updatePassword); err != nil {
+
+	// 获取当前用户完整信息，避免覆盖其他字段
+	currentUser, err := model.GetUserById(id, false)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 只更新允许修改的字段
+	currentUser.Username = user.Username
+	currentUser.DisplayName = user.DisplayName
+	currentUser.Email = user.Email
+
+	updatePassword := false
+	if user.Password != "" && user.Password != "$I_LOVE_U" {
+		currentUser.Password = user.Password
+		updatePassword = true
+	}
+
+	if err := currentUser.Update(updatePassword); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": err.Error(),
@@ -300,9 +357,101 @@ func DeleteUser(c *gin.Context) {
 	}
 }
 
+// ChangePasswordRequest represents the request for changing password
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required"`
+}
+
+// ChangePassword handles password change for the current user
+func ChangePassword(c *gin.Context) {
+	var req ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid request: " + err.Error(),
+		})
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "user_id not found in context",
+		})
+		return
+	}
+	userId, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "invalid user_id type",
+		})
+		return
+	}
+	user, err := model.GetUserById(userId, false)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// 验证当前密码
+	if !common.ValidatePasswordAndHash(req.CurrentPassword, user.Password) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "current_password_incorrect",
+		})
+		return
+	}
+
+	// 检查是否为 OAuth 用户（不应该能够修改密码）
+	if user.GitHubId != "" || user.GoogleId != "" || user.WeChatId != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "oauth_user_cannot_change_password",
+		})
+		return
+	}
+
+	// 更新密码
+	user.Password = req.NewPassword
+	if err := user.Update(true); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "password_changed_successfully",
+	})
+	return
+}
+
 func DeleteSelf(c *gin.Context) {
-	id := c.GetInt("id")
-	err := model.DeleteUserById(int64(id))
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "user_id not found in context",
+		})
+		return
+	}
+	id, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "invalid user_id type",
+		})
+		return
+	}
+	err := model.DeleteUserById(id)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -502,9 +651,24 @@ func EmailBind(c *gin.Context) {
 		})
 		return
 	}
-	id := c.GetInt("id")
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "user_id not found in context",
+		})
+		return
+	}
+	id, ok := userID.(int64)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "invalid user_id type",
+		})
+		return
+	}
 	user := model.User{
-		BaseModel: thing.BaseModel{ID: int64(id)},
+		BaseModel: thing.BaseModel{ID: id},
 	}
 	err := user.FillUserById()
 	if err != nil {

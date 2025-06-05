@@ -17,9 +17,6 @@ import (
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
-	"github.com/gin-contrib/sessions/redis"
 	"github.com/gin-gonic/gin"
 )
 
@@ -83,14 +80,14 @@ func main() {
 	server.Use(middleware.CORS())
 
 	// Initialize session store
-	if common.RedisEnabled {
-		opt := common.ParseRedisOption()
-		store, _ := redis.NewStore(opt.MinIdleConns, opt.Network, opt.Addr, opt.Password, common.SessionSecret)
-		server.Use(sessions.Sessions("session", store))
-	} else {
-		store := cookie.NewStore([]byte(common.SessionSecret))
-		server.Use(sessions.Sessions("session", store))
-	}
+	// if common.RedisEnabled {
+	// 	opt := common.ParseRedisOption()
+	// 	store, _ := redis.NewStore(opt.MinIdleConns, opt.Network, opt.Addr, opt.Password, common.SessionSecret)
+	// 	server.Use(sessions.Sessions("session", store))
+	// } else {
+	// 	store := cookie.NewStore([]byte(common.SessionSecret))
+	// 	server.Use(sessions.Sessions("session", store))
+	// }
 
 	route.SetRouter(server, buildFS, indexPage)
 	server.NoRoute(func(c *gin.Context) {
