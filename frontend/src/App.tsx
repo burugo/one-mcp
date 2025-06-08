@@ -16,6 +16,7 @@ import { ProfilePage } from './pages/ProfilePage'
 import { PreferencesPage } from './pages/PreferencesPage'
 import { UsersPage } from './pages/UsersPage'
 import Login from '@/pages/Login'
+import { OAuthCallback } from './pages/OAuthCallback'
 import { toastEmitter } from '@/utils/api'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 
@@ -196,6 +197,8 @@ const AppContent = () => {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/oauth/github" element={<OAuthCallback />} />
+      <Route path="/oauth/google" element={<OAuthCallback />} />
       <Route path="/" element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />

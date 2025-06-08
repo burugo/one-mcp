@@ -15,85 +15,103 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type GitHubOAuthResponse struct {
+type GoogleOAuthResponse struct {
 	AccessToken string `json:"access_token"`
-	Scope       string `json:"scope"`
 	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope"`
 }
 
-type GitHubUser struct {
-	Login string `json:"login"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
+type GoogleUser struct {
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	VerifiedEmail bool   `json:"verified_email"`
+	Name          string `json:"name"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Picture       string `json:"picture"`
 }
 
-func getGitHubUserInfoByCode(code string) (*GitHubUser, error) {
+func getGoogleUserInfoByCode(code string) (*GoogleUser, error) {
 	if code == "" {
 		return nil, errors.New("无效的参数")
 	}
-	values := map[string]string{"client_id": common.GetGitHubClientId(), "client_secret": common.GetGitHubClientSecret(), "code": code}
+
+	// Exchange code for access token
+	values := map[string]string{
+		"client_id":     common.GetGoogleClientId(),
+		"client_secret": common.GetGoogleClientSecret(),
+		"code":          code,
+		"grant_type":    "authorization_code",
+		"redirect_uri":  fmt.Sprintf("%s/oauth/google", common.GetServerAddress()),
+	}
+
 	jsonData, err := json.Marshal(values)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest("POST", "https://github.com/login/oauth/access_token", bytes.NewBuffer(jsonData))
+
+	req, err := http.NewRequest("POST", "https://oauth2.googleapis.com/token", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+
 	client := http.Client{
 		Timeout: 5 * time.Second,
 	}
 	res, err := client.Do(req)
 	if err != nil {
 		common.SysLog(err.Error())
-		return nil, errors.New("无法连接至 GitHub 服务器，请稍后重试！")
+		return nil, errors.New("无法连接至 Google 服务器，请稍后重试！")
 	}
 	defer res.Body.Close()
-	var oAuthResponse GitHubOAuthResponse
+
+	var oAuthResponse GoogleOAuthResponse
 	err = json.NewDecoder(res.Body).Decode(&oAuthResponse)
 	if err != nil {
 		return nil, err
 	}
-	req, err = http.NewRequest("GET", "https://api.github.com/user", nil)
+
+	// Get user info using access token
+	req, err = http.NewRequest("GET", "https://www.googleapis.com/oauth2/v2/userinfo", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", oAuthResponse.AccessToken))
+
 	res2, err := client.Do(req)
 	if err != nil {
 		common.SysLog(err.Error())
-		return nil, errors.New("无法连接至 GitHub 服务器，请稍后重试！")
+		return nil, errors.New("无法连接至 Google 服务器，请稍后重试！")
 	}
 	defer res2.Body.Close()
-	var githubUser GitHubUser
-	err = json.NewDecoder(res2.Body).Decode(&githubUser)
+
+	var googleUser GoogleUser
+	err = json.NewDecoder(res2.Body).Decode(&googleUser)
 	if err != nil {
 		return nil, err
 	}
-	if githubUser.Login == "" {
+
+	if googleUser.ID == "" {
 		return nil, errors.New("返回值非法，用户字段为空，请稍后重试！")
 	}
-	return &githubUser, nil
+
+	return &googleUser, nil
 }
 
-func GitHubOAuth(c *gin.Context) {
-	// Check if user is already logged in via JWT
-	if userID, exists := c.Get("user_id"); exists && userID != nil {
-		GitHubBind(c)
-		return
-	}
-
-	if !common.GetGitHubOAuthEnabled() {
+func GoogleOAuth(c *gin.Context) {
+	if !common.GetGoogleOAuthEnabled() {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未开启通过 GitHub 登录以及注册",
+			"message": "管理员未开启通过 Google 登录以及注册",
 		})
 		return
 	}
+
 	code := c.Query("code")
-	githubUser, err := getGitHubUserInfoByCode(code)
+	googleUser, err := getGoogleUserInfoByCode(code)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -101,11 +119,13 @@ func GitHubOAuth(c *gin.Context) {
 		})
 		return
 	}
+
 	user := model.User{
-		GitHubId: githubUser.Login,
+		GoogleId: googleUser.ID,
 	}
-	if model.IsGitHubIdAlreadyTaken(user.GitHubId) {
-		err := user.FillUserByGitHubId()
+
+	if model.IsGoogleIdAlreadyTaken(user.GoogleId) {
+		err := user.FillUserByGoogleId()
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -115,13 +135,13 @@ func GitHubOAuth(c *gin.Context) {
 		}
 	} else {
 		if common.GetRegisterEnabled() {
-			user.Username = "github_" + strconv.Itoa(int(model.GetMaxUserId()+1))
-			if githubUser.Name != "" {
-				user.DisplayName = githubUser.Name
+			user.Username = "google_" + strconv.Itoa(int(model.GetMaxUserId()+1))
+			if googleUser.Name != "" {
+				user.DisplayName = googleUser.Name
 			} else {
-				user.DisplayName = "GitHub User"
+				user.DisplayName = "Google User"
 			}
-			user.Email = githubUser.Email
+			user.Email = googleUser.Email
 			user.Role = common.RoleCommonUser
 			user.Status = common.UserStatusEnabled
 
@@ -148,6 +168,7 @@ func GitHubOAuth(c *gin.Context) {
 		})
 		return
 	}
+
 	// Generate JWT tokens
 	accessToken, err := service.GenerateToken(&user)
 	if err != nil {
@@ -169,7 +190,7 @@ func GitHubOAuth(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "GitHub OAuth login successful",
+		"message": "Google OAuth login successful",
 		"data": gin.H{
 			"access_token":  accessToken,
 			"refresh_token": refreshToken,
@@ -178,16 +199,17 @@ func GitHubOAuth(c *gin.Context) {
 	})
 }
 
-func GitHubBind(c *gin.Context) {
-	if !common.GetGitHubOAuthEnabled() {
+func GoogleBind(c *gin.Context) {
+	if !common.GetGoogleOAuthEnabled() {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未开启通过 GitHub 登录以及注册",
+			"message": "管理员未开启通过 Google 登录以及注册",
 		})
 		return
 	}
+
 	code := c.Query("code")
-	githubUser, err := getGitHubUserInfoByCode(code)
+	googleUser, err := getGoogleUserInfoByCode(code)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -195,16 +217,19 @@ func GitHubBind(c *gin.Context) {
 		})
 		return
 	}
+
 	user := model.User{
-		GitHubId: githubUser.Login,
+		GoogleId: googleUser.ID,
 	}
-	if model.IsGitHubIdAlreadyTaken(user.GitHubId) {
+
+	if model.IsGoogleIdAlreadyTaken(user.GoogleId) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "该 GitHub 账户已被绑定",
+			"message": "该 Google 账户已被绑定",
 		})
 		return
 	}
+
 	// Get user ID from JWT context
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -233,7 +258,8 @@ func GitHubBind(c *gin.Context) {
 		})
 		return
 	}
-	user.GitHubId = githubUser.Login
+
+	user.GoogleId = googleUser.ID
 	err = user.Update(false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -242,8 +268,9 @@ func GitHubBind(c *gin.Context) {
 		})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "GitHub账户绑定成功",
+		"message": "Google账户绑定成功",
 	})
 }

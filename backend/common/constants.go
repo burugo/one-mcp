@@ -27,26 +27,13 @@ var ItemsPerPage = 10
 
 var PasswordLoginEnabled = true
 var PasswordRegisterEnabled = true
-var EmailVerificationEnabled = false
-var GitHubOAuthEnabled = false
-var WeChatAuthEnabled = false
-var TurnstileCheckEnabled = false
-var RegisterEnabled = true
 
-var SMTPServer = ""
 var SMTPPort = 587
-var SMTPAccount = ""
-var SMTPToken = ""
 
-var GitHubClientId = ""
-var GitHubClientSecret = ""
-
-var WeChatServerAddress = ""
-var WeChatServerToken = ""
-var WeChatAccountQRCodeImageURL = ""
-
-var TurnstileSiteKey = ""
-var TurnstileSecretKey = ""
+// These variables are still used during initialization from environment variables
+// They will be moved to OptionMap after initialization
+var GoogleClientId = ""
+var GoogleClientSecret = ""
 
 // JWT constants
 var JWTSecret = uuid.New().String()        // Secret for signing JWT tokens

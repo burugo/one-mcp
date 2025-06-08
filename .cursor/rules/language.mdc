@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+Always respond in Chinese with utf-8 encoding.
+Git commit messages and code comments should always be in English.
+Remember, programs must be written for people to read, and only incidentally for machines to execute.
