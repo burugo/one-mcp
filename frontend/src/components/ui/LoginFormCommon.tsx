@@ -14,24 +14,24 @@ interface LoginFormCommonProps {
 export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProps) {
     const { toast } = useToast();
     const [showPassword, setShowPassword] = useState(false);
-    const [email, setEmail] = useState("");
+    const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const { login: authLogin } = useAuth();
 
     const handleSubmit = async (e?: React.FormEvent | React.MouseEvent) => {
         if (e) e.preventDefault();
-        if (!email || !password) {
+        if (!username || !password) {
             toast({
                 variant: "destructive",
                 title: "输入错误",
-                description: "邮箱和密码不能为空。"
+                description: "用户名和密码不能为空。"
             });
             return;
         }
         setLoading(true);
         try {
-            const apiResponse: APIResponse = await api.post('/auth/login', { username: email, password });
+            const apiResponse: APIResponse = await api.post('/auth/login', { username: username, password });
             if (apiResponse && apiResponse.success && apiResponse.data?.access_token && apiResponse.data.user) {
                 authLogin(apiResponse.data.user, apiResponse.data.access_token);
                 if (apiResponse.data.refresh_token) {
@@ -43,7 +43,7 @@ export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProp
                 });
                 onSuccess();
             } else {
-                const message = apiResponse?.message || "登录失败，请检查邮箱和密码。";
+                const message = apiResponse?.message || "登录失败，请检查用户名和密码。";
                 toast({
                     variant: "destructive",
                     title: "登录失败",
@@ -98,17 +98,17 @@ export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProp
                 <div className="h-px bg-border flex-grow"></div>
             </div>
             <div className="w-full mb-4">
-                <label htmlFor="email" className="block text-sm font-medium mb-2">
-                    Email address
+                <label htmlFor="username" className="block text-sm font-medium mb-2">
+                    Username
                 </label>
                 <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     autoFocus
                     className="h-12 px-4 text-base"
-                    placeholder="your.email@example.com"
+                    placeholder="Enter your username"
                 />
             </div>
             <div className="w-full mb-8">
