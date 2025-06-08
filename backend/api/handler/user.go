@@ -87,7 +87,7 @@ func GetUser(c *gin.Context) {
 }
 
 func GenerateToken(c *gin.Context) {
-	lang := c.GetString("lang")
+	// lang := c.GetString("lang")
 	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusOK, gin.H{

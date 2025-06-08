@@ -141,6 +141,41 @@ button:focus-visible {
   select {
     @apply bg-background text-foreground border border-input rounded-md px-3 py-2 text-sm;
   }
+
+
+  input[type="checkbox"] {
+    accent-color: hsl(var(--primary));
+    background-color: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.25rem;
+  }
+
+  input[type="checkbox"]:not(:checked) {
+    background-color: hsl(var(--background));
+    border-color: hsl(var(--border));
+  }
+
+  input[type="checkbox"]:checked {
+    background-color: hsl(var(--primary));
+    border-color: hsl(var(--primary));
+  }
+
+  /* Info box styles for light and dark mode */
+  .bg-info-bg {
+    @apply bg-blue-50 dark:bg-blue-950/30;
+  }
+
+  .border-info-border {
+    @apply border-blue-200 dark:border-blue-800;
+  }
+
+  .text-info-foreground {
+    @apply text-blue-700 dark:text-blue-300;
+  }
+
+  .bg-info-code {
+    @apply bg-blue-100 dark:bg-blue-900/50;
+  }
 }
 
 /* Animation for successful installation checkmark */

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -98,6 +99,7 @@ func TestLogin_RootUser_IncorrectCredentials(t *testing.T) {
 	defer teardown()
 
 	hashedPassword, errHash := common.Password2Hash("123456")
+	fmt.Println("hashedPassword", hashedPassword)
 	assert.NoError(t, errHash, "Failed to hash password")
 
 	rootUser := &model.User{

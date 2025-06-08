@@ -3,10 +3,11 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 func GetStatus(c *gin.Context) {
@@ -16,17 +17,19 @@ func GetStatus(c *gin.Context) {
 		"data": gin.H{
 			"version":            common.Version,
 			"start_time":         common.StartTime,
-			"email_verification": common.EmailVerificationEnabled,
-			"github_oauth":       common.GitHubOAuthEnabled,
-			"github_client_id":   common.GitHubClientId,
-			"system_name":        common.SystemName,
-			"home_page_link":     common.HomePageLink,
-			"footer_html":        common.Footer,
-			"wechat_qrcode":      common.WeChatAccountQRCodeImageURL,
-			"wechat_login":       common.WeChatAuthEnabled,
-			"server_address":     common.ServerAddress,
-			"turnstile_check":    common.TurnstileCheckEnabled,
-			"turnstile_site_key": common.TurnstileSiteKey,
+			"email_verification": common.GetEmailVerificationEnabled(),
+			"github_oauth":       common.GetGitHubOAuthEnabled(),
+			"github_client_id":   common.GetGitHubClientId(),
+			"google_oauth":       common.GetGoogleOAuthEnabled(),
+			"google_client_id":   common.GetGoogleClientId(),
+			"system_name":        common.GetSystemName(),
+			"home_page_link":     common.GetHomePageLink(),
+			"footer_html":        common.GetFooter(),
+			"wechat_qrcode":      common.GetWeChatAccountQRCodeImageURL(),
+			"wechat_login":       common.GetWeChatAuthEnabled(),
+			"server_address":     common.GetServerAddress(),
+			"turnstile_check":    common.GetTurnstileCheckEnabled(),
+			"turnstile_site_key": common.GetTurnstileSiteKey(),
 		},
 	})
 	return
@@ -72,10 +75,10 @@ func SendEmailVerification(c *gin.Context) {
 	}
 	code := common.GenerateVerificationCode(6)
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
-	subject := fmt.Sprintf("%s邮箱验证邮件", common.SystemName)
+	subject := fmt.Sprintf("%s邮箱验证邮件", common.GetSystemName())
 	content := fmt.Sprintf("<p>您好，你正在进行%s邮箱验证。</p>"+
 		"<p>您的验证码为: <strong>%s</strong></p>"+
-		"<p>验证码 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, code, common.VerificationValidMinutes)
+		"<p>验证码 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.GetSystemName(), code, common.VerificationValidMinutes)
 	err := common.SendEmail(subject, email, content)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -109,11 +112,11 @@ func SendPasswordResetEmail(c *gin.Context) {
 	}
 	code := common.GenerateVerificationCode(0)
 	common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
-	link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", common.ServerAddress, email, code)
-	subject := fmt.Sprintf("%s密码重置", common.SystemName)
+	link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", common.GetServerAddress(), email, code)
+	subject := fmt.Sprintf("%s密码重置", common.GetSystemName())
 	content := fmt.Sprintf("<p>您好，你正在进行%s密码重置。</p>"+
 		"<p>点击<a href='%s'>此处</a>进行密码重置。</p>"+
-		"<p>重置链接 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, link, common.VerificationValidMinutes)
+		"<p>重置链接 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.GetSystemName(), link, common.VerificationValidMinutes)
 	err := common.SendEmail(subject, email, content)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{

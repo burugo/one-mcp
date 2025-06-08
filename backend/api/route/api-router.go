@@ -20,13 +20,14 @@ func SetApiRouter(route *gin.Engine) {
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), handler.SendPasswordResetEmail)
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), handler.ResetPassword)
 		apiRouter.GET("/oauth/github", middleware.CriticalRateLimit(), handler.GitHubOAuth)
+		apiRouter.GET("/oauth/google", middleware.CriticalRateLimit(), handler.GoogleOAuth)
 		apiRouter.GET("/oauth/wechat", middleware.CriticalRateLimit(), handler.WeChatAuth)
 
 		// Authentication routes
 		authRoutes := apiRouter.Group("/auth")
 		{
 			authRoutes.POST("/login", middleware.CriticalRateLimit(), handler.Login)
-			authRoutes.POST("/register", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), handler.Register)
+			// authRoutes.POST("/register", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), handler.Register)
 			authRoutes.POST("/refresh", middleware.CriticalRateLimit(), handler.RefreshToken)
 			authRoutes.POST("/logout", middleware.CriticalRateLimit(), handler.Logout)
 		}
@@ -35,6 +36,8 @@ func SetApiRouter(route *gin.Engine) {
 		authOauthRoutes := apiRouter.Group("/oauth")
 		authOauthRoutes.Use(middleware.JWTAuth())
 		{
+			authOauthRoutes.GET("/github/bind", middleware.CriticalRateLimit(), handler.GitHubBind)
+			authOauthRoutes.GET("/google/bind", middleware.CriticalRateLimit(), handler.GoogleBind)
 			authOauthRoutes.GET("/wechat/bind", middleware.CriticalRateLimit(), handler.WeChatBind)
 			authOauthRoutes.GET("/email/bind", middleware.CriticalRateLimit(), handler.EmailBind)
 		}
