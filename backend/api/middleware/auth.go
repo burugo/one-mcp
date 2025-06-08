@@ -136,16 +136,9 @@ func JWTAuth() gin.HandlerFunc {
 }
 
 // AdminAuth middleware verifies the user has admin role
+// Note: This middleware assumes JWTAuth has already been called to set user info in context
 func AdminAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Use JWTAuth first to validate token and set user info
-		JWTAuth()(c)
-
-		// If the request was aborted by JWTAuth, don't continue
-		if c.IsAborted() {
-			return
-		}
-
 		// Check if the user has admin role
 		role, exists := c.Get("role")
 		if !exists {
@@ -182,16 +175,9 @@ func AdminAuth() gin.HandlerFunc {
 }
 
 // RootAuth middleware verifies the user has root role
+// Note: This middleware assumes JWTAuth has already been called to set user info in context
 func RootAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Use JWTAuth first to validate token and set user info
-		JWTAuth()(c)
-
-		// If the request was aborted by JWTAuth, don't continue
-		if c.IsAborted() {
-			return
-		}
-
 		// Check if the user has root role
 		role, exists := c.Get("role")
 		if !exists {

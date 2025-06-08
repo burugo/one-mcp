@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
-import { Settings, Search, User, Home, BarChart, Globe, Package } from 'lucide-react'
+import { Settings, Search, User, Home, BarChart, Globe, Package, Users } from 'lucide-react'
 import { LoginDialog } from './components/ui/login-dialog'
 import { ThemeToggle } from './components/ui/theme-toggle'
 import { MarketPage } from './pages/MarketPage'
@@ -14,6 +14,7 @@ import { ServicesPage } from './pages/ServicesPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PreferencesPage } from './pages/PreferencesPage'
+import { UsersPage } from './pages/UsersPage'
 import Login from '@/pages/Login'
 import { toastEmitter } from '@/utils/api'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -107,6 +108,13 @@ const AppLayout = () => {
               <BarChart className={`h-4 w-4 ${location.pathname.startsWith('/analytics') ? 'text-primary' : 'text-muted-foreground'}`} />
               <span className={`${location.pathname.startsWith('/analytics') ? 'text-primary' : 'text-muted-foreground'}`}>Analytics</span>
             </NavLink>
+            {/* 用户管理 - 仅管理员可见 */}
+            {currentUser && currentUser.role && currentUser.role >= 10 && (
+              <NavLink to="/users">
+                <Users className={`h-4 w-4 ${location.pathname.startsWith('/users') ? 'text-primary' : 'text-muted-foreground'}`} />
+                <span className={`${location.pathname.startsWith('/users') ? 'text-primary' : 'text-muted-foreground'}`}>用户</span>
+              </NavLink>
+            )}
             <div className="my-4 border-t border-border"></div>
             <NavLink to="/profile">
               <User className={`h-4 w-4 ${location.pathname.startsWith('/profile') ? 'text-primary' : 'text-muted-foreground'}`} />
@@ -194,6 +202,7 @@ const AppContent = () => {
         <Route path="services" element={<PrivateRoute><ServicesPage /></PrivateRoute>} />
         <Route path="market" element={<PrivateRoute><MarketPage /></PrivateRoute>} />
         <Route path="analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
+        <Route path="users" element={<PrivateRoute><UsersPage /></PrivateRoute>} />
         <Route path="profile" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
         <Route path="preferences" element={<PrivateRoute><PreferencesPage /></PrivateRoute>} />
         <Route path="api" element={<div>API Page Content</div>} />

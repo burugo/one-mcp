@@ -184,28 +184,49 @@ func GetSelf(c *gin.Context) {
 	return
 }
 
+// UserUpdateRequestPayload defines the structure for an update user request.
+// It includes fields that can be updated by an admin, especially Password.
+type UserUpdateRequestPayload struct {
+	ID          uint    `json:"id" validate:"required"`
+	Username    string  `json:"username" validate:"required,min=3,max=20"`
+	DisplayName string  `json:"display_name" validate:"required,max=50"`
+	Email       *string `json:"email" validate:"omitempty,email"`    // Pointer type to distinguish "not provided" from "empty string"
+	Role        *int    `json:"role" validate:"omitempty,gte=0"`     // Pointer type to distinguish "not provided" from "0"
+	Password    string  `json:"password" validate:"omitempty,min=6"` // Keep as string, empty means "don't change"
+}
+
 func UpdateUser(c *gin.Context) {
 	lang := c.GetString("lang")
-	var updatedUser model.User
-	err := json.NewDecoder(c.Request.Body).Decode(&updatedUser)
-	if err != nil || updatedUser.ID == 0 {
+	var requestPayload UserUpdateRequestPayload
+
+	if err := c.ShouldBindJSON(&requestPayload); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": i18n.Translate("invalid_param", lang),
+			"message": i18n.Translate("invalid_param", lang) + ": " + err.Error(),
 		})
 		return
 	}
-	if updatedUser.Password == "" {
-		updatedUser.Password = "$I_LOVE_U" // make Validator happy :)
-	}
-	if err := common.Validate.Struct(&updatedUser); err != nil {
+
+	currentUserID, exists := c.Get("user_id")
+	if !exists {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": i18n.Translate("invalid_input", lang) + err.Error(),
+			"message": "user_id not found in context",
 		})
 		return
 	}
-	originUser, err := model.GetUserById(int64(updatedUser.ID), false)
+	myID, ok := currentUserID.(int64)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "invalid user_id type in context",
+		})
+		return
+	}
+
+	actualRequestPassword := requestPayload.Password
+
+	originUser, err := model.GetUserById(int64(requestPayload.ID), false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -213,26 +234,72 @@ func UpdateUser(c *gin.Context) {
 		})
 		return
 	}
+
 	myRole := c.GetInt("role")
-	if myRole <= originUser.Role {
+
+	if myRole <= originUser.Role && int64(originUser.ID) != myID {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": i18n.Translate("no_permission_update_same_or_higher_user", lang),
 		})
 		return
 	}
-	if myRole <= updatedUser.Role {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": i18n.Translate("no_permission_promote_user_to_higher_or_equal", lang),
-		})
-		return
+
+	// Role permission checks - only apply if role is explicitly provided in the request
+	if requestPayload.Role != nil {
+		requestedRole := *requestPayload.Role // Dereference the pointer to get the actual role value
+
+		// Only proceed with role checks if the role is actually different from current
+		if requestedRole != originUser.Role {
+			if int64(originUser.ID) == myID { // Trying to change own role
+				if requestedRole > myRole {
+					c.JSON(http.StatusOK, gin.H{
+						"success": false,
+						"message": i18n.Translate("no_permission_promote_self_to_higher_role", lang),
+					})
+					return
+				}
+			} else { // Trying to change another user's role
+				// Cannot set another user's role to be higher than my own role, unless I am root.
+				if requestedRole > myRole && myRole != common.RoleRootUser {
+					c.JSON(http.StatusOK, gin.H{
+						"success": false,
+						"message": i18n.Translate("no_permission_promote_other_to_higher_role", lang),
+					})
+					return
+				}
+			}
+			// General check: if not root, cannot assign any role (to self or other) that is greater than myRole.
+			if requestedRole > myRole && myRole != common.RoleRootUser {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": i18n.Translate("no_permission_set_role_higher_than_own", lang),
+				})
+				return
+			}
+		}
 	}
-	if updatedUser.Password == "$I_LOVE_U" {
-		updatedUser.Password = "" // rollback to what it should be
+
+	// Apply changes to the original user object
+	originUser.Username = requestPayload.Username
+	originUser.DisplayName = requestPayload.DisplayName
+
+	// Only update email if explicitly provided in the request
+	if requestPayload.Email != nil {
+		originUser.Email = *requestPayload.Email // Dereference pointer to get actual email value
 	}
-	updatePassword := updatedUser.Password != ""
-	if err := updatedUser.Update(updatePassword); err != nil {
+
+	// Only update role if explicitly provided in the request and different from current
+	if requestPayload.Role != nil && *requestPayload.Role != originUser.Role {
+		originUser.Role = *requestPayload.Role // Dereference pointer to get actual role value
+	}
+
+	updatePassword := actualRequestPassword != ""
+	if updatePassword {
+		originUser.Password = actualRequestPassword
+	}
+
+	if err := originUser.Update(updatePassword); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": err.Error(),
@@ -350,11 +417,17 @@ func DeleteUser(c *gin.Context) {
 	err = model.DeleteUserById(int64(id))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "",
+			"success": false,
+			"message": err.Error(),
 		})
 		return
 	}
+	// 删除成功，返回成功响应
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
+	return
 }
 
 // ChangePasswordRequest represents the request for changing password
@@ -466,34 +539,56 @@ func DeleteSelf(c *gin.Context) {
 	return
 }
 
+// UserCreateRequestPayload defines the structure for a create user request.
+// It includes all fields that can be set when creating a new user, especially Password.
+type UserCreateRequestPayload struct {
+	Username    string `json:"username" validate:"required,min=3,max=20"`
+	Password    string `json:"password" validate:"required,min=6"`
+	DisplayName string `json:"display_name" validate:"omitempty,max=50"`
+	Email       string `json:"email" validate:"omitempty,email"`
+	Role        int    `json:"role" validate:"omitempty,gte=0"`
+}
+
 func CreateUser(c *gin.Context) {
 	lang := c.GetString("lang")
-	var user model.User
-	err := json.NewDecoder(c.Request.Body).Decode(&user)
-	if err != nil || user.Username == "" || user.Password == "" {
+	var requestPayload UserCreateRequestPayload
+
+	if err := c.ShouldBindJSON(&requestPayload); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": i18n.Translate("invalid_param", lang),
+			"message": i18n.Translate("invalid_param", lang) + ": " + err.Error(),
 		})
 		return
 	}
-	if user.DisplayName == "" {
-		user.DisplayName = user.Username
+
+	if requestPayload.DisplayName == "" {
+		requestPayload.DisplayName = requestPayload.Username
 	}
+
 	myRole := c.GetInt("role")
-	if user.Role >= myRole {
+	if requestPayload.Role >= myRole {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": i18n.Translate("cannot_create_user_with_higher_or_equal_role", lang),
 		})
 		return
 	}
-	// Even for admin users, we cannot fully trust them!
-	cleanUser := model.User{
-		Username:    user.Username,
-		Password:    user.Password,
-		DisplayName: user.DisplayName,
+
+	// Set default role to common user if not provided
+	userRole := requestPayload.Role
+	if userRole == 0 {
+		userRole = common.RoleCommonUser
 	}
+
+	// Create a clean user object with the parsed data
+	cleanUser := model.User{
+		Username:    requestPayload.Username,
+		Password:    requestPayload.Password,
+		DisplayName: requestPayload.DisplayName,
+		Email:       requestPayload.Email,
+		Role:        userRole,
+	}
+
 	if err := cleanUser.Insert(); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
