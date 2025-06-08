@@ -60,7 +60,8 @@ func SetApiRouter(route *gin.Engine) {
 
 			// Admin-only endpoints
 			adminRoute := userRoute.Group("/")
-			adminRoute.Use(middleware.AdminAuth())
+			adminRoute.Use(middleware.JWTAuth())   // First authenticate with JWT
+			adminRoute.Use(middleware.AdminAuth()) // Then check admin privileges
 			{
 				adminRoute.GET("/", handler.GetAllUsers)
 				adminRoute.GET("/search", handler.SearchUsers)
@@ -74,7 +75,8 @@ func SetApiRouter(route *gin.Engine) {
 
 		// Option routes (Root admin only)
 		optionRoute := apiRouter.Group("/option")
-		optionRoute.Use(middleware.RootAuth())
+		optionRoute.Use(middleware.JWTAuth())  // First authenticate with JWT
+		optionRoute.Use(middleware.RootAuth()) // Then check root privileges
 		{
 			optionRoute.GET("/", handler.GetOptions)
 			optionRoute.PUT("/", handler.UpdateOption)
@@ -95,7 +97,8 @@ func SetApiRouter(route *gin.Engine) {
 
 			// Admin-only endpoints (write operations)
 			adminMCPServiceRoute := mcpServiceRoute.Group("/")
-			adminMCPServiceRoute.Use(middleware.AdminAuth())
+			adminMCPServiceRoute.Use(middleware.JWTAuth())   // First authenticate with JWT
+			adminMCPServiceRoute.Use(middleware.AdminAuth()) // Then check admin privileges
 			{
 				adminMCPServiceRoute.POST("/", handler.CreateMCPService)
 				adminMCPServiceRoute.PUT("/:id", handler.UpdateMCPService)
@@ -118,7 +121,7 @@ func SetApiRouter(route *gin.Engine) {
 
 			// Admin-only endpoints
 			adminMarketRoute := marketRoute.Group("/")
-			adminMarketRoute.Use(middleware.AdminAuth())
+			adminMarketRoute.Use(middleware.AdminAuth()) // JWTAuth already applied by parent group
 			{
 				adminMarketRoute.POST("/install_or_add_service", handler.InstallOrAddService)
 				adminMarketRoute.POST("/uninstall", handler.UninstallService)

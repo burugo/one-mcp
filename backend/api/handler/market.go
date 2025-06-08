@@ -1140,7 +1140,7 @@ func PatchEnvVar(c *gin.Context) {
 		return
 	}
 
-	isAdmin := user.Role == model.RoleAdminUser
+	isAdmin := user.Role == common.RoleAdminUser
 
 	if isAdmin {
 		// 管理员：更新服务的默认环境变量配置

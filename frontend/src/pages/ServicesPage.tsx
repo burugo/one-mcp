@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCaption, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCaption, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, PlusCircle, Trash2, Plus, RotateCcw } from 'lucide-react';
+import { Search, PlusCircle, Trash2, Plus, RotateCcw, Grid, List } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
@@ -12,6 +12,7 @@ import CustomServiceModal, { CustomServiceData } from '@/components/market/Custo
 import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -30,6 +31,7 @@ export function ServicesPage() {
     const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
     const [togglingServices, setTogglingServices] = useState<Set<string>>(new Set());
     const [checkingHealthServices, setCheckingHealthServices] = useState<Set<string>>(new Set());
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
     const hasFetched = useRef(false);
 
@@ -218,6 +220,157 @@ export function ServicesPage() {
         }
     };
 
+    // 渲染列表视图
+    const renderListView = (services: ServiceType[]) => {
+        if (services.length === 0) {
+            return (
+                <div className="text-center py-8 text-muted-foreground">
+                    <p>No services found.</p>
+                </div>
+            );
+        }
+
+        return (
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>状态</TableHead>
+                        <TableHead>服务名称</TableHead>
+                        <TableHead>描述</TableHead>
+                        <TableHead>版本</TableHead>
+                        <TableHead>健康状态</TableHead>
+                        <TableHead>启用状态</TableHead>
+                        <TableHead>操作</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {services.map(service => (
+                        <TableRow key={service.id}>
+                            <TableCell>
+                                <div className="flex items-center space-x-1">
+                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
+                                        ? "bg-green-500"
+                                        : "bg-gray-400"
+                                        }`}></div>
+                                    <button
+                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                                        onClick={() => handleCheckServiceHealth(service.id)}
+                                        disabled={checkingHealthServices.has(service.id)}
+                                        title="刷新健康状态"
+                                    >
+                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
+                                    </button>
+                                </div>
+                            </TableCell>
+                            <TableCell>
+                                <div className="font-medium">{service.display_name || service.name}</div>
+                                <div className="text-sm text-muted-foreground">{service.name}</div>
+                            </TableCell>
+                            <TableCell>
+                                <div className="max-w-xs truncate text-sm text-muted-foreground">
+                                    {service.description}
+                                </div>
+                            </TableCell>
+                            <TableCell>
+                                <Badge variant="outline">{service.version || 'unknown'}</Badge>
+                            </TableCell>
+                            <TableCell>
+                                <Badge variant={service.health_status === "healthy" || service.health_status === "Healthy" ? "default" : "secondary"}>
+                                    {service.health_status || 'unknown'}
+                                </Badge>
+                            </TableCell>
+                            <TableCell>
+                                <Switch
+                                    checked={service.enabled || false}
+                                    onCheckedChange={() => handleToggleService(service.id)}
+                                    disabled={togglingServices.has(service.id)}
+                                />
+                            </TableCell>
+                            <TableCell>
+                                <div className="flex items-center space-x-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}
+                                    >
+                                        Configure
+                                    </Button>
+                                    <button
+                                        className="p-1 rounded hover:bg-red-100 text-red-500"
+                                        onClick={() => handleUninstallClick(service.id)}
+                                        title="卸载服务"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        );
+    };
+
+    // 渲染网格视图
+    const renderGridView = (services: ServiceType[]) => {
+        if (services.length === 0) {
+            return (
+                <div className="col-span-3 text-center py-8 text-muted-foreground">
+                    <p>No services found.</p>
+                </div>
+            );
+        }
+
+        return services.map(service => (
+            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">
+                <CardHeader>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                            <div className="bg-primary/10 p-2 rounded-md mr-3">
+                                <Search className="w-6 h-6 text-primary" />
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-1">
+                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
+                                        ? "bg-green-500"
+                                        : "bg-gray-400"
+                                        }`}></div>
+                                    <button
+                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                                        onClick={() => handleCheckServiceHealth(service.id)}
+                                        disabled={checkingHealthServices.has(service.id)}
+                                        title="刷新健康状态"
+                                    >
+                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
+                                    </button>
+                                </div>
+                                <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
+                            </div>
+                        </div>
+                        <button
+                            className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
+                            onClick={() => handleUninstallClick(service.id)}
+                            title="卸载服务"
+                        >
+                            <Trash2 size={18} />
+                        </button>
+                    </div>
+                </CardHeader>
+                <CardContent className="flex-grow">
+                    <p className="text-sm text-muted-foreground line-clamp-2">{service.description}</p>
+                </CardContent>
+                <CardFooter className="flex justify-between items-end mt-auto">
+                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
+                    <Switch
+                        checked={service.enabled || false}
+                        onCheckedChange={() => handleToggleService(service.id)}
+                        disabled={togglingServices.has(service.id)}
+                    />
+                </CardFooter>
+            </Card>
+        ));
+    };
+
     return (
         <div className="w-full space-y-8">
             <div className="flex justify-between items-center mb-6">
@@ -225,7 +378,27 @@ export function ServicesPage() {
                     <h2 className="text-3xl font-bold tracking-tight">MCP Services</h2>
                     <p className="text-muted-foreground mt-1">Manage and configure your multi-cloud platform services</p>
                 </div>
-                <div className="flex space-x-2">
+                <div className="flex items-center space-x-2">
+                    {/* 视图切换按钮 */}
+                    <div className="flex items-center border rounded-md">
+                        <Button
+                            variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setViewMode('grid')}
+                            className="rounded-r-none"
+                        >
+                            <Grid className="w-4 h-4" />
+                        </Button>
+                        <Button
+                            variant={viewMode === 'list' ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setViewMode('list')}
+                            className="rounded-l-none"
+                        >
+                            <List className="w-4 h-4" />
+                        </Button>
+                    </div>
+
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button className="rounded-full bg-[#7c3aed] hover:bg-[#7c3aed]/90">
@@ -255,172 +428,37 @@ export function ServicesPage() {
                     <TabsTrigger value="inactive" className="rounded-md">Inactive</TabsTrigger>
                 </TabsList>
                 <TabsContent value="all">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mt-6">
-                        {allServices.length === 0 ? (
-                            <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                <p>No installed services.</p>
-                            </div>
-                        ) : allServices.map(service => (
-                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">
-                                <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center">
-                                            <div className="bg-primary/10 p-2 rounded-md mr-3">
-                                                <Search className="w-6 h-6 text-primary" />
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                <div className="flex items-center space-x-1">
-                                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
-                                                        ? "bg-green-500"
-                                                        : "bg-gray-400"
-                                                        }`}></div>
-                                                    <button
-                                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
-                                                        onClick={() => handleCheckServiceHealth(service.id)}
-                                                        disabled={checkingHealthServices.has(service.id)}
-                                                        title="刷新健康状态"
-                                                    >
-                                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
-                                                    </button>
-                                                </div>
-                                                <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
-                                            </div>
-                                        </div>
-                                        <button
-                                            className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
-                                            onClick={() => handleUninstallClick(service.id)}
-                                            title="卸载服务"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="flex-grow">
-                                    <p className="text-sm text-muted-foreground line-clamp-2">{service.description}</p>
-                                </CardContent>
-                                <CardFooter className="flex justify-between items-end mt-auto">
-                                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
-                                    <Switch
-                                        checked={service.enabled || false}
-                                        onCheckedChange={() => handleToggleService(service.id)}
-                                        disabled={togglingServices.has(service.id)}
-                                    />
-                                </CardFooter>
-                            </Card>
-                        ))}
-                    </div>
+                    {viewMode === 'grid' ? (
+                        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mt-6">
+                            {renderGridView(allServices)}
+                        </div>
+                    ) : (
+                        <div className="mt-6">
+                            {renderListView(allServices)}
+                        </div>
+                    )}
                 </TabsContent>
                 <TabsContent value="active">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mt-6">
-                        {activeServices.length === 0 ? (
-                            <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                <p>No active services.</p>
-                            </div>
-                        ) : activeServices.map(service => (
-                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">
-                                <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center">
-                                            <div className="bg-primary/10 p-2 rounded-md mr-3">
-                                                <Search className="w-6 h-6 text-primary" />
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                <div className="flex items-center space-x-1">
-                                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
-                                                        ? "bg-green-500"
-                                                        : "bg-gray-400"
-                                                        }`}></div>
-                                                    <button
-                                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
-                                                        onClick={() => handleCheckServiceHealth(service.id)}
-                                                        disabled={checkingHealthServices.has(service.id)}
-                                                        title="刷新健康状态"
-                                                    >
-                                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
-                                                    </button>
-                                                </div>
-                                                <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
-                                            </div>
-                                        </div>
-                                        <button
-                                            className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
-                                            onClick={() => handleUninstallClick(service.id)}
-                                            title="卸载服务"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="flex-grow">
-                                    <p className="text-sm text-muted-foreground line-clamp-2">{(service as any).service_description || service.description}</p>
-                                </CardContent>
-                                <CardFooter className="flex justify-between items-end mt-auto">
-                                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
-                                    <Switch
-                                        checked={service.enabled || false}
-                                        onCheckedChange={() => handleToggleService(service.id)}
-                                        disabled={togglingServices.has(service.id)}
-                                    />
-                                </CardFooter>
-                            </Card>
-                        ))}
-                    </div>
+                    {viewMode === 'grid' ? (
+                        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mt-6">
+                            {renderGridView(activeServices)}
+                        </div>
+                    ) : (
+                        <div className="mt-6">
+                            {renderListView(activeServices)}
+                        </div>
+                    )}
                 </TabsContent>
                 <TabsContent value="inactive">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mt-6">
-                        {inactiveServices.length === 0 ? (
-                            <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                <p>No inactive services.</p>
-                            </div>
-                        ) : inactiveServices.map(service => (
-                            <Card key={service.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">
-                                <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center">
-                                            <div className="bg-primary/10 p-2 rounded-md mr-3">
-                                                <Search className="w-6 h-6 text-primary" />
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                <div className="flex items-center space-x-1">
-                                                    <div className={`w-2 h-2 rounded-full ${service.health_status === "healthy" || service.health_status === "Healthy"
-                                                        ? "bg-green-500"
-                                                        : "bg-gray-400"
-                                                        }`}></div>
-                                                    <button
-                                                        className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
-                                                        onClick={() => handleCheckServiceHealth(service.id)}
-                                                        disabled={checkingHealthServices.has(service.id)}
-                                                        title="刷新健康状态"
-                                                    >
-                                                        <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
-                                                    </button>
-                                                </div>
-                                                <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
-                                            </div>
-                                        </div>
-                                        <button
-                                            className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
-                                            onClick={() => handleUninstallClick(service.id)}
-                                            title="卸载服务"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="flex-grow">
-                                    <p className="text-sm text-muted-foreground line-clamp-2">{(service as any).service_description || service.description}</p>
-                                </CardContent>
-                                <CardFooter className="flex justify-between items-end mt-auto">
-                                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
-                                    <Switch
-                                        checked={service.enabled || false}
-                                        onCheckedChange={() => handleToggleService(service.id)}
-                                        disabled={togglingServices.has(service.id)}
-                                    />
-                                </CardFooter>
-                            </Card>
-                        ))}
-                    </div>
+                    {viewMode === 'grid' ? (
+                        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mt-6">
+                            {renderGridView(inactiveServices)}
+                        </div>
+                    ) : (
+                        <div className="mt-6">
+                            {renderListView(inactiveServices)}
+                        </div>
+                    )}
                 </TabsContent>
             </Tabs>
 

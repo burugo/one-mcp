@@ -3,23 +3,9 @@ package model
 import (
 	"errors" // Added for logging
 	"one-mcp/backend/common"
+	"strconv"
 
 	"github.com/burugo/thing"
-)
-
-// Role constants
-const (
-	RoleGuestUser  = 0 // Or maybe remove if unused? For now, keep consistency with example.
-	RoleCommonUser = 1
-	RoleAdminUser  = 10
-	// RoleRootUser   = 100 // Consider if needed, maybe just Admin is enough initially.
-)
-
-// Status constants
-const (
-	UserStatusPending  = 0 // Default, maybe needs verification?
-	UserStatusEnabled  = 1
-	UserStatusDisabled = 2
 )
 
 // User represents the user model in the database.
@@ -75,10 +61,20 @@ func GetAllUsers(startIdx int, num int) ([]*User, error) {
 }
 
 func SearchUsers(keyword string) ([]*User, error) {
-	return UserDB.Where(
-		"id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ?",
-		keyword, keyword+"%", keyword+"%", keyword+"%",
-	).Order("id DESC").Fetch(0, 100)
+	// 尝试将 keyword 转换为数字
+	if id, err := strconv.ParseUint(keyword, 10, 64); err == nil {
+		// keyword 是数字，包含 ID 搜索
+		return UserDB.Where(
+			"id = ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ?",
+			id, keyword+"%", keyword+"%", keyword+"%",
+		).Order("id DESC").Fetch(0, 100)
+	} else {
+		// keyword 不是数字，只搜索字符串字段
+		return UserDB.Where(
+			"username LIKE ? OR email LIKE ? OR display_name LIKE ?",
+			keyword+"%", keyword+"%", keyword+"%",
+		).Order("id DESC").Fetch(0, 100)
+	}
 }
 
 // GetUserById 根据ID获取用户
@@ -96,7 +92,7 @@ func GetUserById(id int64, selectAll bool) (*User, error) {
 	return user, nil
 }
 
-// DeleteUserById 根据ID删除用户
+// DeleteUserById 根据ID软删除用户
 func DeleteUserById(id int64) error {
 	if id == 0 {
 		return errors.New("empty_id")
@@ -108,7 +104,7 @@ func DeleteUserById(id int64) error {
 		}
 		return err
 	}
-	return UserDB.Delete(user)
+	return UserDB.SoftDelete(user)
 }
 
 func (user *User) Insert() error {
@@ -137,7 +133,7 @@ func (user *User) Delete() error {
 	if user.ID == 0 {
 		return errors.New("empty_id")
 	}
-	return UserDB.Delete(user)
+	return UserDB.SoftDelete(user)
 }
 
 func (user *User) ValidateAndFill() error {
