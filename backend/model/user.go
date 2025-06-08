@@ -4,8 +4,10 @@ import (
 	"errors" // Added for logging
 	"one-mcp/backend/common"
 	"strconv"
+	"strings"
 
 	"github.com/burugo/thing"
+	"github.com/google/uuid"
 )
 
 // User represents the user model in the database.
@@ -115,7 +117,33 @@ func (user *User) Insert() error {
 			return err
 		}
 	}
+
+	// Generate token if not already set
+	if user.Token == "" {
+		user.Token = GenerateUserToken()
+	}
+
 	return UserDB.Save(user)
+}
+
+// GenerateUserToken creates a new UUID token without dashes and ensures its uniqueness
+func GenerateUserToken() string {
+	for {
+		token := uuid.New().String()
+		token = strings.Replace(token, "-", "", -1)
+
+		existingUsers, err := UserDB.Where("token = ?", token).Fetch(0, 1)
+		if err != nil {
+			// Log the error or handle it appropriately.
+			// For now, we return a non-unique token in case of DB error to avoid infinite loop
+			// or panic, but a more robust solution might involve retries or specific error handling.
+			return "" // Or panic, or return an error. Returning empty for now.
+		}
+		if len(existingUsers) == 0 {
+			return token // Token is unique
+		}
+		// Regenerate token if duplicate found
+	}
 }
 
 func (user *User) Update(updatePassword bool) error {

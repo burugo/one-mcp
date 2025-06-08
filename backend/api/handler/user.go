@@ -6,13 +6,11 @@ import (
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 	"strconv"
-	"strings"
 
 	"one-mcp/backend/common/i18n"
 
 	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 func GetAllUsers(c *gin.Context) {
@@ -114,26 +112,7 @@ func GenerateToken(c *gin.Context) {
 		})
 		return
 	}
-	user.Token = uuid.New().String()
-	user.Token = strings.Replace(user.Token, "-", "", -1)
-
-	// Use Thing ORM to check if token exists
-	existingUsers, err := model.UserDB.Where("token = ?", user.Token).Fetch(0, 1)
-	if err != nil {
-		// Handle potential database error during check
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": i18n.Translate("db_error_checking_token", lang) + err.Error(),
-		})
-		return
-	}
-	if len(existingUsers) > 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": i18n.Translate("uuid_duplicate_retry", lang),
-		})
-		return
-	}
+	user.Token = model.GenerateUserToken()
 
 	if err := user.Update(false); err != nil {
 		c.JSON(http.StatusOK, gin.H{
