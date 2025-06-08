@@ -277,3 +277,18 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	user.Password = hashedPassword
 	return UserDB.Save(user)
 }
+
+// GetUserByUsernameForAdmin 根据用户名获取用户（用于管理员操作，不受状态限制）
+func GetUserByUsernameForAdmin(username string) (*User, error) {
+	if username == "" {
+		return nil, errors.New("empty_username")
+	}
+	users, err := UserDB.Where("username = ?", username).Fetch(0, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(users) == 0 {
+		return nil, errors.New("user_not_found")
+	}
+	return users[0], nil
+}

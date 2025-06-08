@@ -623,24 +623,22 @@ func ManageUser(c *gin.Context) {
 		return
 	}
 
-	// Use Thing ORM to find the user
-	users, err := model.UserDB.Where("username = ?", req.Username).Fetch(0, 1)
+	// Use specialized function for admin operations (not affected by user status)
+	user, err := model.GetUserByUsernameForAdmin(req.Username)
 	if err != nil {
-		// Handle potential database error during lookup
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		if err.Error() == "user_not_found" {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": i18n.Translate("user_not_found", lang),
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+		}
 		return
 	}
-	if len(users) == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": i18n.Translate("user_not_found", lang),
-		})
-		return
-	}
-	user := users[0] // Get the found user
 
 	myRole := c.GetInt("role")
 	if myRole <= user.Role && myRole != common.RoleRootUser {
