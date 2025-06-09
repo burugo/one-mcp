@@ -167,6 +167,7 @@ func SetApiRouter(route *gin.Engine) {
 	proxyRouter := route.Group("/proxy")
 	proxyRouter.Use(middleware.LangMiddleware()) // Apply similar general middlewares
 	proxyRouter.Use(middleware.GlobalAPIRateLimit())
+	proxyRouter.Use(middleware.TokenAuth()) // Add token-based authentication for proxy endpoints
 	{
 		// SSE proxy routes - for SSE endpoints and stdio->SSE conversion
 		// proxyRouter.Any("/:serviceName/sse/*action", handler.ProxyHandler)

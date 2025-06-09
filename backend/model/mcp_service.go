@@ -59,7 +59,7 @@ type MCPService struct {
 	Enabled               bool            `db:"enabled"`
 	Type                  ServiceType     `db:"type"`
 	Command               string          `db:"command"`
-	ArgsJSON              string          `db:"args_json,default '{}'"`
+	ArgsJSON              string          `db:"args_json,default:'{}'"`
 	AllowUserOverride     bool            `db:"allow_user_override"`     // Whether users can override admin settings
 	ClientConfigTemplates string          `db:"client_config_templates"` // JSON map of client_type to template details
 	RequiredEnvVarsJSON   string          `db:"required_env_vars_json"`  // JSON array of environment variables required by the service
@@ -70,8 +70,9 @@ type MCPService struct {
 	HealthStatus          string          `db:"-"`                       // 健康状态: unknown, healthy, unhealthy, starting, stopped
 	LastHealthCheck       time.Time       `db:"-"`                       // 最后健康检查时间
 	HealthDetails         string          `db:"-"`                       // 健康详情的JSON字符串
-	DefaultEnvsJSON       string          `db:"default_envs_json,default '{}'"`
-	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json,default '{}'"` // JSON string for custom request headers map[string]string
+	DefaultEnvsJSON       string          `db:"default_envs_json,default:'{}'"`
+	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json,default:'{}'"` // JSON string for custom request headers map[string]string
+	RPDLimit              int             `db:"rpd_limit,default:0"`                                     // 每日请求次数限制(0表示不限制)
 }
 
 // TableName sets the table name for the MCPService model

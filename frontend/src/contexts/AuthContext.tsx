@@ -8,6 +8,7 @@ interface User {
     displayName?: string;
     email?: string;
     role?: number;
+    token?: string; // 添加token字段
     // Add other fields if needed by the UI, e.g., avatar_url
 }
 
@@ -17,6 +18,7 @@ interface AuthContextType {
     login: (userData: User, authToken: string) => void;
     logout: () => void;
     isLoading: boolean; // To handle initial loading of auth state
+    updateUserInfo: (userData: User) => void; // 添加更新用户信息的方法
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -52,6 +54,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setCurrentUser(userData);
     };
 
+    const updateUserInfo = (userData: User) => {
+        localStorage.setItem('user', JSON.stringify(userData));
+        setCurrentUser(userData);
+    };
+
     const logout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -62,7 +69,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     return (
-        <AuthContext.Provider value={{ currentUser, token, login, logout, isLoading }}>
+        <AuthContext.Provider value={{ currentUser, token, login, logout, isLoading, updateUserInfo }}>
             {children}
         </AuthContext.Provider>
     );

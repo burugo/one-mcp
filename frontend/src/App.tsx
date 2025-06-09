@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Link, Outlet, useLocation, Navigate, useNavigate } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Link, Outlet, useLocation, Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
-import { Settings, Search, User, Home, BarChart, Globe, Package, Users } from 'lucide-react'
+import { Settings, User, Home, BarChart, Globe, Package, Users } from 'lucide-react'
 import { LoginDialog } from './components/ui/login-dialog'
 import { ThemeToggle } from './components/ui/theme-toggle'
 import { MarketPage } from './pages/MarketPage'
@@ -31,7 +31,7 @@ const AppLayout = () => {
   const [showLoginDialog, setShowLoginDialog] = React.useState(false)
   const location = useLocation()
   const { currentUser, logout, isLoading } = useAuth()
-  const navigate = useNavigate()
+  // const navigate = useNavigate() // 暂时未使用
 
   const NavLink = ({ to, children, isTopNav }: { to: string, children: React.ReactNode, isTopNav?: boolean }) => {
     const isActive = location.pathname === to || (to === '/' && location.pathname === '/dashboard')
@@ -101,10 +101,12 @@ const AppLayout = () => {
               <Globe className={`h-4 w-4 ${location.pathname.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`} />
               <span className={`${location.pathname.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>Services</span>
             </NavLink>
-            <NavLink to="/market">
-              <Package className={`h-4 w-4 ${location.pathname.startsWith('/market') ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`${location.pathname.startsWith('/market') ? 'text-primary' : 'text-muted-foreground'}`}>Service Market</span>
-            </NavLink>
+            {currentUser && currentUser.role && currentUser.role >= 10 && (
+              <NavLink to="/market">
+                <Package className={`h-4 w-4 ${location.pathname.startsWith('/market') ? 'text-primary' : 'text-muted-foreground'}`} />
+                <span className={`${location.pathname.startsWith('/market') ? 'text-primary' : 'text-muted-foreground'}`}>Service Market</span>
+              </NavLink>
+            )}
             <NavLink to="/analytics">
               <BarChart className={`h-4 w-4 ${location.pathname.startsWith('/analytics') ? 'text-primary' : 'text-muted-foreground'}`} />
               <span className={`${location.pathname.startsWith('/analytics') ? 'text-primary' : 'text-muted-foreground'}`}>Analytics</span>
@@ -121,10 +123,12 @@ const AppLayout = () => {
               <User className={`h-4 w-4 ${location.pathname.startsWith('/profile') ? 'text-primary' : 'text-muted-foreground'}`} />
               <span className={`${location.pathname.startsWith('/profile') ? 'text-primary' : 'text-muted-foreground'}`}>Profile</span>
             </NavLink>
-            <NavLink to="/preferences">
-              <Settings className={`h-4 w-4 ${location.pathname.startsWith('/preferences') ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`${location.pathname.startsWith('/preferences') ? 'text-primary' : 'text-muted-foreground'}`}>Preferences</span>
-            </NavLink>
+            {currentUser && currentUser.role && currentUser.role >= 10 && (
+              <NavLink to="/preferences">
+                <Settings className={`h-4 w-4 ${location.pathname.startsWith('/preferences') ? 'text-primary' : 'text-muted-foreground'}`} />
+                <span className={`${location.pathname.startsWith('/preferences') ? 'text-primary' : 'text-muted-foreground'}`}>Preferences</span>
+              </NavLink>
+            )}
           </nav>
         </aside>
         <main className="flex-1 p-6 overflow-y-auto h-[calc(100vh-64px)] bg-background/50">

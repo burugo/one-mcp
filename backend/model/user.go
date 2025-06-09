@@ -264,6 +264,25 @@ func ValidateUserToken(token string) *User {
 	return nil
 }
 
+// ValidateUserTokenByTokenString validates a user token string and returns the user if valid
+func ValidateUserTokenByTokenString(tokenString string) *User {
+	if tokenString == "" {
+		return nil
+	}
+
+	users, err := UserDB.Where("token = ?", tokenString).Fetch(0, 1)
+	if err != nil || len(users) == 0 {
+		return nil
+	}
+
+	user := users[0]
+	if user.Status != common.UserStatusEnabled {
+		return nil
+	}
+
+	return user
+}
+
 func IsEmailAlreadyTaken(email string) bool {
 	users, err := UserDB.Where("email = ?", email).Fetch(0, 1)
 	return err == nil && len(users) > 0
