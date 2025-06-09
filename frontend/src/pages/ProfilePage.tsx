@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
-import { Eye, EyeOff, RefreshCw, Github, User, Mail, Lock } from 'lucide-react';
+// import { useAuth } from '@/contexts/AuthContext'; // 暂时未使用
+import { Eye, EyeOff, RefreshCw, Github, User, Lock } from 'lucide-react';
 import api, { APIResponse } from '@/utils/api';
 import type { PageOutletContext } from '../App';
 
@@ -26,7 +26,7 @@ interface UserInfo {
 
 export function ProfilePage() {
     useOutletContext<PageOutletContext>();
-    const { currentUser } = useAuth();
+    // const { currentUser } = useAuth(); // 暂时未使用
     const { toast } = useToast();
 
     const [userInfo, setUserInfo] = useState<UserInfo | null>(null);

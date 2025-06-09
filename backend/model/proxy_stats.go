@@ -112,29 +112,42 @@ func RecordRequestStat(serviceID int64, serviceName string, userID int64, reqTyp
 		}
 
 		today := time.Now().Format("2006-01-02")
-		cacheKey := fmt.Sprintf("request:%s:%d:count", today, serviceID)
-
 		ctx := context.Background() // Using background context as in original handler
 
-		newCount, err := cacheClient.Incr(ctx, cacheKey)
+		// Increment global service request count
+		globalCacheKey := fmt.Sprintf("request:%s:%d:count", today, serviceID)
+		globalNewCount, err := cacheClient.Incr(ctx, globalCacheKey)
 		if err != nil {
 			common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Error incrementing daily count for service %s (ID: %d): %v", serviceName, serviceID, err))
-			// If Incr fails, we probably shouldn't proceed to log a count or try to expire.
-			return
+		} else {
+			if globalNewCount == 1 {
+				// Key was newly created by Incr, set expiration
+				err = cacheClient.Expire(ctx, globalCacheKey, 24*time.Hour)
+				if err != nil {
+					// Log error for expiry failure, but the count was successfully incremented.
+					common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Error setting expiration for new daily count key %s (service %s, ID: %d): %v", globalCacheKey, serviceName, serviceID, err))
+				}
+			}
+			common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Daily count for service %s (ID: %d): %d", serviceName, serviceID, globalNewCount))
 		}
 
-		if newCount == 1 {
-			// Key was newly created by Incr, set expiration
-			err = cacheClient.Expire(ctx, cacheKey, 24*time.Hour)
-			if err != nil {
-				// Log error for expiry failure, but the count was successfully incremented.
-				common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Error setting expiration for new daily count key %s (service %s, ID: %d): %v", cacheKey, serviceName, serviceID, err))
-				common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Created daily count key %s for service %s (ID: %d) (expiration set failed).", cacheKey, serviceName, serviceID))
+		// Increment user-specific request count if user is authenticated
+		if userID > 0 {
+			userCacheKey := fmt.Sprintf("user_request:%s:%d:%d:count", today, serviceID, userID)
+			userNewCount, userErr := cacheClient.Incr(ctx, userCacheKey)
+			if userErr != nil {
+				common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Error incrementing user daily count for service %d, user %d: %v", serviceID, userID, userErr))
 			} else {
-				common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Created daily count key %s for service %s (ID: %d) and set expiration.", cacheKey, serviceName, serviceID))
+				if userNewCount == 1 {
+					// Key was newly created by Incr, set expiration
+					err = cacheClient.Expire(ctx, userCacheKey, 24*time.Hour)
+					if err != nil {
+						common.SysError(fmt.Sprintf("[RecordRequestStat-CACHE] Error setting expiration for user daily count key %s: %v", userCacheKey, err))
+					}
+				}
+				common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] User %d daily count for service %d: %d", userID, serviceID, userNewCount))
 			}
 		}
-		common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Daily count for service %s (ID: %d): %d", serviceName, serviceID, newCount))
 	} else {
 		common.SysLog(fmt.Sprintf("[RecordRequestStat-CACHE] Daily count for service %s (ID: %d) not incremented due to status code: %d", serviceName, serviceID, statusCode))
 	}

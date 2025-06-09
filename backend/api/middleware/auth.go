@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -73,6 +74,68 @@ func authHelper(c *gin.Context, minRole int) {
 func UserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleCommonUser)
+	}
+}
+
+// TokenAuth is a middleware for proxy endpoints that validates user tokens from URL parameters
+// It supports both JWT Bearer tokens in headers and user tokens in URL query parameters
+func TokenAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var userID int64
+		var username string
+		var role int
+
+		// First, try to get JWT token from Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				tokenString := parts[1]
+				claims, err := service.ValidateToken(tokenString)
+				if err == nil {
+					// Check if token is blacklisted
+					if common.RedisEnabled {
+						blacklisted, _ := common.RDB.Exists(c, "jwt:blacklist:"+tokenString).Result()
+						if blacklisted <= 0 {
+							userID = claims.UserID
+							username = claims.Username
+							role = claims.Role
+						}
+					} else {
+						userID = claims.UserID
+						username = claims.Username
+						role = claims.Role
+					}
+				}
+			}
+		}
+
+		// If JWT validation failed or no JWT, try user token from URL query parameter
+		if userID == 0 {
+			userToken := c.Query("key")
+			if userToken != "" {
+				user := model.ValidateUserTokenByTokenString(userToken)
+				if user != nil && user.Status == common.UserStatusEnabled {
+					userID = user.ID
+					username = user.Username
+					role = user.Role
+				}
+			}
+		}
+
+		// If still no valid user found, continue without authentication
+		// This allows the proxy to work in global mode if no valid authentication is provided
+		if userID > 0 {
+			c.Set("userID", userID)
+			c.Set("user_id", userID) // Also set this for compatibility
+			c.Set("username", username)
+			c.Set("role", role)
+			common.SysLog(fmt.Sprintf("[TokenAuth] Authenticated user %d (%s) for proxy request", userID, username))
+		} else {
+			common.SysLog("[TokenAuth] No valid authentication found, proceeding with global access")
+		}
+
+		c.Next()
 	}
 }
 
@@ -223,17 +286,38 @@ func NoTokenAuth() gin.HandlerFunc {
 }
 
 // TokenOnlyAuth You should always use this after normal auth middlewares.
-func TokenOnlyAuth() func(c *gin.Context) {
+func TokenOnlyAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authByToken := c.GetBool("authByToken")
-		if !authByToken {
-			c.JSON(http.StatusOK, gin.H{
+		// Skip JWT check, only check token
+		token := c.Request.Header.Get("Authorization")
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
-				"message": "本接口仅支持使用 token 进行验证",
+				"message": "无权进行此操作，未登录或 token 无效",
 			})
 			c.Abort()
 			return
 		}
+		user := model.ValidateUserToken(token)
+		if user == nil || user.Username == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "无权进行此操作，token 无效",
+			})
+			c.Abort()
+			return
+		}
+		if user.Status != common.UserStatusEnabled {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "用户已被封禁",
+			})
+			c.Abort()
+			return
+		}
+		c.Set("username", user.Username)
+		c.Set("role", user.Role)
+		c.Set("id", user.ID)
 		c.Next()
 	}
 }

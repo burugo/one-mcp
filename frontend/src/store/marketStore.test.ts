@@ -20,7 +20,7 @@ describe('MarketStore', () => {
             searchTerm: '',
             searchResults: [],
             isSearching: false,
-            activeTab: 'all',
+            activeMarketTab: 'npm',
             installedServices: [],
             selectedService: null,
             isLoadingDetails: false,
@@ -286,9 +286,9 @@ describe('MarketStore', () => {
 
         it('should set active tab', () => {
             const store = useMarketStore.getState()
-            store.setActiveTab('npm')
+            store.setActiveMarketTab('npm')
 
-            expect(useMarketStore.getState().activeTab).toBe('npm')
+            expect(useMarketStore.getState().activeMarketTab).toBe('npm')
         })
 
         it('should clear selected service', () => {

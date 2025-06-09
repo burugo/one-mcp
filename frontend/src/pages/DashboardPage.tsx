@@ -5,6 +5,7 @@ import { Server, Activity, Clock, Database, AlertCircle, CheckCircle, Package, U
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import api from '@/utils/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface SystemOverview {
     total_services: number;
@@ -21,6 +22,7 @@ interface SystemStatus {
 
 export function DashboardPage() {
     const navigate = useNavigate();
+    const { currentUser } = useAuth();
 
     // State for API data
     const [systemOverview, setSystemOverview] = useState<SystemOverview | null>(null);
@@ -261,18 +263,6 @@ export function DashboardPage() {
                             <Button
                                 variant="outline"
                                 className="flex justify-start space-x-2 h-auto py-3"
-                                onClick={() => navigate('/market')}
-                            >
-                                <Package className="h-5 w-5 text-primary" />
-                                <div className="text-left">
-                                    <p className="font-medium">Install Service</p>
-                                    <p className="text-xs text-muted-foreground">Add new MCP services</p>
-                                </div>
-                            </Button>
-
-                            <Button
-                                variant="outline"
-                                className="flex justify-start space-x-2 h-auto py-3"
                                 onClick={() => navigate('/services')}
                             >
                                 <Server className="h-5 w-5 text-primary" />
@@ -305,6 +295,19 @@ export function DashboardPage() {
                                     <p className="text-xs text-muted-foreground">Manage your account</p>
                                 </div>
                             </Button>
+                            {currentUser?.role && currentUser.role >= 10 && (
+                                <Button
+                                    variant="outline"
+                                    className="flex justify-start space-x-2 h-auto py-3"
+                                    onClick={() => navigate('/market')}
+                                >
+                                    <Package className="h-5 w-5 text-primary" />
+                                    <div className="text-left">
+                                        <p className="font-medium">Install Service</p>
+                                        <p className="text-xs text-muted-foreground">Add new MCP services</p>
+                                    </div>
+                                </Button>
+                            )}
                         </div>
                     </CardContent>
                 </Card>

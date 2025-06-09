@@ -587,8 +587,6 @@ func createActualMcpGoServerAndClientUncached(
 	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
 ) (*mcpserver.MCPServer, mcpclient.MCPClient, error) {
-	common.SysLog(fmt.Sprintf("createActualMcpGoServerAndClientUncached: Creating new MCP client and server for %s (ID: %d, Type: %s) - %s.",
-		serviceConfigForInstance.Name, serviceConfigForInstance.ID, serviceConfigForInstance.Type, instanceNameDetail))
 
 	var mcpGoClient mcpclient.MCPClient
 	var err error
@@ -685,7 +683,6 @@ func createActualMcpGoServerAndClientUncached(
 
 	// Call client.Start() if needed
 	if needManualStart {
-		common.SysLog(fmt.Sprintf("Manually starting mcp-go client for %s (%s)...", serviceConfigForInstance.Name, instanceNameDetail))
 
 		var startErr error
 		switch cl := mcpGoClient.(type) {
@@ -703,7 +700,6 @@ func createActualMcpGoServerAndClientUncached(
 			}
 			return nil, nil, errors.New(errMsg)
 		}
-		common.SysLog(fmt.Sprintf("Successfully started mcp-go client for %s (%s).", serviceConfigForInstance.Name, instanceNameDetail))
 
 		// Start ping task for SSE and HTTP clients
 		go func() {
@@ -739,8 +735,6 @@ func createActualMcpGoServerAndClientUncached(
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = clientInfo
 
-	common.SysLog(fmt.Sprintf("Initializing mcp-go client for %s (%s)...", serviceConfigForInstance.Name, instanceNameDetail))
-
 	_, err = mcpGoClient.Initialize(ctx, initRequest)
 	if err != nil {
 		closeErr := mcpGoClient.Close()
@@ -751,7 +745,6 @@ func createActualMcpGoServerAndClientUncached(
 		common.SysError(errMsg)
 		return nil, nil, errors.New(errMsg)
 	}
-	common.SysLog(fmt.Sprintf("Successfully initialized mcp-go client for %s (%s). Adding resources...", serviceConfigForInstance.Name, instanceNameDetail))
 
 	// Populate server with resources from client
 	if err := addClientToolsToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
@@ -766,7 +759,6 @@ func createActualMcpGoServerAndClientUncached(
 	if err := addClientResourceTemplatesToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add resource templates for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	common.SysLog(fmt.Sprintf("Finished adding resources for %s (%s) to mcp-go server.", serviceConfigForInstance.Name, instanceNameDetail))
 
 	return mcpGoServer, mcpGoClient, nil
 }
@@ -786,7 +778,6 @@ func createSSEHttpHandler(
 		mcpserver.WithStaticBasePath(mcpDBService.Name),       // TODO: This might need to be more dynamic based on routing
 		mcpserver.WithBaseURL(oneMCPExternalBaseURL+"/proxy"), // Path for client to connect back
 	)
-	common.SysLog(fmt.Sprintf("Successfully created SSE handler for %s (ID: %d)", mcpDBService.Name, mcpDBService.ID))
 	return actualMCPGoSSEServer, nil
 }
 
@@ -996,11 +987,8 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 	defer sharedMCPServersMutex.Unlock()
 
 	if inst, found := sharedMCPServers[cacheKey]; found && inst != nil {
-		common.SysLog(fmt.Sprintf("Reusing existing SharedMcpInstance for key: %s", cacheKey))
 		return inst, nil
 	}
-
-	common.SysLog(fmt.Sprintf("Creating new SharedMcpInstance for key: %s", cacheKey))
 
 	// Prepare service config for creation
 	serviceConfigForCreation := *originalDbService // Shallow copy
@@ -1008,7 +996,6 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 	// Apply user-specific environment variables for Stdio services
 	if originalDbService.Type == model.ServiceTypeStdio && effectiveEnvsJSONForStdio != "" {
 		serviceConfigForCreation.DefaultEnvsJSON = effectiveEnvsJSONForStdio
-		common.SysLog(fmt.Sprintf("Applied user-specific envs for Stdio service %s: %s", originalDbService.Name, effectiveEnvsJSONForStdio))
 	}
 
 	// Create the actual server and client
@@ -1025,7 +1012,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 
 	// Store in cache
 	sharedMCPServers[cacheKey] = instance
-	common.SysLog(fmt.Sprintf("Successfully created and cached SharedMcpInstance for key: %s", cacheKey))
+	common.SysLog(fmt.Sprintf("Created new SharedMcpInstance for %s", originalDbService.Name))
 
 	return instance, nil
 }
@@ -1039,7 +1026,6 @@ func GetOrCreateProxyToSSEHandler(ctx context.Context, mcpDBService *model.MCPSe
 
 	// Check cache first
 	if existingHandler, found := initializedSSEProxyWrappers[handlerCacheKey]; found {
-		common.SysLog(fmt.Sprintf("Reusing existing SSE proxy handler for key: %s", handlerCacheKey))
 		return existingHandler, nil
 	}
 
@@ -1051,7 +1037,6 @@ func GetOrCreateProxyToSSEHandler(ctx context.Context, mcpDBService *model.MCPSe
 
 	// Cache the handler
 	initializedSSEProxyWrappers[handlerCacheKey] = handler
-	common.SysLog(fmt.Sprintf("Successfully created and cached SSE proxy handler for key: %s", handlerCacheKey))
 
 	return handler, nil
 }
@@ -1065,7 +1050,6 @@ func GetOrCreateProxyToHTTPHandler(ctx context.Context, mcpDBService *model.MCPS
 
 	// Check cache first
 	if existingHandler, found := initializedHTTPProxyWrappers[handlerCacheKey]; found {
-		common.SysLog(fmt.Sprintf("Reusing existing HTTP proxy handler for key: %s", handlerCacheKey))
 		return existingHandler, nil
 	}
 
@@ -1077,7 +1061,6 @@ func GetOrCreateProxyToHTTPHandler(ctx context.Context, mcpDBService *model.MCPS
 
 	// Cache the handler
 	initializedHTTPProxyWrappers[handlerCacheKey] = handler
-	common.SysLog(fmt.Sprintf("Successfully created and cached HTTP proxy handler for key: %s", handlerCacheKey))
 
 	return handler, nil
 }

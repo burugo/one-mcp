@@ -30,7 +30,8 @@
       ]
     },
     "types": [
-      "node"
+      "node",
+      "vitest/globals"
     ]
   },
   "include": [
