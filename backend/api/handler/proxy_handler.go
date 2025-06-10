@@ -217,6 +217,15 @@ func ProxyHandler(c *gin.Context) {
 		}
 	}
 
+	// NEW: If userID is 0, it means no valid user ID was found in the context.
+	// This check ensures that even if middleware (like TokenAuth)
+	// doesn't explicitly abort the request, ProxyHandler still enforces authentication.
+	if userID == 0 {
+		common.SysLog(fmt.Sprintf("WARN: [ProxyHandler] Unauthorized access: userID not found or invalid for service %s", serviceName))
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Authentication required. Please provide a valid user ID."})
+		return
+	}
+
 	// Check daily request limit (RPD) if user is authenticated and limit is set
 	if userID > 0 && mcpDBService.RPDLimit > 0 {
 		if rpdErr := checkDailyRequestLimit(mcpDBService.ID, userID, mcpDBService.RPDLimit); rpdErr != nil {

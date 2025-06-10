@@ -17,6 +17,7 @@ import (
 
 	"log"
 
+	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
 )
 
@@ -1048,6 +1049,38 @@ func ListInstalledMCPServices(c *gin.Context) {
 		b, _ := json.Marshal(svc)
 		_ = json.Unmarshal(b, &svcMap)
 		svcMap["env_vars"] = finalEnvVars // 使用合并后的环境变量
+
+		// 添加用户今日请求统计
+		if svc.RPDLimit > 0 && userID > 0 {
+			// 获取用户今日请求数
+			today := time.Now().Format("2006-01-02")
+			userCacheKey := fmt.Sprintf("user_request:%s:%d:%d:count", today, svc.ID, userID)
+
+			cacheClient := thing.Cache()
+			if cacheClient != nil {
+				ctx := context.Background()
+				countStr, err := cacheClient.Get(ctx, userCacheKey)
+				if err == nil {
+					if userRequestCount, parseErr := strconv.ParseInt(countStr, 10, 64); parseErr == nil {
+						svcMap["user_daily_request_count"] = userRequestCount
+						svcMap["remaining_requests"] = int64(svc.RPDLimit) - userRequestCount
+					} else {
+						svcMap["user_daily_request_count"] = 0
+						svcMap["remaining_requests"] = int64(svc.RPDLimit)
+					}
+				} else {
+					// 缓存键不存在，说明今天还没有请求
+					svcMap["user_daily_request_count"] = 0
+					svcMap["remaining_requests"] = int64(svc.RPDLimit)
+				}
+			} else {
+				svcMap["user_daily_request_count"] = 0
+				svcMap["remaining_requests"] = int64(svc.RPDLimit)
+			}
+		} else {
+			svcMap["user_daily_request_count"] = 0
+			svcMap["remaining_requests"] = -1 // -1 表示无限制
+		}
 
 		// 尝试从缓存获取健康状态
 		if cachedHealth, found := cacheManager.GetServiceHealth(svc.ID); found {

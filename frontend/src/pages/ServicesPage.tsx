@@ -357,7 +357,36 @@ export function ServicesPage() {
                     </div>
                 </CardHeader>
                 <CardContent className="flex-grow">
-                    <p className="text-sm text-muted-foreground line-clamp-2">{service.description}</p>
+                    <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{service.description}</p>
+                    {/* RPD Limit and Usage Display */}
+                    {service.rpd_limit && service.rpd_limit > 0 && (
+                        <div className="mt-2 pt-2 border-t border-border/50">
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">Daily Requests:</span>
+                                <span className="font-medium">
+                                    {service.user_daily_request_count || 0} / {service.rpd_limit}
+                                </span>
+                            </div>
+                            <div className="mt-1 w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                                <div
+                                    className={`h-1.5 rounded-full transition-all duration-300 ${(service.user_daily_request_count || 0) >= service.rpd_limit
+                                        ? 'bg-red-500'
+                                        : (service.user_daily_request_count || 0) >= service.rpd_limit * 0.8
+                                            ? 'bg-yellow-500'
+                                            : 'bg-green-500'
+                                        }`}
+                                    style={{
+                                        width: `${Math.min((service.user_daily_request_count || 0) / service.rpd_limit * 100, 100)}%`
+                                    }}
+                                ></div>
+                            </div>
+                            {service.remaining_requests !== undefined && service.remaining_requests >= 0 && (
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                    {service.remaining_requests} requests remaining
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </CardContent>
                 <CardFooter className="flex justify-between items-end mt-auto">
                     <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
