@@ -308,7 +308,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                 </div>
 
                 <DialogFooter className="mt-4">
-                    <Button variant="outline" onClick={onClose} type="button">Cancel</Button>
+                    <Button variant="outline" onClick={onClose} type="button">Close</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

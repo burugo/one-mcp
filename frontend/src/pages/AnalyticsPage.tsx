@@ -3,10 +3,11 @@ import { useOutletContext } from 'react-router-dom';
 import type { PageOutletContext } from '../App';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableCaption, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
 import api from '@/utils/api';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal } from 'lucide-react';
+import { Terminal, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface ServiceUtilizationStat {
     service_id: number;
@@ -25,6 +26,7 @@ export function AnalyticsPage() {
     const [utilizationStats, setUtilizationStats] = useState<ServiceUtilizationStat[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc'); // 默认倒序
 
     useEffect(() => {
         const fetchUtilizationStats = async () => {
@@ -57,6 +59,20 @@ export function AnalyticsPage() {
         fetchUtilizationStats();
     }, []);
 
+    // 排序和过滤函数
+    const sortedAndFilteredStats = utilizationStats
+        .filter(stat => stat.enabled) // 只显示启用的服务
+        .sort((a, b) => {
+            const aRequests = a.today_request_count || 0;
+            const bRequests = b.today_request_count || 0;
+            return sortOrder === 'desc' ? bRequests - aRequests : aRequests - bRequests;
+        });
+
+    // 切换排序方向
+    const toggleSortOrder = () => {
+        setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+    };
+
     return (
         <div className="w-full space-y-8">
             <h2 className="text-3xl font-bold tracking-tight mb-8">Analytics</h2>
@@ -66,7 +82,11 @@ export function AnalyticsPage() {
                 <Card className="shadow-sm border bg-card/30">
                     <CardHeader>
                         <CardTitle>Service Utilization</CardTitle>
-                        <CardDescription>Aggregated performance overview for all services.</CardDescription>
+                        <CardDescription>
+                            Aggregated performance overview for enabled services.
+                            Sorted by today's requests ({sortOrder === 'desc' ? 'high to low' : 'low to high'}).
+                            Click the column header to change sort order.
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
                         {isLoading && <p className="text-center text-muted-foreground">Loading statistics...</p>}
@@ -84,27 +104,43 @@ export function AnalyticsPage() {
                                     <TableRow>
                                         <TableHead>Service</TableHead>
                                         <TableHead className="text-right">Status</TableHead>
-                                        <TableHead className="text-right">Today's Requests</TableHead>
+                                        <TableHead className="text-right">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={toggleSortOrder}
+                                                className="flex items-center gap-1 h-auto p-0 font-medium hover:bg-transparent focus:outline-none focus:ring-0 focus:ring-offset-0 ml-auto"
+                                            >
+                                                Today's Requests
+                                                {sortOrder === 'desc' ? (
+                                                    <ChevronDown className="h-4 w-4" />
+                                                ) : (
+                                                    <ChevronUp className="h-4 w-4" />
+                                                )}
+                                            </Button>
+                                        </TableHead>
                                         <TableHead className="text-right">Today's Avg. Latency (ms)</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {utilizationStats.length === 0 && !isLoading ? (
+                                    {sortedAndFilteredStats.length === 0 && !isLoading ? (
                                         <TableRow>
                                             <TableCell colSpan={4} className="text-center text-muted-foreground">
-                                                No usage statistics available yet.
+                                                No enabled services with usage statistics available yet.
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        utilizationStats.map((stat) => (
+                                        sortedAndFilteredStats.map((stat) => (
                                             <TableRow key={stat.service_id}>
                                                 <TableCell className="font-medium">{stat.display_name || stat.service_name}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <span className={`px-2 py-1 rounded-full text-xs ${stat.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                        {stat.enabled ? 'Enabled' : 'Disabled'}
+                                                    <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+                                                        Enabled
                                                     </span>
                                                 </TableCell>
-                                                <TableCell className="text-right">{stat.today_request_count || 0}</TableCell>
+                                                <TableCell className="text-right font-medium">
+                                                    {stat.today_request_count || 0}
+                                                </TableCell>
                                                 <TableCell className="text-right">
                                                     {stat.today_avg_latency_ms ? stat.today_avg_latency_ms.toFixed(2) : '0.00'}
                                                 </TableCell>
