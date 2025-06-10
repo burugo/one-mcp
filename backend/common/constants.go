@@ -27,7 +27,7 @@ var ItemsPerPage = 10
 
 var PasswordLoginEnabled = true
 var PasswordRegisterEnabled = true
-
+var RegisterEnabled = true
 var SMTPPort = 587
 
 // These variables are still used during initialization from environment variables

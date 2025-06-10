@@ -54,6 +54,7 @@ func InitOptionMap() error {
 	}
 	common.OptionMap["ServerAddress"] = common.ServerAddress
 	common.OptionMap["Port"] = strconv.Itoa(*common.Port)
+	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
 	if err := InitOptionMapFromDB(); err != nil {
 		common.SysError(fmt.Sprintf("Failed to initialize option map from database: %v", err))
 		return err
