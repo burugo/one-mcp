@@ -172,7 +172,6 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    ...service,
                     rpd_limit: newLimit
                 })
             });
@@ -183,6 +182,13 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
 
             // 更新本地service对象
             service.rpd_limit = newLimit;
+
+            // 重新计算剩余请求数
+            if (newLimit > 0 && service.user_daily_request_count !== undefined) {
+                service.remaining_requests = newLimit - (service.user_daily_request_count || 0);
+            } else {
+                service.remaining_requests = -1; // 无限制
+            }
 
             toast({
                 title: "更新成功",

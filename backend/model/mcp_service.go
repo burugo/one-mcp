@@ -72,7 +72,7 @@ type MCPService struct {
 	HealthDetails         string          `db:"-"`                       // 健康详情的JSON字符串
 	DefaultEnvsJSON       string          `db:"default_envs_json,default:'{}'"`
 	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json,default:'{}'"` // JSON string for custom request headers map[string]string
-	RPDLimit              int             `db:"rpd_limit,default:0"`                                     // 每日请求次数限制(0表示不限制)
+	RPDLimit              int             `json:"rpd_limit,omitempty" db:"rpd_limit,default:0"`          // 每日请求次数限制(0表示不限制)
 }
 
 // TableName sets the table name for the MCPService model

@@ -24,6 +24,10 @@ export interface ServiceType {
     health_details?: string;
     last_health_check?: string;
     enabled?: boolean;
+    // 添加 RPD 限制和用户请求统计相关字段
+    rpd_limit?: number;
+    user_daily_request_count?: number;
+    remaining_requests?: number;
 }
 
 // 详细服务类型定义
