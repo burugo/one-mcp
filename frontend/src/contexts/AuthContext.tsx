@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 interface User {
     id: number | string; // Or just string if backend ID is always string
     username: string;
-    displayName?: string;
+    display_name?: string;
     email?: string;
     role?: number;
     token?: string; // 添加token字段

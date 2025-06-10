@@ -75,7 +75,7 @@ const AppLayout = () => {
             <ThemeToggle />
             {currentUser ? (
               <div className="flex items-center gap-2">
-                <span className="text-sm">{currentUser.displayName || currentUser.username}</span>
+                <span className="text-sm">{currentUser.display_name || currentUser.username}</span>
                 <Button variant="outline" size="sm" onClick={handleLogout}>Logout</Button>
               </div>
             ) : (
