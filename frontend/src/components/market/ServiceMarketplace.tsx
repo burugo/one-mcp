@@ -3,11 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, CheckCircle, XCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useMarketStore, ServiceType, MarketSource } from '@/store/marketStore';
+import { useMarketStore, ServiceType /* , MarketSource */ } from '@/store/marketStore';
 import ServiceCard from './ServiceCard';
 import EnvVarInputModal from './EnvVarInputModal';
 import { useToast } from '@/hooks/use-toast';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+// 暂时注释掉 Tabs 导入，以后添加 PyPI 市场时恢复
+// import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export function ServiceMarketplace({ onSelectService }: { onSelectService: (serviceId: string) => void }) {
 
@@ -22,8 +23,9 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
         installService,
         updateInstallStatus,
         installTasks,
-        activeMarketTab,
-        setActiveMarketTab
+        // 暂时注释掉 tab 相关状态，以后添加 PyPI 时恢复
+        // activeMarketTab,
+        // setActiveMarketTab
     } = useMarketStore();
 
     const { toast } = useToast();
@@ -171,43 +173,45 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                 </Button>
             </div>
 
-            {/* Tabs for market sources */}
+            {/* 服务列表 - 暂时移除 Tabs，以后添加 PyPI 市场时再恢复 */}
+            {/* TODO: 将来需要添加 PyPI 市场时，恢复以下 Tabs 结构 */}
+            {/* 
             <Tabs value={activeMarketTab} onValueChange={(value) => setActiveMarketTab(value as MarketSource)} className="mb-6">
-                <TabsList className="w-full max-w-lg grid grid-cols-1 gap-4"> {/* Initially 1 column for NPM, can be grid-cols-2 for NPM & PyPI */}
+                <TabsList className="w-full max-w-lg grid grid-cols-2 gap-4">
                     <TabsTrigger value="npm" className="px-4">NPM</TabsTrigger>
-                    {/* <TabsTrigger value="pypi" className="px-4">PyPI</TabsTrigger> */}
+                    <TabsTrigger value="pypi" className="px-4">PyPI</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="npm" className="mt-6">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                        {displayedServices.map(service => (
-                            <ServiceCard
-                                key={service.id}
-                                service={service}
-                                onSelect={onSelectService}
-                                onInstall={handleInstallService}
-                            />
-                        ))}
-                        {isSearching && (
-                            <div className="col-span-3 text-center py-8">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                                <p className="mt-4 text-muted-foreground">Searching for services...</p>
-                            </div>
-                        )}
-                        {!isSearching && displayedServices.length === 0 && (
-                            <div className="col-span-3 text-center py-8 text-muted-foreground">
-                                <p>No services found. Try a different search term or select a source.</p>
-                            </div>
-                        )}
-                    </div>
+                    ... NPM content ...
                 </TabsContent>
-                {/* Placeholder for PyPI content */}
-                {/* <TabsContent value="pypi" className="mt-6">
-                    <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                        // Similar rendering logic for PyPI services 
-                    </div>
-                </TabsContent> */}
+                <TabsContent value="pypi" className="mt-6">
+                    ... PyPI content ...
+                </TabsContent>
             </Tabs>
+            */}
+
+            <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                {displayedServices.map(service => (
+                    <ServiceCard
+                        key={service.id}
+                        service={service}
+                        onSelect={onSelectService}
+                        onInstall={handleInstallService}
+                    />
+                ))}
+                {isSearching && (
+                    <div className="col-span-3 text-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                        <p className="mt-4 text-muted-foreground">Searching for services...</p>
+                    </div>
+                )}
+                {!isSearching && displayedServices.length === 0 && (
+                    <div className="col-span-3 text-center py-8 text-muted-foreground">
+                        <p>No services found. Try a different search term.</p>
+                    </div>
+                )}
+            </div>
 
             {/* 环境变量输入模态框 */}
             <EnvVarInputModal
