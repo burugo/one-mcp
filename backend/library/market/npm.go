@@ -315,7 +315,7 @@ func FetchGitHubStars(ctx context.Context, owner, repo string) int {
 	}
 	token := os.Getenv("GITHUB_TOKEN")
 	if token != "" {
-		log.Printf("[stars] 读取到 token，长度=%d，前5位=%s", len(token), token[:5])
+		// log.Printf("[stars] 读取到 token，长度=%d，前5位=%s", len(token), token[:5])
 		req.Header.Set("Authorization", "token "+token)
 	} else {
 		log.Printf("[stars] 未读取到 GITHUB_TOKEN 环境变量")

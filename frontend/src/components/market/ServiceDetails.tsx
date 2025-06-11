@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
+
+
 import { useToast } from '@/hooks/use-toast';
 import { ChevronLeft, Package, Star, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -10,7 +10,7 @@ import { useMarketStore } from '@/store/marketStore';
 import EnvVarInputModal from './EnvVarInputModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import api from '@/utils/api'; // Import api utility for saving
+
 
 export function ServiceDetails({ onBack }: { onBack: () => void }) {
     const { toast } = useToast();
@@ -18,7 +18,6 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         selectedService,
         isLoadingDetails,
         installTasks,
-        updateEnvVar,
         installService,
         uninstallService,
         updateInstallStatus,
@@ -47,56 +46,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
     const installTask = selectedService ?
         installTasks[selectedService.id] : undefined;
 
-    // 处理环境变量输入变化
-    const handleEnvVarChange = (varName: string, value: string) => {
-        if (selectedService) {
-            updateEnvVar(
-                selectedService.id,
-                varName,
-                value
-            );
-        }
-    };
 
-    // Helper function to get placeholder for env var
-    const getEnvVarPlaceholder = (envVar: any): string => {
-        // Try to get placeholder from mcp_config first
-        if (selectedService?.mcpConfig?.mcpServers) {
-            const servers = selectedService.mcpConfig.mcpServers;
-            for (const serverKey in servers) {
-                const server = servers[serverKey];
-                if (server.env && server.env[envVar.name]) {
-                    const configValue = server.env[envVar.name];
-                    // If it looks like a placeholder (contains "your-" or similar patterns)
-                    if (typeof configValue === 'string' &&
-                        (configValue.toLowerCase().includes('your-') ||
-                            configValue.toLowerCase().includes('enter-') ||
-                            configValue.toLowerCase().includes('api-key') ||
-                            configValue.toLowerCase().includes('token'))) {
-                        return configValue;
-                    }
-                }
-            }
-        }
-
-        // Fallback to default value or generated placeholder
-        if (envVar.defaultValue && envVar.defaultValue.trim() !== '') {
-            return envVar.defaultValue;
-        }
-
-        // Generate placeholder based on variable name and type
-        if (envVar.isSecret) {
-            if (envVar.name.toLowerCase().includes('token')) {
-                return 'your-api-token';
-            } else if (envVar.name.toLowerCase().includes('key')) {
-                return 'your-api-key';
-            } else {
-                return 'Enter secret value';
-            }
-        }
-
-        return 'Enter value';
-    };
 
     // Helper function to check if a value is a placeholder/example value
     const isPlaceholderValue = (value: string): boolean => {
@@ -130,7 +80,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
 
         if (initialEnvVars) { // If env vars are explicitly passed (e.g., from modal)
             Object.assign(envVarsToSubmit, initialEnvVars);
-        } else { // If not from modal, collect from Configuration tab
+        } else { // If not from modal, collect from service env vars
             (selectedService.envVars || []).forEach(env => {
                 const value = env.value?.trim() || '';
 
@@ -200,7 +150,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
             updateInstallStatus(pendingServiceId, 'idle'); // Reset status to allow re-initiation
         }
         setMissingVars([]);
-        //setCurrentEnvVars({}); // Keep current env vars from config tab if user cancels
+        //setCurrentEnvVars({}); // Keep current env vars if user cancels
         setPendingServiceId(null);
     };
 
@@ -264,45 +214,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         }
     };
 
-    const handleSaveConfiguration = async () => {
-        if (!selectedService || !selectedService.isInstalled || typeof selectedService.installed_service_id !== 'number') {
-            toast({
-                title: "Cannot Save Configuration",
-                description: "Service is not installed or numeric service ID is missing.",
-                variant: "destructive"
-            });
-            return;
-        }
 
-        toast({ title: "Saving Configuration...", description: "Please wait." });
-        // let allSucceeded = true;
-        try {
-            for (const envVar of (selectedService.envVars || [])) {
-                // Only save if a value is present, or handle as needed
-                // Assuming 'value' contains the current value from the input field
-                // The API structure for saving might be one var at a time or bulk
-                // Using the single var save endpoint as seen in ServicesPage.tsx
-                await api.patch('/mcp_market/env_var', {
-                    service_id: selectedService.installed_service_id,
-                    var_name: envVar.name,
-                    var_value: envVar.value || '' // Send empty string if undefined/null
-                });
-            }
-            toast({ title: "Configuration Saved", description: "Environment variables have been updated." });
-        } catch (error: any) {
-            // allSucceeded = false;
-            console.error("Failed to save environment variable:", error);
-            toast({
-                title: "Save Failed",
-                description: error.message || "Could not save one or more environment variables.",
-                variant: "destructive"
-            });
-        }
-        // Optionally, re-fetch service details or update local state if necessary
-        // if (allSucceeded && selectedService) {
-        //     get().fetchServiceDetails(selectedService.id, selectedService.name, selectedService.source);
-        // }
-    };
 
     // 加载状态
     if (isLoadingDetails) {
@@ -387,72 +299,18 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                 )}
             </div>
 
-            {/* 详情选项卡 */}
-            <Tabs defaultValue="readme" className="mt-8">
-                <TabsList>
-                    <TabsTrigger value="readme">README</TabsTrigger>
-                    <TabsTrigger value="configuration">Configuration</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="readme" className="mt-4">
-                    <Card>
-                        <CardContent className="pt-6">
-                            <div className="prose dark:prose-invert max-w-none">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {selectedService.readme}
-                                </ReactMarkdown>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                <TabsContent value="configuration" className="mt-4">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Environment Variables</CardTitle>
-                            <CardDescription>
-                                Configure the required environment variables for this service.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-4">
-                                {(selectedService.envVars || []).map((envVar, index) => (
-                                    <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                                        <div className="md:col-span-1">
-                                            <label htmlFor={`env-${envVar.name}`} className="text-sm font-medium flex items-center gap-1">
-                                                {envVar.name}
-                                                {!envVar.optional && <span className="text-red-500">*</span>}
-                                            </label>
-                                        </div>
-                                        <div className="md:col-span-3">
-                                            <Input
-                                                id={`env-${envVar.name}`}
-                                                type="text"
-                                                placeholder={getEnvVarPlaceholder(envVar)}
-                                                value={envVar.value || ''}
-                                                onChange={(e) => handleEnvVarChange(envVar.name, e.target.value)}
-                                                className="w-full"
-                                            />
-                                            <p className="text-xs text-muted-foreground mt-1">{envVar.description}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </CardContent>
-                        <CardFooter>
-                            {selectedService && selectedService.isInstalled ? (
-                                <Button onClick={handleSaveConfiguration} className="ml-auto">
-                                    Save Configuration
-                                </Button>
-                            ) : (
-                                <Button onClick={() => startInstallation()} className="ml-auto">
-                                    Install with Configuration
-                                </Button>
-                            )}
-                        </CardFooter>
-                    </Card>
-                </TabsContent>
-            </Tabs>
+            {/* README 内容 */}
+            <div className="mt-8">
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="prose dark:prose-invert max-w-none">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {selectedService.readme}
+                            </ReactMarkdown>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
 
             {/* 安装进度对话框 */}
             <Dialog open={showInstallDialog} onOpenChange={closeInstallDialog}>
