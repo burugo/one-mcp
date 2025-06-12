@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-
-
 import { useToast } from '@/hooks/use-toast';
 import { ChevronLeft, Package, Star, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -10,9 +8,10 @@ import { useMarketStore } from '@/store/marketStore';
 import EnvVarInputModal from './EnvVarInputModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
+import { useTranslation } from 'react-i18next';
 
 export function ServiceDetails({ onBack }: { onBack: () => void }) {
+    const { t } = useTranslation();
     const { toast } = useToast();
     const {
         selectedService,
@@ -21,7 +20,6 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         installService,
         uninstallService,
         updateInstallStatus,
-
         fetchServiceDetails
     } = useMarketStore();
 
@@ -45,8 +43,6 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
     // 获取当前服务的安装任务（如果有）
     const installTask = selectedService ?
         installTasks[selectedService.id] : undefined;
-
-
 
     // Helper function to check if a value is a placeholder/example value
     const isPlaceholderValue = (value: string): boolean => {
@@ -214,15 +210,13 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         }
     };
 
-
-
     // 加载状态
     if (isLoadingDetails) {
         return (
             <div className="flex-1 p-6 flex justify-center items-center">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-                    <p className="mt-4 text-muted-foreground">Loading service details...</p>
+                    <p className="mt-4 text-muted-foreground">{t('serviceDetails.loadingServiceDetails')}</p>
                 </div>
             </div>
         );
@@ -234,12 +228,12 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
             <div className="flex-1 p-6">
                 <Button variant="ghost" onClick={onBack} className="mb-6">
                     <ChevronLeft className="mr-2 h-4 w-4" />
-                    Back to Marketplace
+                    {t('serviceDetails.backToMarketplace')}
                 </Button>
                 <div className="text-center py-12">
                     <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold mb-2">Service Not Found</h3>
-                    <p className="text-muted-foreground">The requested service could not be found.</p>
+                    <h3 className="text-xl font-semibold mb-2">{t('serviceDetails.serviceNotFound')}</h3>
+                    <p className="text-muted-foreground">{t('serviceDetails.serviceNotFoundDescription')}</p>
                 </div>
             </div>
         );
@@ -249,7 +243,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
         <div className="flex-1 space-y-6">
             <Button variant="ghost" onClick={onBack} className="mb-2">
                 <ChevronLeft className="mr-2 h-4 w-4" />
-                Back to Marketplace
+                {t('backToMarketplace')}
             </Button>
 
             {/* 服务头部信息 */}
@@ -279,10 +273,10 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                             </div>
                         )}
                         <div>
-                            <span>By {typeof selectedService.author === 'string' ? selectedService.author : selectedService.author?.name || 'Unknown Author'}</span>
+                            <span>{t('by')} {typeof selectedService.author === 'string' ? selectedService.author : selectedService.author?.name || 'Unknown Author'}</span>
                         </div>
                         <div>
-                            <span>Source: {selectedService.source}</span>
+                            <span>{t('source')}: {selectedService.source}</span>
                         </div>
                     </div>
                     <p className="mt-4 text-balance">{selectedService.description}</p>
@@ -290,11 +284,11 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
 
                 {selectedService.isInstalled ? (
                     <Button onClick={handleUninstall} variant="destructive" className="md:self-start flex-shrink-0">
-                        Uninstall Service
+                        {t('uninstallService')}
                     </Button>
                 ) : (
                     <Button onClick={() => startInstallation()} className="md:self-start flex-shrink-0">
-                        Install Service
+                        {t('installService')}
                     </Button>
                 )}
             </div>
@@ -317,16 +311,16 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>
-                            {!installTask && 'Installing Service...'}
-                            {installTask?.status === 'installing' && 'Installing Service...'}
-                            {installTask?.status === 'success' && 'Installation Complete'}
-                            {installTask?.status === 'error' && 'Installation Failed'}
+                            {!installTask && t('installingService')}
+                            {installTask?.status === 'installing' && t('installingService')}
+                            {installTask?.status === 'success' && t('installationComplete')}
+                            {installTask?.status === 'error' && t('installationFailed')}
                         </DialogTitle>
                         <DialogDescription>
-                            {!installTask && `Installing ${selectedService.name} from ${selectedService.source}`}
-                            {installTask?.status === 'installing' && `Installing ${selectedService.name} from ${selectedService.source}`}
-                            {installTask?.status === 'success' && 'The service was installed successfully'}
-                            {installTask?.status === 'error' && 'There was a problem during installation'}
+                            {!installTask && `${t('installing')} ${selectedService.name} ${t('from')} ${selectedService.source}`}
+                            {installTask?.status === 'installing' && `${t('installing')} ${selectedService.name} ${t('from')} ${selectedService.source}`}
+                            {installTask?.status === 'success' && t('theServiceWasInstalledSuccessfully')}
+                            {installTask?.status === 'error' && t('thereWasAProblemDuringInstallation')}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -349,19 +343,19 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                         {(!installTask || installTask.status === 'installing') && (
                             <div className="flex items-center text-sm text-muted-foreground">
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                                Installing...
+                                {t('installing')}...
                             </div>
                         )}
                         {installTask?.status === 'success' && (
                             <div className="flex items-center text-sm text-green-500">
                                 <CheckCircle className="h-4 w-4 mr-2" />
-                                Installation complete
+                                {t('installationComplete')}
                             </div>
                         )}
                         {installTask?.status === 'error' && (
                             <div className="flex items-center text-sm text-red-500">
                                 <XCircle className="h-4 w-4 mr-2" />
-                                Installation failed: {installTask.error}
+                                {t('installationFailed')}: {installTask.error}
                             </div>
                         )}
 
@@ -369,7 +363,7 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
                             disabled={!installTask || installTask.status === 'installing'}
                             onClick={closeInstallDialog}
                         >
-                            {installTask?.status === 'success' ? 'Finish' : 'Close'}
+                            {installTask?.status === 'success' ? t('finish') : t('close')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

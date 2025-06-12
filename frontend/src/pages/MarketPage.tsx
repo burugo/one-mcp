@@ -2,6 +2,7 @@ import { useMarketStore } from '../store/marketStore';
 import { ServiceMarketplace } from '../components/market/ServiceMarketplace';
 import { ServiceDetails } from '../components/market/ServiceDetails';
 
+
 export function MarketPage() {
     const {
         selectedService,

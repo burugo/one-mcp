@@ -6,6 +6,7 @@ import { Check, Copy } from 'lucide-react';
 import { useServerAddress } from '@/hooks/useServerAddress';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from 'react-i18next';
 
 interface ServiceConfigModalProps {
     open: boolean;
@@ -21,6 +22,7 @@ function getEnvVars(service: any): Record<string, string> {
 }
 
 const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, onClose, onSaveVar }) => {
+    const { t } = useTranslation();
     const [envValues, setEnvValues] = useState<Record<string, string>>(getEnvVars(service));
     const [saving, setSaving] = useState<string | null>(null);
     const [copied, setCopied] = useState<{ [k: string]: boolean }>({});
@@ -85,7 +87,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         try {
             await onSaveVar(varName, envValues[varName]);
         } catch (e: any) {
-            setError(e.message || '保存失败');
+            setError(e.message || t('serviceConfigModal.messages.saveFailed'));
         }
         setSaving(null);
     };
@@ -130,14 +132,14 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
             setCopied((prev) => ({ ...prev, 'sse': true }));
             setTimeout(() => setCopied((prev) => ({ ...prev, 'sse': false })), 1200);
             toast({
-                title: "SSE配置已复制",
-                description: "SSE端点的MCP服务器配置已复制到剪贴板"
+                title: t('serviceConfigModal.messages.sseConfigCopied'),
+                description: t('serviceConfigModal.messages.sseConfigCopiedDesc')
             });
         } catch {
             toast({
                 variant: "destructive",
-                title: "复制失败",
-                description: "无法访问剪贴板"
+                title: t('serviceConfigModal.messages.copyFailed'),
+                description: t('serviceConfigModal.messages.clipboardError')
             });
         }
     };
@@ -149,14 +151,14 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
             setCopied((prev) => ({ ...prev, 'http': true }));
             setTimeout(() => setCopied((prev) => ({ ...prev, 'http': false })), 1200);
             toast({
-                title: "HTTP配置已复制",
-                description: "HTTP端点的MCP服务器配置已复制到剪贴板"
+                title: t('serviceConfigModal.messages.httpConfigCopied'),
+                description: t('serviceConfigModal.messages.httpConfigCopiedDesc')
             });
         } catch {
             toast({
                 variant: "destructive",
-                title: "复制失败",
-                description: "无法访问剪贴板"
+                title: t('serviceConfigModal.messages.copyFailed'),
+                description: t('serviceConfigModal.messages.clipboardError')
             });
         }
     };
@@ -177,7 +179,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
             });
 
             if (!response.ok) {
-                throw new Error('更新RPD限制失败');
+                throw new Error(t('serviceConfigModal.messages.updateFailed'));
             }
 
             // 更新本地service对象
@@ -190,15 +192,16 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                 service.remaining_requests = -1; // 无限制
             }
 
+            const limitText = newLimit === 0 ? t('serviceConfigModal.messages.unlimitedValue') : `${newLimit}${t('serviceConfigModal.sections.requestsPerDay')}`;
             toast({
-                title: "更新成功",
-                description: `每日请求限制已更新为 ${newLimit === 0 ? '无限制' : `${newLimit}次/天`}`
+                title: t('serviceConfigModal.messages.updateSuccess'),
+                description: t('serviceConfigModal.messages.rpdLimitUpdated', { limit: limitText })
             });
         } catch (error) {
             toast({
                 variant: "destructive",
-                title: "更新失败",
-                description: error instanceof Error ? error.message : "更新RPD限制时发生错误"
+                title: t('serviceConfigModal.messages.updateFailed'),
+                description: error instanceof Error ? error.message : t('serviceConfigModal.messages.rpdUpdateError')
             });
         }
     };
@@ -207,18 +210,18 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         <Dialog open={open} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader className="mb-4">
-                    <DialogTitle>Service Configuration</DialogTitle>
+                    <DialogTitle>{t('serviceConfigModal.title')}</DialogTitle>
                     <DialogDescription>
-                        Adjust the settings for this service. Click save when you're done.
+                        {t('serviceConfigModal.description')}
                     </DialogDescription>
                 </DialogHeader>
 
                 {/* 环境变量配置部分 - 只有管理员可以看到 */}
                 {isAdmin && (
                     <div className="space-y-4 mt-2">
-                        <div className="text-sm font-medium text-foreground mb-2">Environment Variables</div>
+                        <div className="text-sm font-medium text-foreground mb-2">{t('serviceConfigModal.sections.environmentVariables')}</div>
                         {Object.keys(envValues).length === 0 && (
-                            <div className="text-muted-foreground text-sm">No environment variables for this service.</div>
+                            <div className="text-muted-foreground text-sm">{t('serviceConfigModal.sections.noEnvironmentVariables')}</div>
                         )}
                         {Object.keys(envValues).map((varName) => (
                             <div key={varName} className="mb-4">
@@ -241,7 +244,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                                         onClick={() => handleSave(varName)}
                                         disabled={saving === varName}
                                     >
-                                        {saving === varName ? 'Saving...' : 'Save'}
+                                        {saving === varName ? t('serviceConfigModal.actions.saving') : t('serviceConfigModal.actions.save')}
                                     </Button>
                                 </div>
                             </div>
@@ -253,29 +256,29 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
 
                 {/* 端点地址部分 - 所有用户都可以看到 */}
                 <div className="space-y-3">
-                    <div className="text-sm font-medium text-foreground mb-2">Service Endpoints</div>
+                    <div className="text-sm font-medium text-foreground mb-2">{t('serviceConfigModal.sections.serviceEndpoints')}</div>
                     <div className="flex items-center gap-2">
-                        <span className="w-28 text-sm font-medium">SSE Endpoint</span>
+                        <span className="w-28 text-sm font-medium">{t('serviceConfigModal.sections.sseEndpoint')}</span>
                         <Input value={sseEndpoint} readOnly className="flex-1" />
                         <Button
                             size="icon"
                             variant="ghost"
                             onClick={handleCopySSE}
                             disabled={!sseEndpoint}
-                            title="复制SSE配置"
+                            title={t('serviceConfigModal.actions.copySSEConfig')}
                         >
                             {copied['sse'] ? <Check className="text-green-500 w-5 h-5" /> : <Copy className="w-5 h-5" />}
                         </Button>
                     </div>
                     <div className="flex items-center gap-2">
-                        <span className="w-28 text-sm font-medium">HTTP Endpoint</span>
+                        <span className="w-28 text-sm font-medium">{t('serviceConfigModal.sections.httpEndpoint')}</span>
                         <Input value={httpEndpoint} readOnly className="flex-1" />
                         <Button
                             size="icon"
                             variant="ghost"
                             onClick={handleCopyHTTP}
                             disabled={!httpEndpoint}
-                            title="复制HTTP配置"
+                            title={t('serviceConfigModal.actions.copyHTTPConfig')}
                         >
                             {copied['http'] ? <Check className="text-green-500 w-5 h-5" /> : <Copy className="w-5 h-5" />}
                         </Button>
@@ -284,31 +287,31 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
 
                 {/* 每日请求限制 (RPD) 配置 */}
                 <div className="space-y-3 mt-4 pt-3 border-t border-border">
-                    <div className="text-sm font-medium text-foreground">每日请求次数限制 (RPD)</div>
+                    <div className="text-sm font-medium text-foreground">{t('serviceConfigModal.sections.rpdLimit')}</div>
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">当前限制:</span>
+                        <span className="text-sm text-muted-foreground">{t('serviceConfigModal.sections.currentLimit')}</span>
                         {isAdmin ? (
                             <Input
                                 type="number"
                                 min="0"
                                 value={service?.rpd_limit || 0}
                                 onChange={(e) => handleUpdateRPDLimit(parseInt(e.target.value) || 0)}
-                                placeholder="0 表示不限制"
+                                placeholder={t('serviceConfigModal.actions.limitPlaceholder')}
                                 className="w-32"
                             />
                         ) : (
                             <span className="font-medium">
-                                {service?.rpd_limit === 0 || !service?.rpd_limit ? 'no limit' : service?.rpd_limit}
+                                {service?.rpd_limit === 0 || !service?.rpd_limit ? t('serviceConfigModal.messages.unlimitedValue') : service?.rpd_limit}
                             </span>
                         )}
                         <span className="text-sm text-muted-foreground">
-                            {service?.rpd_limit === 0 || !service?.rpd_limit ? '(无限制)' : '次/天'}
+                            {service?.rpd_limit === 0 || !service?.rpd_limit ? t('serviceConfigModal.sections.unlimited') : t('serviceConfigModal.sections.requestsPerDay')}
                         </span>
                     </div>
                 </div>
 
                 <DialogFooter className="mt-4">
-                    <Button variant="outline" onClick={onClose} type="button">Close</Button>
+                    <Button variant="outline" onClick={onClose} type="button">{t('serviceConfigModal.actions.close')}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

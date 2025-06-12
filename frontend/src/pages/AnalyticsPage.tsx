@@ -8,6 +8,7 @@ import api from '@/utils/api';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal, ChevronUp, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ServiceUtilizationStat {
     service_id: number;
@@ -19,6 +20,7 @@ interface ServiceUtilizationStat {
 }
 
 export function AnalyticsPage() {
+    const { t } = useTranslation();
     // const { setIsOpen } = useOutletContext<PageOutletContext>(); // Ready for future use
     useOutletContext<PageOutletContext>(); // Establish context connection
     const { toast } = useToast(); // Call the hook to get the toast function
@@ -75,35 +77,35 @@ export function AnalyticsPage() {
 
     return (
         <div className="w-full space-y-8">
-            <h2 className="text-3xl font-bold tracking-tight mb-8">Analytics</h2>
+            <h2 className="text-3xl font-bold tracking-tight mb-8">{t('analytics.title')}</h2>
 
             <div className="mt-12">
-                <h3 className="text-2xl font-bold mb-4">Usage Statistics</h3>
+                <h3 className="text-2xl font-bold mb-4">{t('analytics.usageStatistics')}</h3>
                 <Card className="shadow-sm border bg-card/30">
                     <CardHeader>
-                        <CardTitle>Service Utilization</CardTitle>
+                        <CardTitle>{t('analytics.serviceUtilization')}</CardTitle>
                         <CardDescription>
-                            Aggregated performance overview for enabled services.
-                            Sorted by today's requests ({sortOrder === 'desc' ? 'high to low' : 'low to high'}).
-                            Click the column header to change sort order.
+                            {t('analytics.aggregatedPerformanceOverview')}
+                            {t('analytics.sortedBy')} {t('analytics.todayRequests')} ({sortOrder === 'desc' ? t('analytics.highToLow') : t('analytics.lowToHigh')}).
+                            {t('analytics.clickColumnHeader')} {t('analytics.changeSortOrder')}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isLoading && <p className="text-center text-muted-foreground">Loading statistics...</p>}
+                        {isLoading && <p className="text-center text-muted-foreground">{t('analytics.loadingStatistics')}</p>}
                         {error && (
                             <Alert variant="destructive" className="mb-4">
                                 <Terminal className="h-4 w-4" />
-                                <AlertTitle>Error</AlertTitle>
+                                <AlertTitle>{t('analytics.error')}</AlertTitle>
                                 <AlertDescription>{error}</AlertDescription>
                             </Alert>
                         )}
                         {!isLoading && !error && (
                             <Table>
-                                <TableCaption>A summary of your service usage.</TableCaption>
+                                <TableCaption>{t('analytics.summaryOfServiceUsage')}</TableCaption>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Service</TableHead>
-                                        <TableHead className="text-right">Status</TableHead>
+                                        <TableHead>{t('analytics.service')}</TableHead>
+                                        <TableHead className="text-right">{t('analytics.status')}</TableHead>
                                         <TableHead className="text-right">
                                             <Button
                                                 variant="ghost"
@@ -111,7 +113,7 @@ export function AnalyticsPage() {
                                                 onClick={toggleSortOrder}
                                                 className="flex items-center gap-1 h-auto p-0 font-medium hover:bg-transparent focus:outline-none focus:ring-0 focus:ring-offset-0 ml-auto"
                                             >
-                                                Today's Requests
+                                                {t('analytics.todayRequests')}
                                                 {sortOrder === 'desc' ? (
                                                     <ChevronDown className="h-4 w-4" />
                                                 ) : (
@@ -119,14 +121,14 @@ export function AnalyticsPage() {
                                                 )}
                                             </Button>
                                         </TableHead>
-                                        <TableHead className="text-right">Today's Avg. Latency (ms)</TableHead>
+                                        <TableHead className="text-right">{t('analytics.todayAvgLatency')}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {sortedAndFilteredStats.length === 0 && !isLoading ? (
                                         <TableRow>
                                             <TableCell colSpan={4} className="text-center text-muted-foreground">
-                                                No enabled services with usage statistics available yet.
+                                                {t('analytics.noEnabledServicesWithUsageStatisticsAvailableYet')}
                                             </TableCell>
                                         </TableRow>
                                     ) : (
@@ -135,7 +137,7 @@ export function AnalyticsPage() {
                                                 <TableCell className="font-medium">{stat.display_name || stat.service_name}</TableCell>
                                                 <TableCell className="text-right">
                                                     <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
-                                                        Enabled
+                                                        {t('analytics.enabled')}
                                                     </span>
                                                 </TableCell>
                                                 <TableCell className="text-right font-medium">

@@ -1,4 +1,5 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
+import i18n from '../i18n';
 
 // API响应类型
 export interface APIResponse<T = any> {
@@ -72,6 +73,12 @@ apiInstance.interceptors.request.use(
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`;
         }
+
+        // 添加 Accept-Language 请求头
+        if (i18n.language) {
+            config.headers['Accept-Language'] = i18n.language;
+        }
+
         return config;
     },
     (error) => {

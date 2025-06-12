@@ -13,6 +13,7 @@ import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { useTranslation } from 'react-i18next';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function ServicesPage() {
+    const { t } = useTranslation();
     const { toast } = useToast();
     const navigate = useNavigate();
     const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService, toggleService, checkServiceHealth } = useMarketStore();
@@ -225,7 +227,7 @@ export function ServicesPage() {
         if (services.length === 0) {
             return (
                 <div className="text-center py-8 text-muted-foreground">
-                    <p>No services found.</p>
+                    <p>{t('services.noServicesFound')}</p>
                 </div>
             );
         }
@@ -234,13 +236,13 @@ export function ServicesPage() {
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>状态</TableHead>
-                        <TableHead>服务名称</TableHead>
-                        <TableHead>描述</TableHead>
-                        <TableHead>版本</TableHead>
-                        <TableHead>健康状态</TableHead>
-                        <TableHead>启用状态</TableHead>
-                        <TableHead>操作</TableHead>
+                        <TableHead>{t('services.status')}</TableHead>
+                        <TableHead>{t('services.serviceName')}</TableHead>
+                        <TableHead>{t('services.description')}</TableHead>
+                        <TableHead>{t('services.version')}</TableHead>
+                        <TableHead>{t('services.healthStatus')}</TableHead>
+                        <TableHead>{t('services.enabledStatus')}</TableHead>
+                        <TableHead>{t('services.operations')}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -256,7 +258,7 @@ export function ServicesPage() {
                                         className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
                                         onClick={() => handleCheckServiceHealth(service.id)}
                                         disabled={checkingHealthServices.has(service.id)}
-                                        title="刷新健康状态"
+                                        title={t('services.refreshHealthStatus')}
                                     >
                                         <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
                                     </button>
@@ -293,12 +295,12 @@ export function ServicesPage() {
                                         size="sm"
                                         onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}
                                     >
-                                        Configure
+                                        {t('services.configure')}
                                     </Button>
                                     <button
                                         className="p-1 rounded hover:bg-red-100 text-red-500"
                                         onClick={() => handleUninstallClick(service.id)}
-                                        title="卸载服务"
+                                        title={t('services.uninstallService')}
                                     >
                                         <Trash2 size={16} />
                                     </button>
@@ -316,7 +318,7 @@ export function ServicesPage() {
         if (services.length === 0) {
             return (
                 <div className="col-span-3 text-center py-8 text-muted-foreground">
-                    <p>No services found.</p>
+                    <p>{t('services.noServicesFound')}</p>
                 </div>
             );
         }
@@ -339,7 +341,7 @@ export function ServicesPage() {
                                         className="p-0.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
                                         onClick={() => handleCheckServiceHealth(service.id)}
                                         disabled={checkingHealthServices.has(service.id)}
-                                        title="刷新健康状态"
+                                        title={t('services.refreshHealthStatus')}
                                     >
                                         <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
                                     </button>
@@ -350,7 +352,7 @@ export function ServicesPage() {
                         <button
                             className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
                             onClick={() => handleUninstallClick(service.id)}
-                            title="卸载服务"
+                            title={t('services.uninstallService')}
                         >
                             <Trash2 size={18} />
                         </button>
@@ -362,7 +364,7 @@ export function ServicesPage() {
                     {service.rpd_limit && service.rpd_limit > 0 && (
                         <div className="mt-2 pt-2 border-t border-border/50">
                             <div className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">Daily Requests:</span>
+                                <span className="text-muted-foreground">{t('services.dailyRequests')}:</span>
                                 <span className="font-medium">
                                     {service.user_daily_request_count || 0} / {service.rpd_limit}
                                 </span>
@@ -382,14 +384,14 @@ export function ServicesPage() {
                             </div>
                             {service.remaining_requests !== undefined && service.remaining_requests >= 0 && (
                                 <div className="mt-1 text-xs text-muted-foreground">
-                                    {service.remaining_requests} requests remaining
+                                    {service.remaining_requests} {t('services.requestsRemaining')}
                                 </div>
                             )}
                         </div>
                     )}
                 </CardContent>
                 <CardFooter className="flex justify-between items-end mt-auto">
-                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>Configure</Button>
+                    <Button variant="outline" size="sm" className="h-6" onClick={() => { setSelectedService(service); setConfigModalOpen(true); }}>{t('services.configure')}</Button>
                     <Switch
                         checked={service.enabled || false}
                         onCheckedChange={() => handleToggleService(service.id)}
@@ -404,8 +406,8 @@ export function ServicesPage() {
         <div className="w-full space-y-8">
             <div className="flex justify-between items-center mb-6">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">MCP Services</h2>
-                    <p className="text-muted-foreground mt-1">Manage and configure your multi-cloud platform services</p>
+                    <h2 className="text-3xl font-bold tracking-tight">{t('services.mcpServices')}</h2>
+                    <p className="text-muted-foreground mt-1">{t('services.manageAndConfigure')}</p>
                 </div>
                 <div className="flex items-center space-x-2">
                     {/* 视图切换按钮 */}
@@ -431,19 +433,19 @@ export function ServicesPage() {
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button className="rounded-full bg-[#7c3aed] hover:bg-[#7c3aed]/90">
-                                <PlusCircle className="w-4 h-4 mr-2" /> Add Service
+                                <PlusCircle className="w-4 h-4 mr-2" /> {t('services.addService')}
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => navigate('/market')}>
-                                <Search className="w-4 h-4 mr-2" /> 从市场安装
+                                <Search className="w-4 h-4 mr-2" /> {t('services.installFromMarket')}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                                 setTimeout(() => {
                                     setCustomServiceModalOpen(true);
                                 }, 50);
                             }}>
-                                <Plus className="w-4 h-4 mr-2" /> 自定义安装
+                                <Plus className="w-4 h-4 mr-2" /> {t('services.customInstall')}
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -452,9 +454,9 @@ export function ServicesPage() {
 
             <Tabs defaultValue="all" className="mb-8">
                 <TabsList className="w-full max-w-3xl grid grid-cols-3 bg-muted/80 p-1 rounded-lg">
-                    <TabsTrigger value="all" className="rounded-md">All Services</TabsTrigger>
-                    <TabsTrigger value="active" className="rounded-md">Active</TabsTrigger>
-                    <TabsTrigger value="inactive" className="rounded-md">Inactive</TabsTrigger>
+                    <TabsTrigger value="all" className="rounded-md">{t('services.allServices')}</TabsTrigger>
+                    <TabsTrigger value="active" className="rounded-md">{t('services.active')}</TabsTrigger>
+                    <TabsTrigger value="inactive" className="rounded-md">{t('services.inactive')}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="all">
                     {viewMode === 'grid' ? (
@@ -509,10 +511,10 @@ export function ServicesPage() {
             <ConfirmDialog
                 isOpen={uninstallDialogOpen}
                 onOpenChange={setUninstallDialogOpen}
-                title="确认卸载"
-                description="确定要卸载此服务吗？这将移除所有相关配置。"
-                confirmText="卸载"
-                cancelText="取消"
+                title={t('services.confirmUninstall')}
+                description={t('services.confirmUninstallDescription')}
+                confirmText={t('services.uninstall')}
+                cancelText={t('services.cancel')}
                 onConfirm={handleUninstallConfirm}
                 confirmButtonVariant="destructive"
             />

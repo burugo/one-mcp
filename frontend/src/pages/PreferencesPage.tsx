@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import api, { APIResponse } from '@/utils/api';
 import { useServerAddressStore } from '@/hooks/useServerAddress';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from 'react-i18next';
 
 export function PreferencesPage() {
+    const { t } = useTranslation();
     const { toast } = useToast();
     const serverAddress = useServerAddressStore(s => s.serverAddress);
     const setServerAddress = useServerAddressStore(s => s.setServerAddress);
@@ -63,10 +65,10 @@ export function PreferencesPage() {
         const clean = serverAddress.replace(/\/$/, '');
         const res = await api.put('/option/', { key: 'ServerAddress', value: clean }) as APIResponse;
         if (res.success) {
-            setMessage('保存成功');
+            setMessage(t('preferences.messages.saveSuccess'));
             setServerAddress(clean); // 立即同步到全局
         } else {
-            setMessage(res.message || '保存失败');
+            setMessage(res.message || t('preferences.messages.saveFailed'));
         }
         setSaving(false);
     };
@@ -79,21 +81,21 @@ export function PreferencesPage() {
 
             if (clientIdRes.success && clientSecretRes.success) {
                 toast({
-                    title: "保存成功",
-                    description: "GitHub OAuth 配置已保存"
+                    title: t('preferences.messages.saveSuccess'),
+                    description: t('preferences.messages.githubOAuthSaved')
                 });
             } else {
                 toast({
                     variant: "destructive",
-                    title: "保存失败",
-                    description: clientIdRes.message || clientSecretRes.message || "保存失败"
+                    title: t('preferences.messages.saveFailed'),
+                    description: clientIdRes.message || clientSecretRes.message || t('preferences.messages.saveFailed')
                 });
             }
         } catch (error: any) {
             toast({
                 variant: "destructive",
-                title: "保存失败",
-                description: error.message || "保存失败"
+                title: t('preferences.messages.saveFailed'),
+                description: error.message || t('preferences.messages.saveFailed')
             });
         }
         setSavingGithub(false);
@@ -107,21 +109,21 @@ export function PreferencesPage() {
 
             if (clientIdRes.success && clientSecretRes.success) {
                 toast({
-                    title: "保存成功",
-                    description: "Google OAuth 配置已保存"
+                    title: t('preferences.messages.saveSuccess'),
+                    description: t('preferences.messages.googleOAuthSaved')
                 });
             } else {
                 toast({
                     variant: "destructive",
-                    title: "保存失败",
-                    description: clientIdRes.message || clientSecretRes.message || "保存失败"
+                    title: t('preferences.messages.saveFailed'),
+                    description: clientIdRes.message || clientSecretRes.message || t('preferences.messages.saveFailed')
                 });
             }
         } catch (error: any) {
             toast({
                 variant: "destructive",
-                title: "保存失败",
-                description: error.message || "保存失败"
+                title: t('preferences.messages.saveFailed'),
+                description: error.message || t('preferences.messages.saveFailed')
             });
         }
         setSavingGoogle(false);
@@ -133,21 +135,21 @@ export function PreferencesPage() {
             const res = await api.put('/option/', { key: 'GitHubOAuthEnabled', value: newValue.toString() }) as APIResponse;
             if (res.success) {
                 toast({
-                    title: "保存成功",
-                    description: `GitHub OAuth 已${newValue ? '启用' : '禁用'}`
+                    title: t('preferences.messages.saveSuccess'),
+                    description: newValue ? t('preferences.messages.githubOAuthEnabled') : t('preferences.messages.githubOAuthDisabled')
                 });
             } else {
                 toast({
                     variant: "destructive",
-                    title: "保存失败",
-                    description: res.message || "保存失败"
+                    title: t('preferences.messages.saveFailed'),
+                    description: res.message || t('preferences.messages.saveFailed')
                 });
             }
         } catch (error: any) {
             toast({
                 variant: "destructive",
-                title: "保存失败",
-                description: error.message || "保存失败"
+                title: t('preferences.messages.saveFailed'),
+                description: error.message || t('preferences.messages.saveFailed')
             });
         }
         setSavingGithubEnabled(false);
@@ -159,21 +161,21 @@ export function PreferencesPage() {
             const res = await api.put('/option/', { key: 'GoogleOAuthEnabled', value: newValue.toString() }) as APIResponse;
             if (res.success) {
                 toast({
-                    title: "保存成功",
-                    description: `Google OAuth 已${newValue ? '启用' : '禁用'}`
+                    title: t('preferences.messages.saveSuccess'),
+                    description: newValue ? t('preferences.messages.googleOAuthEnabled') : t('preferences.messages.googleOAuthDisabled')
                 });
             } else {
                 toast({
                     variant: "destructive",
-                    title: "保存失败",
-                    description: res.message || "保存失败"
+                    title: t('preferences.messages.saveFailed'),
+                    description: res.message || t('preferences.messages.saveFailed')
                 });
             }
         } catch (error: any) {
             toast({
                 variant: "destructive",
-                title: "保存失败",
-                description: error.message || "保存失败"
+                title: t('preferences.messages.saveFailed'),
+                description: error.message || t('preferences.messages.saveFailed')
             });
         }
         setSavingGoogleEnabled(false);
@@ -182,19 +184,19 @@ export function PreferencesPage() {
     return (
         <div className="w-full max-w-4xl mx-auto space-y-8 p-6">
             <div className="space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Preferences</h2>
-                <p className="text-muted-foreground">管理您的系统配置和登录选项</p>
+                <h2 className="text-3xl font-bold tracking-tight">{t('preferences.title')}</h2>
+                <p className="text-muted-foreground">{t('preferences.description')}</p>
             </div>
 
             {/* 通用设置 */}
             <div className="space-y-6">
                 <div className="space-y-2">
-                    <h3 className="text-xl font-semibold">通用设置</h3>
-                    <p className="text-sm text-muted-foreground">配置系统的基本设置</p>
+                    <h3 className="text-xl font-semibold">{t('preferences.general')}</h3>
+                    <p className="text-sm text-muted-foreground">{t('preferences.generalDesc')}</p>
                 </div>
                 <div className="bg-card border border-border rounded-lg p-6 space-y-4">
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">服务器地址</label>
+                        <label className="text-sm font-medium">{t('preferences.form.serverAddress')}</label>
                         <input
                             type="text"
                             className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
@@ -209,7 +211,7 @@ export function PreferencesPage() {
                         onClick={handleSave}
                         disabled={loading || saving}
                     >
-                        {saving ? '更新中...' : '更新服务器地址'}
+                        {saving ? t('preferences.actions.saving') : t('preferences.actions.save')}
                     </button>
                     {message && <div className="text-green-600 text-sm mt-2">{message}</div>}
                 </div>
@@ -218,8 +220,8 @@ export function PreferencesPage() {
             {/* 配置登录注册 */}
             <div className="space-y-6">
                 <div className="space-y-2">
-                    <h3 className="text-xl font-semibold">配置登录注册</h3>
-                    <p className="text-sm text-muted-foreground">管理第三方登录选项</p>
+                    <h3 className="text-xl font-semibold">{t('preferences.oauth')}</h3>
+                    <p className="text-sm text-muted-foreground">{t('preferences.oauthDesc')}</p>
                 </div>
                 <div className="bg-card border border-border rounded-lg p-6 space-y-4">
                     {/* GitHub OAuth 开关 */}
@@ -239,11 +241,11 @@ export function PreferencesPage() {
                                 disabled={loading || savingGithubEnabled}
                             />
                             <label htmlFor="githubOAuthEnabled" className="text-sm font-medium">
-                                允许通过 GitHub 账户登录 & 注册
+                                {t('preferences.form.enableGithubOAuth')}
                             </label>
                         </div>
                         {savingGithubEnabled && (
-                            <div className="text-sm text-muted-foreground">保存中...</div>
+                            <div className="text-sm text-muted-foreground">{t('preferences.actions.saving')}</div>
                         )}
                     </div>
 
@@ -264,11 +266,11 @@ export function PreferencesPage() {
                                 disabled={loading || savingGoogleEnabled}
                             />
                             <label htmlFor="googleOAuthEnabled" className="text-sm font-medium">
-                                允许通过 Google 账户登录 & 注册
+                                {t('preferences.form.enableGoogleOAuth')}
                             </label>
                         </div>
                         {savingGoogleEnabled && (
-                            <div className="text-sm text-muted-foreground">保存中...</div>
+                            <div className="text-sm text-muted-foreground">{t('preferences.actions.saving')}</div>
                         )}
                     </div>
                 </div>
@@ -277,11 +279,11 @@ export function PreferencesPage() {
             {/* GitHub OAuth 配置 */}
             <div className="space-y-6">
                 <div className="space-y-2">
-                    <h3 className="text-xl font-semibold">配置 GitHub OAuth App</h3>
+                    <h3 className="text-xl font-semibold">{t('preferences.github')}</h3>
                     <p className="text-sm text-muted-foreground">
-                        用以支持通过 GitHub 进行登录注册，
+                        {t('preferences.githubDesc')}，
                         <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline ml-1">
-                            点击此处管理你的 GitHub OAuth App
+                            {t('preferences.githubLinkText')}
                         </a>
                     </p>
                 </div>
@@ -296,8 +298,7 @@ export function PreferencesPage() {
                             </div>
                             <div className="ml-3">
                                 <p className="text-sm text-info-foreground">
-                                    Homepage URL 填 <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}</code>，
-                                    Authorization callback URL 填 <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}/oauth/github</code>
+                                    {t('preferences.instructions.githubHomepage')} <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}</code>{t('preferences.instructions.githubCallback')} <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}/oauth/github</code>
                                 </p>
                             </div>
                         </div>
@@ -305,24 +306,24 @@ export function PreferencesPage() {
 
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">GitHub Client ID</label>
+                            <label className="text-sm font-medium">{t('preferences.form.githubClientId')}</label>
                             <input
                                 type="text"
                                 className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
                                 value={githubClientId}
                                 onChange={e => setGithubClientId(e.target.value)}
-                                placeholder="输入 GitHub Client ID"
+                                placeholder={t('preferences.form.githubClientIdPlaceholder')}
                                 disabled={loading || savingGithub}
                             />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">GitHub Client Secret</label>
+                            <label className="text-sm font-medium">{t('preferences.form.githubClientSecret')}</label>
                             <input
                                 type="password"
                                 className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
                                 value={githubClientSecret}
                                 onChange={e => setGithubClientSecret(e.target.value)}
-                                placeholder="输入 GitHub Client Secret"
+                                placeholder={t('preferences.form.githubClientSecretPlaceholder')}
                                 disabled={loading || savingGithub}
                             />
                         </div>
@@ -331,7 +332,7 @@ export function PreferencesPage() {
                             onClick={handleSaveGitHubOAuth}
                             disabled={loading || savingGithub}
                         >
-                            {savingGithub ? '保存中...' : '保存 GitHub OAuth 设置'}
+                            {savingGithub ? t('preferences.actions.saving') : t('preferences.actions.save')}
                         </button>
                     </div>
                 </div>
@@ -340,11 +341,11 @@ export function PreferencesPage() {
             {/* Google OAuth 配置 */}
             <div className="space-y-6">
                 <div className="space-y-2">
-                    <h3 className="text-xl font-semibold">配置 Google OAuth App</h3>
+                    <h3 className="text-xl font-semibold">{t('preferences.google')}</h3>
                     <p className="text-sm text-muted-foreground">
-                        用以支持通过 Google 进行登录注册，
+                        {t('preferences.googleDesc')}，
                         <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline ml-1">
-                            点击此处管理你的 Google OAuth App
+                            {t('preferences.googleLinkText')}
                         </a>
                     </p>
                 </div>
@@ -359,8 +360,7 @@ export function PreferencesPage() {
                             </div>
                             <div className="ml-3">
                                 <p className="text-sm text-info-foreground">
-                                    Authorized JavaScript origins 填 <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}</code>，
-                                    Authorized redirect URIs 填 <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}/oauth/google</code>
+                                    {t('preferences.instructions.googleOrigins')} <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}</code>{t('preferences.instructions.googleRedirect')} <code className="bg-info-code px-1 rounded font-mono text-xs">{serverAddress || 'https://your-domain.com'}/oauth/google</code>
                                 </p>
                             </div>
                         </div>
@@ -368,24 +368,24 @@ export function PreferencesPage() {
 
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Google Client ID</label>
+                            <label className="text-sm font-medium">{t('preferences.form.googleClientId')}</label>
                             <input
                                 type="text"
                                 className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
                                 value={googleClientId}
                                 onChange={e => setGoogleClientId(e.target.value)}
-                                placeholder="输入 Google Client ID"
+                                placeholder={t('preferences.form.googleClientIdPlaceholder')}
                                 disabled={loading || savingGoogle}
                             />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Google Client Secret</label>
+                            <label className="text-sm font-medium">{t('preferences.form.googleClientSecret')}</label>
                             <input
                                 type="password"
                                 className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
                                 value={googleClientSecret}
                                 onChange={e => setGoogleClientSecret(e.target.value)}
-                                placeholder="输入 Google Client Secret"
+                                placeholder={t('preferences.form.googleClientSecretPlaceholder')}
                                 disabled={loading || savingGoogle}
                             />
                         </div>
@@ -394,7 +394,7 @@ export function PreferencesPage() {
                             onClick={handleSaveGoogleOAuth}
                             disabled={loading || savingGoogle}
                         >
-                            {savingGoogle ? '保存中...' : '保存 Google OAuth 设置'}
+                            {savingGoogle ? t('preferences.actions.saving') : t('preferences.actions.save')}
                         </button>
                     </div>
                 </div>

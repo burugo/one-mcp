@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from 'react-i18next';
 import api, { APIResponse } from '@/utils/api';
 
 interface UserDialogProps {
@@ -18,6 +19,7 @@ interface UserDialogProps {
 }
 
 export const UserDialog: React.FC<UserDialogProps> = ({ isOpen, onClose, onSave, currentUser }) => {
+    const { t } = useTranslation();
     const { toast } = useToast();
     const [username, setUsername] = useState('');
     const [displayName, setDisplayName] = useState('');
@@ -61,22 +63,22 @@ export const UserDialog: React.FC<UserDialogProps> = ({ isOpen, onClose, onSave,
 
             if (response.success) {
                 toast({
-                    title: currentUser ? '更新成功' : '创建成功',
-                    description: currentUser ? '用户信息已更新' : '用户已成功创建'
+                    title: currentUser ? t('userDialog.messages.updateSuccess') : t('userDialog.messages.createSuccess'),
+                    description: currentUser ? t('userDialog.messages.userUpdated') : t('userDialog.messages.userCreated')
                 });
                 onSave(); // Trigger refresh of user list
                 onClose();
             } else {
                 toast({
-                    title: currentUser ? '更新失败' : '创建失败',
-                    description: response.message || '未知错误',
+                    title: currentUser ? t('userDialog.messages.updateFailed') : t('userDialog.messages.createFailed'),
+                    description: response.message || t('userDialog.messages.unknownError'),
                     variant: 'destructive'
                 });
             }
         } catch (error: any) {
             toast({
-                title: currentUser ? '更新失败' : '创建失败',
-                description: error.message || '网络错误',
+                title: currentUser ? t('userDialog.messages.updateFailed') : t('userDialog.messages.createFailed'),
+                description: error.message || t('userDialog.messages.networkError'),
                 variant: 'destructive'
             });
         } finally {
@@ -84,8 +86,8 @@ export const UserDialog: React.FC<UserDialogProps> = ({ isOpen, onClose, onSave,
         }
     };
 
-    const dialogTitle = currentUser ? '编辑用户' : '新增用户';
-    const dialogDescription = currentUser ? '修改用户的用户名、显示名称和密码。' : '创建一个新用户帐户。'
+    const dialogTitle = currentUser ? t('userDialog.editTitle') : t('userDialog.addTitle');
+    const dialogDescription = currentUser ? t('userDialog.editDescription') : t('userDialog.addDescription');
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -96,7 +98,7 @@ export const UserDialog: React.FC<UserDialogProps> = ({ isOpen, onClose, onSave,
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="username" className="text-right">用户名</Label>
+                        <Label htmlFor="username" className="text-right">{t('userDialog.form.username')}</Label>
                         <Input
                             id="username"
                             value={username}
@@ -106,7 +108,7 @@ export const UserDialog: React.FC<UserDialogProps> = ({ isOpen, onClose, onSave,
                         />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="displayName" className="text-right">显示名称</Label>
+                        <Label htmlFor="displayName" className="text-right">{t('userDialog.form.displayName')}</Label>
                         <Input
                             id="displayName"
                             value={displayName}
@@ -115,21 +117,21 @@ export const UserDialog: React.FC<UserDialogProps> = ({ isOpen, onClose, onSave,
                         />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="password" className="text-right">密码</Label>
+                        <Label htmlFor="password" className="text-right">{t('userDialog.form.password')}</Label>
                         <Input
                             id="password"
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             className="col-span-3"
-                            placeholder={currentUser ? '留空则不修改密码' : '输入密码'}
+                            placeholder={currentUser ? t('userDialog.form.passwordEditPlaceholder') : t('userDialog.form.passwordPlaceholder')}
                         />
                     </div>
                 </div>
                 <DialogFooter>
-                    <Button variant="outline" onClick={onClose} disabled={loading}>取消</Button>
+                    <Button variant="outline" onClick={onClose} disabled={loading}>{t('userDialog.actions.cancel')}</Button>
                     <Button onClick={handleSubmit} disabled={loading}>
-                        {loading ? '保存中...' : '保存'}
+                        {loading ? t('userDialog.actions.saving') : t('userDialog.actions.save')}
                     </Button>
                 </DialogFooter>
             </DialogContent>

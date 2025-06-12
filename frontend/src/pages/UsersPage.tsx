@@ -9,6 +9,7 @@ import { Search, Plus, Edit, Trash2, UserCheck } from 'lucide-react';
 import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { UserDialog } from '@/components/users/UserDialog';
+import { useTranslation } from 'react-i18next';
 
 interface User {
     id: number;
@@ -25,6 +26,7 @@ interface User {
 }
 
 export function UsersPage() {
+    const { t } = useTranslation();
     const { toast } = useToast();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
@@ -94,21 +96,21 @@ export function UsersPage() {
             const response = await api.delete(`/user/${pendingDeleteId}`) as APIResponse<any>;
             if (response.success) {
                 toast({
-                    title: '删除成功',
-                    description: '用户已成功删除'
+                    title: t('usersPage.messages.deleteSuccess'),
+                    description: t('usersPage.messages.userDeleted')
                 });
                 fetchUsers(currentPage, searchTerm);
             } else {
                 toast({
-                    title: '删除失败',
-                    description: response.message || '未知错误',
+                    title: t('usersPage.messages.deleteFailed'),
+                    description: response.message || t('usersPage.messages.unknownError'),
                     variant: 'destructive'
                 });
             }
         } catch (error: any) {
             toast({
-                title: '删除失败',
-                description: error.message || '网络错误',
+                title: t('usersPage.messages.deleteFailed'),
+                description: error.message || t('usersPage.messages.networkError'),
                 variant: 'destructive'
             });
         } finally {
@@ -127,21 +129,21 @@ export function UsersPage() {
 
             if (response.success) {
                 toast({
-                    title: '操作成功',
-                    description: '用户已设为管理员'
+                    title: t('usersPage.messages.operationSuccess'),
+                    description: t('usersPage.messages.userPromoted')
                 });
                 fetchUsers(currentPage, searchTerm);
             } else {
                 toast({
-                    title: '操作失败',
-                    description: response.message || '未知错误',
+                    title: t('usersPage.messages.operationFailed'),
+                    description: response.message || t('usersPage.messages.unknownError'),
                     variant: 'destructive'
                 });
             }
         } catch (error: any) {
             toast({
-                title: '操作失败',
-                description: error.message || '网络错误',
+                title: t('usersPage.messages.operationFailed'),
+                description: error.message || t('usersPage.messages.networkError'),
                 variant: 'destructive'
             });
         }
@@ -157,21 +159,21 @@ export function UsersPage() {
 
             if (response.success) {
                 toast({
-                    title: '操作成功',
-                    description: '用户已设为普通用户'
+                    title: t('usersPage.messages.operationSuccess'),
+                    description: t('usersPage.messages.userDemoted')
                 });
                 fetchUsers(currentPage, searchTerm);
             } else {
                 toast({
-                    title: '操作失败',
-                    description: response.message || '未知错误',
+                    title: t('usersPage.messages.operationFailed'),
+                    description: response.message || t('usersPage.messages.unknownError'),
                     variant: 'destructive'
                 });
             }
         } catch (error: any) {
             toast({
-                title: '操作失败',
-                description: error.message || '网络错误',
+                title: t('usersPage.messages.operationFailed'),
+                description: error.message || t('usersPage.messages.networkError'),
                 variant: 'destructive'
             });
         }
@@ -188,21 +190,21 @@ export function UsersPage() {
 
             if (response.success) {
                 toast({
-                    title: '操作成功',
-                    description: `用户已${action === 'enable' ? '启用' : '禁用'}`
+                    title: t('usersPage.messages.operationSuccess'),
+                    description: action === 'enable' ? t('usersPage.messages.userEnabled') : t('usersPage.messages.userDisabled')
                 });
                 fetchUsers(currentPage, searchTerm);
             } else {
                 toast({
-                    title: '操作失败',
-                    description: response.message || '未知错误',
+                    title: t('usersPage.messages.operationFailed'),
+                    description: response.message || t('usersPage.messages.unknownError'),
                     variant: 'destructive'
                 });
             }
         } catch (error: any) {
             toast({
-                title: '操作失败',
-                description: error.message || '网络错误',
+                title: t('usersPage.messages.operationFailed'),
+                description: error.message || t('usersPage.messages.networkError'),
                 variant: 'destructive'
             });
         }
@@ -211,10 +213,10 @@ export function UsersPage() {
     // 获取角色显示文本
     const getRoleText = (role: number) => {
         switch (role) {
-            case 100: return '超级管理员';
-            case 10: return '管理员';
-            case 1: return '普通用户';
-            default: return '未知';
+            case 100: return t('usersPage.roles.superAdmin');
+            case 10: return t('usersPage.roles.admin');
+            case 1: return t('usersPage.roles.user');
+            default: return t('usersPage.roles.unknown');
         }
     };
 
@@ -224,7 +226,7 @@ export function UsersPage() {
         if (user.github_id) bindings.push('GitHub');
         if (user.google_id) bindings.push('Google');
         if (user.wechat_id) bindings.push('WeChat');
-        return bindings.length > 0 ? bindings.join(', ') : '无';
+        return bindings.length > 0 ? bindings.join(', ') : t('usersPage.bindings.none');
     };
 
     const handleOpenNewUserDialog = () => {
@@ -250,12 +252,12 @@ export function UsersPage() {
         <div className="w-full space-y-6">
             <div className="flex justify-between items-center">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">用户管理</h2>
-                    <p className="text-muted-foreground mt-1">管理系统用户账户</p>
+                    <h2 className="text-3xl font-bold tracking-tight">{t('usersPage.title')}</h2>
+                    <p className="text-muted-foreground mt-1">{t('usersPage.description')}</p>
                 </div>
                 <Button className="bg-[#7c3aed] hover:bg-[#7c3aed]/90" onClick={handleOpenNewUserDialog}>
                     <Plus className="w-4 h-4 mr-2" />
-                    新增用户
+                    {t('usersPage.addUser')}
                 </Button>
             </div>
 
@@ -265,14 +267,14 @@ export function UsersPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         className="pl-10 bg-muted/40"
-                        placeholder="搜索用户ID、用户名、显示名称或邮箱..."
+                        placeholder={t('usersPage.searchPlaceholder')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         onKeyDown={handleKeyDown}
                     />
                 </div>
                 <Button onClick={handleSearch} disabled={loading}>
-                    {loading ? '搜索中...' : '搜索'}
+                    {loading ? t('usersPage.searching') : t('usersPage.search')}
                 </Button>
             </div>
 
@@ -281,27 +283,27 @@ export function UsersPage() {
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>ID</TableHead>
-                            <TableHead>用户名</TableHead>
-                            <TableHead>显示名称</TableHead>
-                            <TableHead>邮箱</TableHead>
-                            <TableHead>用户角色</TableHead>
-                            <TableHead>绑定</TableHead>
-                            <TableHead>状态</TableHead>
-                            <TableHead>操作</TableHead>
+                            <TableHead>{t('usersPage.id')}</TableHead>
+                            <TableHead>{t('usersPage.username')}</TableHead>
+                            <TableHead>{t('usersPage.displayName')}</TableHead>
+                            <TableHead>{t('usersPage.email')}</TableHead>
+                            <TableHead>{t('usersPage.userRole')}</TableHead>
+                            <TableHead>{t('usersPage.binding')}</TableHead>
+                            <TableHead>{t('usersPage.status')}</TableHead>
+                            <TableHead>{t('usersPage.actions')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loading ? (
                             <TableRow>
                                 <TableCell colSpan={8} className="text-center py-8">
-                                    加载中...
+                                    {t('usersPage.loading')}
                                 </TableCell>
                             </TableRow>
                         ) : users.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                                    没有找到用户
+                                    {t('usersPage.noUsersFound')}
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -335,7 +337,7 @@ export function UsersPage() {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => handlePromoteToAdmin(user.username)}
-                                                    title="设为管理员"
+                                                    title={t('usersPage.promoteToAdmin')}
                                                 >
                                                     <UserCheck className="w-4 h-4" />
                                                 </Button>
@@ -344,7 +346,7 @@ export function UsersPage() {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => handleDemoteToUser(user.username)}
-                                                    title="设为普通用户"
+                                                    title={t('usersPage.demoteToUser')}
                                                     className="text-orange-500 hover:text-orange-700"
                                                 >
                                                     <UserCheck className="w-4 h-4" />
@@ -354,7 +356,7 @@ export function UsersPage() {
                                                 variant="outline"
                                                 size="sm"
                                                 onClick={() => handleOpenEditUserDialog(user)}
-                                                title="编辑"
+                                                title={t('usersPage.edit')}
                                             >
                                                 <Edit className="w-4 h-4" />
                                             </Button>
@@ -363,7 +365,7 @@ export function UsersPage() {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => handleDeleteClick(user.id)}
-                                                    title="删除"
+                                                    title={t('usersPage.delete')}
                                                     className="text-red-500 hover:text-red-700"
                                                 >
                                                     <Trash2 className="w-4 h-4" />
@@ -381,7 +383,7 @@ export function UsersPage() {
             {/* 分页控件 */}
             <div className="flex justify-between items-center">
                 <div className="text-sm text-muted-foreground">
-                    显示 {users.length} 个用户
+                    {t('usersPage.showing')} {users.length} {t('usersPage.users')}
                 </div>
                 <div className="flex space-x-2">
                     <Button
@@ -390,7 +392,7 @@ export function UsersPage() {
                         onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
                         disabled={currentPage === 0 || loading}
                     >
-                        上一页
+                        {t('usersPage.previousPage')}
                     </Button>
                     <Button
                         variant="outline"
@@ -398,7 +400,7 @@ export function UsersPage() {
                         onClick={() => setCurrentPage(currentPage + 1)}
                         disabled={users.length < 10 || loading}
                     >
-                        下一页
+                        {t('usersPage.nextPage')}
                     </Button>
                 </div>
             </div>
@@ -407,10 +409,10 @@ export function UsersPage() {
             <ConfirmDialog
                 isOpen={deleteDialogOpen}
                 onOpenChange={setDeleteDialogOpen}
-                title="确认删除"
-                description="确定要删除此用户吗？此操作不可撤销。"
-                confirmText="删除"
-                cancelText="取消"
+                title={t('usersPage.confirmDeleteTitle')}
+                description={t('usersPage.confirmDeleteDescription')}
+                confirmText={t('usersPage.delete')}
+                cancelText={t('usersPage.cancel')}
                 onConfirm={handleDeleteConfirm}
                 confirmButtonVariant="destructive"
             />
