@@ -7,10 +7,11 @@ import { useMarketStore, ServiceType /* , MarketSource */ } from '@/store/market
 import ServiceCard from './ServiceCard';
 import EnvVarInputModal from './EnvVarInputModal';
 import { useToast } from '@/hooks/use-toast';
-// 暂时注释掉 Tabs 导入，以后添加 PyPI 市场时恢复
-// import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+import { useTranslation } from 'react-i18next';
 
 export function ServiceMarketplace({ onSelectService }: { onSelectService: (serviceId: string) => void }) {
+    const { t } = useTranslation();
 
     // 使用 Zustand store
     const {
@@ -149,9 +150,9 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
         <div className="flex-1 space-y-6">
             <div className="flex justify-between items-center mb-6">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Service Marketplace</h2>
+                    <h2 className="text-3xl font-bold tracking-tight">{t('serviceMarketplace.title')}</h2>
                     <p className="text-muted-foreground mt-1">
-                        Discover and install MCP services from various sources
+                        {t('serviceMarketplace.description')}
                     </p>
                 </div>
             </div>
@@ -162,14 +163,14 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         className="pl-10 bg-muted/40 w-full"
-                        placeholder="Search for MCP services..."
+                        placeholder={t('serviceMarketplace.searchPlaceholder')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         onKeyDown={handleKeyDown}
                     />
                 </div>
                 <Button onClick={() => searchServices()} disabled={isSearching}>
-                    {isSearching ? 'Searching...' : 'Search'}
+                    {isSearching ? 'Searching...' : t('serviceMarketplace.searchButton')}
                 </Button>
             </div>
 
@@ -203,12 +204,12 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                 {isSearching && (
                     <div className="col-span-3 text-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                        <p className="mt-4 text-muted-foreground">Searching for services...</p>
+                        <p className="mt-4 text-muted-foreground">{t('serviceMarketplace.searching')}</p>
                     </div>
                 )}
                 {!isSearching && displayedServices.length === 0 && (
                     <div className="col-span-3 text-center py-8 text-muted-foreground">
-                        <p>No services found. Try a different search term.</p>
+                        <p>{t('serviceMarketplace.noServicesFound')}</p>
                     </div>
                 )}
             </div>
@@ -258,19 +259,19 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
                         {(!currentInstallTask || currentInstallTask.status === 'installing') && (
                             <div className="flex items-center text-sm text-muted-foreground">
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                                Installing...
+                                {t('serviceMarketplace.installing')}
                             </div>
                         )}
                         {currentInstallTask?.status === 'success' && (
                             <div className="flex items-center text-sm text-green-500">
                                 <CheckCircle className="h-4 w-4 mr-2" />
-                                Installation complete
+                                {t('serviceMarketplace.installationComplete')}
                             </div>
                         )}
                         {currentInstallTask?.status === 'error' && (
                             <div className="flex items-center text-sm text-red-500">
                                 <XCircle className="h-4 w-4 mr-2" />
-                                Installation failed: {currentInstallTask.error}
+                                {t('serviceMarketplace.installationFailed')}
                             </div>
                         )}
 

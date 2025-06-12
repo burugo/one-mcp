@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,6 +29,7 @@ export interface CustomServiceData {
 type SubmissionStatus = 'idle' | 'validating' | 'validationSuccess' | 'submittingApi' | 'error';
 
 const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, onCreateService }) => {
+    const { t } = useTranslation();
     const { toast } = useToast();
     const [submissionStatus, setSubmissionStatus] = useState<SubmissionStatus>('idle');
     const [serviceData, setServiceData] = useState<CustomServiceData>({
@@ -71,23 +73,23 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
         const newErrors: Record<string, string> = {};
 
         if (!serviceData.name.trim()) {
-            newErrors.name = '服务名称不能为空';
+            newErrors.name = t('customServiceModal.form.serviceNamePlaceholder');
         }
 
         if (serviceData.type === 'stdio') {
             if (!serviceData.command?.trim()) {
-                newErrors.command = '命令不能为空';
+                newErrors.command = t('customServiceModal.form.commandPlaceholder');
             } else if (!serviceData.command.startsWith('npx ') && !serviceData.command.startsWith('uvx ')) {
-                newErrors.command = '命令必须以 npx 或 uvx 开头';
+                newErrors.command = 'Command must start with npx or uvx';
             }
         } else if (serviceData.type === 'sse' || serviceData.type === 'streamableHttp') {
             if (!serviceData.url?.trim()) {
-                newErrors.url = 'URL不能为空';
+                newErrors.url = 'URL cannot be empty';
             } else {
                 try {
                     new URL(serviceData.url);
                 } catch (e) {
-                    newErrors.url = '请输入有效的URL';
+                    newErrors.url = 'Please enter a valid URL';
                 }
             }
         }
@@ -113,14 +115,14 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
         try {
             await onCreateService(serviceData);
             toast({
-                title: '创建成功',
-                description: `服务 ${serviceData.name} 已成功创建`
+                title: t('customServiceModal.messages.createSuccess'),
+                description: t('customServiceModal.messages.createSuccessDescription', { serviceName: serviceData.name })
             });
             onClose();
         } catch (error: any) {
             toast({
-                title: '创建失败',
-                description: error.message || '未知错误',
+                title: t('customServiceModal.messages.createFailed'),
+                description: error.message || t('customServiceModal.messages.unknownError'),
                 variant: 'destructive'
             });
             setSubmissionStatus('error');
@@ -163,8 +165,8 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                                 <>
                                     <Loader2 className="h-12 w-12 animate-spin text-blue-400" />
                                     <div className="text-center">
-                                        <p className="text-white text-xl font-semibold">验证中</p>
-                                        <p className="text-white/70 text-sm mt-1">正在检查表单数据...</p>
+                                        <p className="text-white text-xl font-semibold">{t('customServiceModal.status.validating')}</p>
+                                        <p className="text-white/70 text-sm mt-1">{t('customServiceModal.status.validatingDescription')}</p>
                                     </div>
                                 </>
                             )}
@@ -175,8 +177,8 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                                         <div className="absolute inset-0 h-12 w-12 bg-green-400/20 rounded-full animate-ping"></div>
                                     </div>
                                     <div className="text-center">
-                                        <p className="text-white text-xl font-semibold">验证成功!</p>
-                                        <p className="text-white/70 text-sm mt-1">正在创建服务...</p>
+                                        <p className="text-white text-xl font-semibold">{t('customServiceModal.status.validationSuccess')}</p>
+                                        <p className="text-white/70 text-sm mt-1">{t('customServiceModal.status.validationSuccessDescription')}</p>
                                     </div>
                                 </>
                             )}
@@ -184,8 +186,8 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                                 <>
                                     <Loader2 className="h-12 w-12 animate-spin text-purple-400" />
                                     <div className="text-center">
-                                        <p className="text-white text-xl font-semibold">创建中</p>
-                                        <p className="text-white/70 text-sm mt-1">正在保存服务配置...</p>
+                                        <p className="text-white text-xl font-semibold">{t('customServiceModal.status.creating')}</p>
+                                        <p className="text-white/70 text-sm mt-1">{t('customServiceModal.status.creatingDescription')}</p>
                                     </div>
                                 </>
                             )}
@@ -193,38 +195,38 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                     </div>
                 )}
                 <DialogHeader>
-                    <DialogTitle>创建自定义服务</DialogTitle>
+                    <DialogTitle>{t('customServiceModal.title')}</DialogTitle>
                     <DialogDescription>
-                        填写以下信息创建一个自定义MCP服务
+                        {t('customServiceModal.description')}
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4 py-2">
                     <div className="space-y-2">
-                        <Label htmlFor="service-name">服务名称</Label>
+                        <Label htmlFor="service-name">{t('customServiceModal.form.serviceName')}</Label>
                         <Input
                             id="service-name"
                             value={serviceData.name}
                             onChange={(e) => handleChange('name', e.target.value)}
-                            placeholder="输入服务名称"
+                            placeholder={t('customServiceModal.form.serviceNamePlaceholder')}
                             className={errors.name ? 'border-red-500' : ''}
                         />
                         {errors.name && <p className="text-red-500 text-xs">{errors.name}</p>}
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="service-type">服务类型</Label>
+                        <Label htmlFor="service-type">{t('customServiceModal.form.serviceType')}</Label>
                         <Select
                             value={serviceData.type}
                             onValueChange={(value) => handleChange('type', value as any)}
                         >
                             <SelectTrigger id="service-type">
-                                <SelectValue placeholder="选择服务类型" />
+                                <SelectValue placeholder={t('customServiceModal.form.serviceTypePlaceholder')} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="stdio">标准输入/输出 (stdio)</SelectItem>
-                                <SelectItem value="sse">服务器发送事件 (sse)</SelectItem>
-                                <SelectItem value="streamableHttp">可流式传输的HTTP (streamableHttp)</SelectItem>
+                                <SelectItem value="stdio">{t('customServiceModal.serviceTypes.stdio')}</SelectItem>
+                                <SelectItem value="sse">{t('customServiceModal.serviceTypes.sse')}</SelectItem>
+                                <SelectItem value="streamableHttp">{t('customServiceModal.serviceTypes.streamableHttp')}</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -232,35 +234,35 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                     {serviceData.type === 'stdio' && (
                         <>
                             <div className="space-y-2">
-                                <Label htmlFor="service-command">命令</Label>
+                                <Label htmlFor="service-command">{t('customServiceModal.form.command')}</Label>
                                 <Input
                                     id="service-command"
                                     value={serviceData.command}
                                     onChange={(e) => handleChange('command', e.target.value)}
-                                    placeholder="输入命令 (npx 或 uvx)"
+                                    placeholder={t('customServiceModal.form.commandPlaceholder')}
                                     className={errors.command ? 'border-red-500' : ''}
                                 />
                                 {errors.command && <p className="text-red-500 text-xs">{errors.command}</p>}
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="service-arguments">参数</Label>
+                                <Label htmlFor="service-arguments">{t('customServiceModal.form.arguments')}</Label>
                                 <Textarea
                                     id="service-arguments"
                                     value={serviceData.arguments}
                                     onChange={(e) => handleChange('arguments', e.target.value)}
-                                    placeholder="arg1&#10;arg2&#10;..."
+                                    placeholder={t('customServiceModal.form.argumentsPlaceholder')}
                                     className="min-h-[80px]"
                                 />
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="service-environments">环境变量</Label>
+                                <Label htmlFor="service-environments">{t('customServiceModal.form.environments')}</Label>
                                 <Textarea
                                     id="service-environments"
                                     value={serviceData.environments}
                                     onChange={(e) => handleChange('environments', e.target.value)}
-                                    placeholder="KEY1=value1&#10;KEY2=value2&#10;..."
+                                    placeholder={t('customServiceModal.form.environmentsPlaceholder')}
                                     className="min-h-[80px]"
                                 />
                             </div>
@@ -270,28 +272,24 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                     {(serviceData.type === 'sse' || serviceData.type === 'streamableHttp') && (
                         <>
                             <div className="space-y-2">
-                                <Label htmlFor="service-url">URL</Label>
+                                <Label htmlFor="service-url">{t('customServiceModal.form.serverUrl')}</Label>
                                 <Input
                                     id="service-url"
                                     value={serviceData.url}
                                     onChange={(e) => handleChange('url', e.target.value)}
-                                    placeholder={
-                                        serviceData.type === 'sse'
-                                            ? "http://localhost/sse"
-                                            : "http://localhost/mcp"
-                                    }
+                                    placeholder={t('customServiceModal.form.serverUrlPlaceholder')}
                                     className={errors.url ? 'border-red-500' : ''}
                                 />
                                 {errors.url && <p className="text-red-500 text-xs">{errors.url}</p>}
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="service-headers">请求头</Label>
+                                <Label htmlFor="service-headers">{t('customServiceModal.form.requestHeaders')}</Label>
                                 <Textarea
                                     id="service-headers"
                                     value={serviceData.headers}
                                     onChange={(e) => handleChange('headers', e.target.value)}
-                                    placeholder="Content-Type=application/json&#10;Authorization=Bearer token&#10;..."
+                                    placeholder={t('customServiceModal.form.requestHeadersPlaceholder')}
                                     className="min-h-[80px]"
                                 />
                             </div>
@@ -305,14 +303,14 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                             onClick={onClose}
                             disabled={isBusy}
                         >
-                            取消
+                            {t('customServiceModal.actions.cancel')}
                         </Button>
                         <Button type="submit" disabled={isBusy}>
-                            {submissionStatus === 'validating' && '验证中...'}
-                            {submissionStatus === 'validationSuccess' && '验证成功'}
-                            {submissionStatus === 'submittingApi' && '创建中...'}
-                            {submissionStatus === 'idle' && '创建服务'}
-                            {submissionStatus === 'error' && '创建服务'}
+                            {submissionStatus === 'validating' && t('customServiceModal.actions.validating')}
+                            {submissionStatus === 'validationSuccess' && t('customServiceModal.actions.validationSuccess')}
+                            {submissionStatus === 'submittingApi' && t('customServiceModal.actions.creating')}
+                            {submissionStatus === 'idle' && t('customServiceModal.actions.createService')}
+                            {submissionStatus === 'error' && t('customServiceModal.actions.createService')}
                         </Button>
                     </DialogFooter>
                 </form>

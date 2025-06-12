@@ -19,6 +19,8 @@ import Login from '@/pages/Login'
 import { OAuthCallback } from './pages/OAuthCallback'
 import { toastEmitter } from '@/utils/api'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { useTranslation } from 'react-i18next'
+import { LanguageSwitcher } from './components/ui/language-switcher'
 
 // Props that might be passed down from AppLayout to pages via Outlet context
 export interface PageOutletContext {
@@ -31,6 +33,7 @@ const AppLayout = () => {
   const [showLoginDialog, setShowLoginDialog] = React.useState(false)
   const location = useLocation()
   const { currentUser, logout, isLoading } = useAuth()
+  const { t } = useTranslation()
   // const navigate = useNavigate() // 暂时未使用
 
   const NavLink = ({ to, children, isTopNav }: { to: string, children: React.ReactNode, isTopNav?: boolean }) => {
@@ -55,6 +58,8 @@ const AppLayout = () => {
     logout()
   }
 
+
+
   if (isLoading) {
     return <div>Loading application...</div>
   }
@@ -69,14 +74,15 @@ const AppLayout = () => {
           </Link>
           <div className="flex items-center ml-auto gap-6">
             <nav className="hidden md:flex items-center gap-6">
-              <NavLink to="/" isTopNav>Dashboard</NavLink>
-              <NavLink to="/docs" isTopNav>Docs</NavLink>
+              <NavLink to="/" isTopNav>{t('nav.dashboard')}</NavLink>
+              <NavLink to="/docs" isTopNav>{t('nav.docs')}</NavLink>
             </nav>
+            <LanguageSwitcher />
             <ThemeToggle />
             {currentUser ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm">{currentUser.display_name || currentUser.username}</span>
-                <Button variant="outline" size="sm" onClick={handleLogout}>Logout</Button>
+                <Button variant="outline" size="sm" onClick={handleLogout}>{t('auth.logoutButton')}</Button>
               </div>
             ) : (
               <Button
@@ -84,7 +90,7 @@ const AppLayout = () => {
                 className="rounded-full transition-all duration-200 hover:opacity-90 bg-[#7c3aed] hover:bg-[#7c3aed]/90"
                 onClick={() => setShowLoginDialog(true)}
               >
-                Login
+                {t('auth.loginButton')}
               </Button>
             )}
           </div>
@@ -95,38 +101,38 @@ const AppLayout = () => {
           <nav className="p-4 space-y-1">
             <NavLink to="/">
               <Home className={`h-4 w-4 ${location.pathname === '/' || location.pathname.startsWith('/dashboard') ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`${location.pathname === '/' || location.pathname.startsWith('/dashboard') ? 'text-primary' : 'text-muted-foreground'}`}>Dashboard</span>
+              <span className={`${location.pathname === '/' || location.pathname.startsWith('/dashboard') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.dashboard')}</span>
             </NavLink>
             <NavLink to="/services">
               <Globe className={`h-4 w-4 ${location.pathname.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`${location.pathname.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>Services</span>
+              <span className={`${location.pathname.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.services')}</span>
             </NavLink>
             {currentUser && currentUser.role && currentUser.role >= 10 && (
               <NavLink to="/market">
                 <Package className={`h-4 w-4 ${location.pathname.startsWith('/market') ? 'text-primary' : 'text-muted-foreground'}`} />
-                <span className={`${location.pathname.startsWith('/market') ? 'text-primary' : 'text-muted-foreground'}`}>Service Market</span>
+                <span className={`${location.pathname.startsWith('/market') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.market')}</span>
               </NavLink>
             )}
             <NavLink to="/analytics">
               <BarChart className={`h-4 w-4 ${location.pathname.startsWith('/analytics') ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`${location.pathname.startsWith('/analytics') ? 'text-primary' : 'text-muted-foreground'}`}>Analytics</span>
+              <span className={`${location.pathname.startsWith('/analytics') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.analytics')}</span>
             </NavLink>
             {/* 用户管理 - 仅管理员可见 */}
             {currentUser && currentUser.role && currentUser.role >= 10 && (
               <NavLink to="/users">
                 <Users className={`h-4 w-4 ${location.pathname.startsWith('/users') ? 'text-primary' : 'text-muted-foreground'}`} />
-                <span className={`${location.pathname.startsWith('/users') ? 'text-primary' : 'text-muted-foreground'}`}>用户</span>
+                <span className={`${location.pathname.startsWith('/users') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.users')}</span>
               </NavLink>
             )}
             <div className="my-4 border-t border-border"></div>
             <NavLink to="/profile">
               <User className={`h-4 w-4 ${location.pathname.startsWith('/profile') ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`${location.pathname.startsWith('/profile') ? 'text-primary' : 'text-muted-foreground'}`}>Profile</span>
+              <span className={`${location.pathname.startsWith('/profile') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.profile')}</span>
             </NavLink>
             {currentUser && currentUser.role && currentUser.role >= 10 && (
               <NavLink to="/preferences">
                 <Settings className={`h-4 w-4 ${location.pathname.startsWith('/preferences') ? 'text-primary' : 'text-muted-foreground'}`} />
-                <span className={`${location.pathname.startsWith('/preferences') ? 'text-primary' : 'text-muted-foreground'}`}>Preferences</span>
+                <span className={`${location.pathname.startsWith('/preferences') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.preferences')}</span>
               </NavLink>
             )}
           </nav>

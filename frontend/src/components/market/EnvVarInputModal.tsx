@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 
 interface EnvVarInputModalProps {
     open: boolean;
@@ -11,6 +12,7 @@ interface EnvVarInputModalProps {
 }
 
 const EnvVarInputModal: React.FC<EnvVarInputModalProps> = ({ open, missingVars, onSubmit, onCancel }) => {
+    const { t } = useTranslation();
     const [envValues, setEnvValues] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +24,7 @@ const EnvVarInputModal: React.FC<EnvVarInputModalProps> = ({ open, missingVars, 
         // 检查所有必填项
         for (const varName of missingVars) {
             if (!envValues[varName] || envValues[varName].trim() === '') {
-                setError(`请填写 ${varName}`);
+                setError(t('envVarModal.errorRequired', { varName }));
                 return;
             }
         }
@@ -34,9 +36,9 @@ const EnvVarInputModal: React.FC<EnvVarInputModalProps> = ({ open, missingVars, 
         <Dialog open={open} onOpenChange={onCancel}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>填写所需环境变量</DialogTitle>
+                    <DialogTitle>{t('envVarModal.title')}</DialogTitle>
                     <DialogDescription>
-                        安装该服务需要以下环境变量，请补充完整后继续。
+                        {t('envVarModal.description')}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 mt-2">
@@ -47,7 +49,7 @@ const EnvVarInputModal: React.FC<EnvVarInputModalProps> = ({ open, missingVars, 
                                 type="text"
                                 value={envValues[varName] || ''}
                                 onChange={(e) => handleChange(varName, e.target.value)}
-                                placeholder={`请输入 ${varName}`}
+                                placeholder={t('envVarModal.placeholder', { varName })}
                                 autoFocus={missingVars[0] === varName}
                             />
                         </div>
@@ -55,8 +57,8 @@ const EnvVarInputModal: React.FC<EnvVarInputModalProps> = ({ open, missingVars, 
                     {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
                 </div>
                 <DialogFooter className="mt-4">
-                    <Button variant="outline" onClick={onCancel} type="button">取消</Button>
-                    <Button onClick={handleSubmit} type="button">确认</Button>
+                    <Button variant="outline" onClick={onCancel} type="button">{t('envVarModal.cancel')}</Button>
+                    <Button onClick={handleSubmit} type="button">{t('envVarModal.confirm')}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
