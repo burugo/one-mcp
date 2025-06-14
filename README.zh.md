@@ -28,7 +28,7 @@
 One MCP 是一个全面的模型上下文协议 (MCP) 服务管理平台。作为集中式代理，它让您可以从各种提供商发现、安装、配置和监控 MCP 服务。使用 Go 和 React 构建，提供强大的后端功能和直观的 Web 界面。
 
 <!-- 截图占位符 - 仪表板/主界面 -->
-*[主仪表板截图将在此处插入]*
+![Screenshot](./images/dashboard.png)
 
 ## 功能特性
 
@@ -65,7 +65,7 @@ One MCP 是一个全面的模型上下文协议 (MCP) 服务管理平台。作�
 - **Docker 就绪**：完整的 Docker 支持，便于部署
 
 <!-- 截图占位符 - 服务管理界面 -->
-*[服务管理界面截图将在此处插入]*
+![Screenshot](./images/services.png)
 
 ## 快速开始
 
@@ -127,8 +127,12 @@ cp .env_example .env
 PORT=3000
 
 # 数据库（可选，默认使用 SQLite）
-SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
-
+# SQLite(default)
+# SQLITE_PATH=/data/one-mcp.db
+# MySQL:
+# SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
+# PostgreSQL:
+# SQL_DSN=postgres://username:password@localhost/database_name?sslmode=disable
 # Redis（可选，用于速率限制）
 REDIS_CONN_STRING=redis://localhost:6379
 
