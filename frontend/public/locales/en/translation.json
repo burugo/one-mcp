@@ -45,8 +45,8 @@
     "dashboard": {
         "title": "Dashboard",
         "welcome": "Welcome to One MCP",
-        "description": "Your multi-cloud platform management center",
-        "content": "Manage your MCP services, monitor performance, and configure your multi-cloud platform from a single interface.",
+        "description": "Your centralized proxy for Model Context Protocol (MCP) services",
+        "content": "Manage your MCP services, monitor performance, and configure them through a unified proxy interface.",
         "activeServices": "Active Services",
         "activeServicesDesc": "Number of enabled services",
         "todayRequests": "Today's Requests",

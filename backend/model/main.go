@@ -25,13 +25,9 @@ func createRootAccountIfNeed() error {
 	}
 	if len(users) == 0 {
 		common.SysLog("no user exists, create a root user for you: username is root, password is 123456")
-		hashedPassword, err := common.Password2Hash("123456")
-		if err != nil {
-			return err
-		}
 		rootUser := &User{
 			Username:    "root",
-			Password:    hashedPassword,
+			Password:    "123456", // 直接使用明文密码，让Insert方法来处理哈希
 			Role:        common.RoleRootUser,
 			Status:      common.UserStatusEnabled,
 			DisplayName: "Root User",
