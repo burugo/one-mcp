@@ -1,3 +1,7 @@
+<p align="right">
+    <strong>English</strong> | <a href="./README.zh.md">中文</a>
+</p>
+
 # One MCP
 
 <div align="center">
