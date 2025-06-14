@@ -2,9 +2,7 @@ package i18n
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -29,7 +27,7 @@ func Init(localesDir string) error {
 	}
 
 	// 读取所有语言文件
-	files, err := ioutil.ReadDir(localesDir)
+	files, err := os.ReadDir(localesDir)
 	if err != nil {
 		return err
 	}
@@ -43,7 +41,7 @@ func Init(localesDir string) error {
 		lang := file.Name()[:len(file.Name())-5]
 
 		// 读取语言文件
-		data, err := ioutil.ReadFile(filepath.Join(localesDir, file.Name()))
+		data, err := os.ReadFile(filepath.Join(localesDir, file.Name()))
 		if err != nil {
 			return err
 		}
@@ -105,19 +103,4 @@ func Translate(code string, lang string, args ...interface{}) string {
 	}
 
 	return template
-}
-
-// 创建一个带有国际化消息的错误
-func NewError(code string, lang string, args ...interface{}) error {
-	return errors.New(Translate(code, lang, args...))
-}
-
-// 工具函数: 从请求中获取用户首选语言
-func GetPreferredLanguage(acceptLanguage string) string {
-	// 简单实现: 仅支持en和zh
-	// 实际实现可能需要解析Accept-Language头，检查支持的语言等
-	if len(acceptLanguage) >= 2 && acceptLanguage[:2] == "zh" {
-		return "zh"
-	}
-	return DefaultLang
 }

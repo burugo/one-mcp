@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  one-mcp:
+    image: docker.io/buru2020/one-mcp:latest
+    container_name: one-mcp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      - JWT_SECRET=your-very-secret-key
+      - SQLITE_PATH=/data/one-mcp.db
+      # We are using the GitHub API to find out how many stars npm packages have. 
+      # get GITHUB_TOKEN from https://github.com/settings/tokens 
+      # - GITHUB_TOKEN=your-github-token 

@@ -211,7 +211,7 @@ func GetServiceMetrics(c *gin.Context) {
 	mcpService, err := model.GetServiceByID(serviceID)
 	if err != nil {
 		// Handle error, e.g., service not found
-		common.RespError(c, http.StatusNotFound, fmt.Sprintf("%s: %s", i18n.Translate("service_not_found", lang), serviceIDStr), err)
+		common.RespErrorStr(c, http.StatusNotFound, i18n.Translate("service_not_found", lang))
 		return
 	}
 

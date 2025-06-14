@@ -13,6 +13,7 @@ import (
 	"one-mcp/backend/api/middleware"
 	"one-mcp/backend/api/route"
 	"one-mcp/backend/common"
+	"one-mcp/backend/common/i18n"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 
@@ -56,6 +57,15 @@ func main() {
 			common.FatalLog(err)
 		}
 	}()
+
+	// Initialize i18n
+	err = i18n.Init("./backend/locales")
+	if err != nil {
+		common.SysError("Failed to initialize i18n: " + err.Error())
+		// Continue without i18n rather than failing completely
+	} else {
+		common.SysLog("i18n initialized successfully")
+	}
 
 	// Seed default services
 	// if err := model.SeedDefaultServices(); err != nil {
