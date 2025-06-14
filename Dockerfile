@@ -34,7 +34,7 @@ RUN apk update \
 
 # Default configuration - can be overridden at runtime
 ENV PORT=3000
-ENV SQLITE_PATH=/data/app.db
+ENV SQLITE_PATH=/data/one-mcp.db
 
 COPY --from=builder2 /build/one-mcp /
 EXPOSE 3000
