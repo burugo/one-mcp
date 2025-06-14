@@ -27,8 +27,7 @@
 
 One MCP is a comprehensive management platform for Model Context Protocol (MCP) services. Acting as a centralized proxy, it lets you discover, install, configure, and monitor MCP services from various providers. Built with Go and React, it offers both powerful backend capabilities and an intuitive web interface.
 
-<!-- Screenshot placeholder - Dashboard/Main Interface -->
-*[Screenshot of main dashboard will be inserted here]*
+![Screenshot](./images/dashboard.png)
 
 ## Features
 
@@ -64,8 +63,7 @@ One MCP is a comprehensive management platform for Model Context Protocol (MCP) 
 - **Redis Integration**: Optional Redis support for distributed caching and rate limiting
 - **Docker Ready**: Full Docker support for easy deployment
 
-<!-- Screenshot placeholder - Service Management Interface -->
-*[Screenshot of service management interface will be inserted here]*
+![Screenshot](./images/services.png)
 
 ## Quick Start
 
@@ -126,8 +124,13 @@ Key configuration options:
 # Server Configuration
 PORT=3000
 
-# Database (optional, defaults to SQLite)
-SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
+# Database (SQLite is default, MySQL and PostgreSQL are supported)
+# SQLite(default)
+# SQLITE_PATH=/data/one-mcp.db
+# MySQL:
+# SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
+# PostgreSQL:
+# SQL_DSN=postgres://username:password@localhost/database_name?sslmode=disable
 
 # Redis (optional, for rate limiting)
 REDIS_CONN_STRING=redis://localhost:6379
@@ -158,7 +161,7 @@ docker run -d \
 
 1. **Build the application**:
    ```bash
-   ./build.sh
+   ./deploy/build.sh
    ```
 
 2. **Run the server**:
