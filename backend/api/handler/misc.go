@@ -11,6 +11,12 @@ import (
 )
 
 func GetStatus(c *gin.Context) {
+	// Get current language from context (set by LangMiddleware)
+	lang := c.GetString("lang")
+	if lang == "" {
+		lang = "zh-CN" // Default language
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -30,6 +36,7 @@ func GetStatus(c *gin.Context) {
 			"server_address":     common.GetServerAddress(),
 			"turnstile_check":    common.GetTurnstileCheckEnabled(),
 			"turnstile_site_key": common.GetTurnstileSiteKey(),
+			"current_language":   lang,
 		},
 	})
 	return

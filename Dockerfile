@@ -32,6 +32,9 @@ RUN apk update \
     && apk add --no-cache ca-certificates tzdata nodejs npm \
     && update-ca-certificates 2>/dev/null || true
 
+# 创建 /data 目录
+RUN mkdir -p /data
+
 # Default configuration - can be overridden at runtime
 ENV PORT=3000
 ENV SQLITE_PATH=/data/one-mcp.db
