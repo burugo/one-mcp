@@ -1,98 +1,295 @@
 <p align="right">
-    <a href="./README.md">中文</a> | <strong>English</strong>
+    <a href="./README.md">English</a> | <strong>中文</strong>
 </p>
 
-<p align="center">
-  <a href="https://github.com/songquanpeng/gin-template"><img src="https://raw.githubusercontent.com/songquanpeng/gin-template/main/web/public/logo.png" width="150" height="150" alt="gin-template logo"></a>
-</p>
+# One MCP
 
 <div align="center">
 
-# Gin Template
+**One MCP** - 模型上下文协议 (MCP) 服务的集中式代理
 
-_✨ Template for Gin & React projects ✨_
+*✨ 从单一界面管理、监控和配置您的 MCP 服务 ✨*
 
 </div>
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/songquanpeng/gin-template/main/LICENSE">
-    <img src="https://img.shields.io/github/license/songquanpeng/gin-template?color=brightgreen" alt="license">
-  </a>
-  <a href="https://github.com/songquanpeng/gin-template/releases/latest">
-    <img src="https://img.shields.io/github/v/release/songquanpeng/gin-template?color=brightgreen&include_prereleases" alt="release">
-  </a>
-  <a href="https://hub.docker.com/repository/docker/justsong/gin-template">
-    <img src="https://img.shields.io/docker/pulls/justsong/gin-template?color=brightgreen" alt="docker pull">
-  </a>
-  <a href="https://github.com/songquanpeng/gin-template/releases/latest">
-    <img src="https://img.shields.io/github/downloads/songquanpeng/gin-template/total?color=brightgreen&include_prereleases" alt="release">
-  </a>
-  <a href="https://goreportcard.com/report/github.com/songquanpeng/go-file">
-    <img src="https://goreportcard.com/badge/github.com/songquanpeng/gin-template" alt="GoReportCard">
-  </a>
+  <a href="#功能特性">功能特性</a> •
+  <a href="#快速开始">快速开始</a> •
+  <a href="#安装部署">安装部署</a> •
+  <a href="#配置说明">配置说明</a> •
+  <a href="#开发指南">开发指南</a> •
+  <a href="#贡献代码">贡献代码</a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/songquanpeng/gin-template/releases">Download</a>
-  ·
-  <a href="https://github.com/songquanpeng/gin-template/blob/main/README.en.md#deployment">Tutorial</a>
-  ·
-  <a href="https://github.com/songquanpeng/gin-template/issues">Feedback</a>
-  ·
-  <a href="https://gin-template.vercel.app/">Demo</a>
-</p>
+---
 
-## Features
-+ [x] Built-in user management.
-+ [x] Built-in file management.
-+ [x] [GitHub OAuth](https://github.com/settings/applications/new).
-+ [x] WeChat official account authorization (need [wechat-server](https://github.com/songquanpeng/wechat-server)).
-+ [x] Email verification & password reset.
-+ [x] Request rate limiting.
-+ [x] Static files caching.
-+ [x] Mobile friendly UI.
-+ [x] Token based authorization.
-+ [x] Use GitHub Actions to build releases & Docker images.
-+ [x] Cloudflare Turnstile user validation.
+## 概述
 
-## Deployment
-### Manual deployment
-1. Download built binary from [GitHub Releases](https://github.com/songquanpeng/gin-template/releases/latest) or build from source:
-   ```shell
-   git clone https://github.com/songquanpeng/gin-template.git
-   go mod download
-   go build -ldflags "-s -w" -o gin-template
-   ````
-2. Run it:
-   ```shell
-   chmod u+x gin-template
-   ./gin-template --port 3000 --log-dir ./logs
+One MCP 是一个全面的模型上下文协议 (MCP) 服务管理平台。作为集中式代理，它让您可以从各种提供商发现、安装、配置和监控 MCP 服务。使用 Go 和 React 构建，提供强大的后端功能和直观的 Web 界面。
+
+<!-- 截图占位符 - 仪表板/主界面 -->
+*[主仪表板截图将在此处插入]*
+
+## 功能特性
+
+### 🚀 **服务管理**
+- **安装与配置**：从市场或自定义源部署 MCP 服务
+- **多种服务类型**：支持 stdio、服务器发送事件 (SSE) 和可流式 HTTP 服务
+- **环境管理**：安全处理服务环境变量和配置
+- **健康监控**：实时服务健康检查和状态监控
+
+### 🛒 **服务市场**
+- **发现服务**：浏览和搜索来自各种仓库的 MCP 服务
+- **一键安装**：简单的安装过程，自动解决依赖关系
+- **自定义服务**：创建和部署具有灵活配置选项的自定义 MCP 服务
+
+### 📊 **分析与监控**
+- **使用统计**：跟踪服务利用率和性能指标
+- **请求分析**：监控 API 请求、响应时间和错误率
+- **系统健康**：全面的系统状态和正常运行时间监控
+
+### 👥 **用户管理**
+- **多用户支持**：基于角色的访问控制，支持管理员和用户角色
+- **OAuth 集成**：支持 GitHub 和 Google 账户登录
+- **安全认证**：基于令牌的认证，支持刷新令牌
+
+### 🌐 **国际化**
+- **多语言支持**：英语和中文（简体）界面
+- **本地化内容**：完全翻译的用户界面和错误消息
+- **语言持久化**：跨会话保存用户语言偏好
+
+### ⚙️ **高级配置**
+- **环境变量**：灵活的配置管理
+- **数据库支持**：SQLite（默认），支持 MySQL/PostgreSQL
+- **Redis 集成**：可选的 Redis 支持，用于分布式缓存和速率限制
+- **Docker 就绪**：完整的 Docker 支持，便于部署
+
+<!-- 截图占位符 - 服务管理界面 -->
+*[服务管理界面截图将在此处插入]*
+
+## 快速开始
+
+### 使用 Docker（推荐）
+
+```bash
+# 使用 Docker 运行
+docker run --name one-mcp -d \
+  --restart always \
+  -p 3000:3000 \
+  -v $(pwd)/data:/data \
+  buru2020/one-mcp:latest
+
+# 访问应用程序
+open http://localhost:3000
+```
+
+### 手动安装
+
+```bash
+# 克隆仓库
+git clone https://github.com/burugo/one-mcp.git
+cd one-mcp
+
+# 设置环境
+cp .env_example .env
+
+# 安装依赖并构建
+go mod tidy
+cd frontend && npm install && npm run build && cd ..
+
+# 运行应用程序
+go run main.go
+```
+
+**默认登录**：用户名 `root`，密码 `123456`
+
+## 安装部署
+
+### 前置要求
+
+- **Go**：版本 1.19 或更高
+- **Node.js**：版本 16 或更高  
+- **数据库**：SQLite（默认）、MySQL 或 PostgreSQL
+- **Redis**：可选，用于分布式缓存
+
+### 环境配置
+
+从模板创建 `.env` 文件：
+
+```bash
+cp .env_example .env
+```
+
+主要配置选项：
+
+```bash
+# 服务器配置
+PORT=3000
+
+# 数据库（可选，默认使用 SQLite）
+SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
+
+# Redis（可选，用于速率限制）
+REDIS_CONN_STRING=redis://localhost:6379
+
+# GitHub API（可选，用于速率限制）
+GITHUB_TOKEN=your-github-token
+```
+
+### Docker 部署
+
+```bash
+# 构建 Docker 镜像
+docker build -t one-mcp .
+
+# 使用 docker-compose 运行（推荐）
+docker-compose up -d
+
+# 或直接运行
+docker run -d \
+  --name one-mcp \
+  -p 3000:3000 \
+  -v ./data:/data \
+  -e PORT=3000 \
+  one-mcp
+```
+
+### 手动部署
+
+1. **构建应用程序**：
+   ```bash
+   ./deploy/build.sh
    ```
-3. Visit [http://localhost:3000/](http://localhost:3000/) and login. The username for the initial account is `root` and the password is `123456`.
 
-### Deploy with Docker
-Execute: `docker run -d --restart always -p 3000:3000 -v /home/ubuntu/data/gin-template:/data -v /etc/ssl/certs:/etc/ssl/certs:ro justsong/gin-template`
+2. **运行服务器**：
+   ```bash
+   ./one-mcp --port 3000
+   ```
 
-Data will be saved in `/home/ubuntu/data/gin-template`.
+3. **访问应用程序**：
+   在浏览器中打开 http://localhost:3000
 
-## Configurations
-The system works out of the box.
+## 配置说明
 
-You can configure the system by set environment variables or specify command line arguments.
+### OAuth 设置
 
-After the system starts, use `root` user to log in to the system and do further configuration.
+#### GitHub OAuth
+1. 在 https://github.com/settings/applications/new 创建 GitHub OAuth 应用
+2. 设置主页 URL：`http://your-domain.com`
+3. 设置授权回调 URL：`http://your-domain.com/oauth/github`
+4. 在应用程序首选项中配置
 
-### Environment Variables
-1. `REDIS_CONN_STRING`: when set, Redis will be used as the storage for request rate limitation instead of memory storage.
-   + Example: `REDIS_CONN_STRING=redis://default:redispw@localhost:49153`
-2. `SESSION_SECRET`: when set, a fixed session key will be used so that the logged-in users' cookie remains valid across system reboots.
-   + Example: `SESSION_SECRET=random_string`
-3. `SQL_DSN`: when set, the target SQL database will be used instead of SQLite.
-   + Example: `SQL_DSN=root:123456@tcp(localhost:3306)/gin-template`
+#### Google OAuth
+1. 在 https://console.developers.google.com/ 创建凭据
+2. 设置授权的 JavaScript 来源：`http://your-domain.com`
+3. 设置授权的重定向 URI：`http://your-domain.com/oauth/google`
+4. 在应用程序首选项中配置
 
-### Command line Arguments
-1. `--port <port_number>`: specify the port number, the default value is `3000`.
-   + Example: `--port 3000`
-2. `--log-dir <log_dir>`: specify the log dir, if not set, the log won't be saved.
-   + Example: `--log-dir ./logs`
-3. `--version`: print the version and exit.
+### 数据库配置
+
+#### SQLite（默认）
+无需额外配置。数据库文件在 `./data/one-mcp.db` 创建。
+
+#### MySQL
+```bash
+SQL_DSN=username:password@tcp(localhost:3306)/database_name
+```
+
+#### PostgreSQL
+```bash
+SQL_DSN=postgres://username:password@localhost/database_name?sslmode=disable
+```
+
+## API 文档
+
+应用程序为所有功能提供 RESTful API：
+
+- **基础 URL**：`http://localhost:3000/api`
+- **认证**：Bearer 令牌（通过登录获取）
+- **内容类型**：`application/json`
+
+### 主要端点
+
+- `POST /api/auth/login` - 用户认证
+- `GET /api/services` - 列出已安装的服务
+- `POST /api/services` - 安装新服务
+- `GET /api/market/search` - 搜索市场
+- `GET /api/analytics/usage` - 使用统计
+
+## 开发指南
+
+### 开发环境
+
+```bash
+# 启动开发服务器
+./run.sh
+
+# 这将启动：
+# - 后端服务器在 :3000
+# - 前端开发服务器在 :5173（支持热重载）
+```
+
+### 项目结构
+
+```
+one-mcp/
+├── backend/         # Go 后端代码
+├── frontend/        # React 前端代码  
+├── data/           # 数据库和上传文件
+├── main.go         # 应用程序入口点
+├── deploy/         # 部署脚本
+│   ├── build.sh        # 生产构建脚本
+│   ├── local-deploy.sh # 本地部署脚本
+│   └── push-to-dockerhub.sh # Docker Hub 推送脚本
+└── run.sh          # 开发脚本
+```
+
+### 测试
+
+```bash
+# 前端测试
+cd frontend && npm test
+
+# 后端测试
+go test ./...
+```
+
+详细的开发说明请参见 [DEVELOPMENT.md](./DEVELOPMENT.md)。
+
+## 贡献代码
+
+我们欢迎贡献！请参见我们的贡献指南：
+
+1. **Fork** 仓库
+2. **创建** 功能分支 (`git checkout -b feature/amazing-feature`)
+3. **提交** 更改 (`git commit -m 'Add amazing feature'`)
+4. **推送** 到分支 (`git push origin feature/amazing-feature`)
+5. **打开** Pull Request
+
+### 开发指南
+
+- 遵循 Go 和 TypeScript 最佳实践
+- 为新功能添加测试
+- 根据需要更新文档
+- 确保所有测试在提交前通过
+
+## 路线图
+
+## 支持
+
+- **文档**：[Wiki](https://github.com/burugo/one-mcp/wiki)
+- **问题反馈**：[GitHub Issues](https://github.com/burugo/one-mcp/issues)
+
+## 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
+
+---
+
+<div align="center">
+
+如果您觉得这个项目有帮助，请 **[⭐ 给项目点星](https://github.com/burugo/one-mcp)**！
+
+由 One MCP 团队用 ❤️ 制作
+
+</div>
