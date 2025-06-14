@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"one-mcp/backend/api/middleware"
@@ -79,27 +78,7 @@ func main() {
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.CORS())
 
-	// Initialize session store
-	// if common.RedisEnabled {
-	// 	opt := common.ParseRedisOption()
-	// 	store, _ := redis.NewStore(opt.MinIdleConns, opt.Network, opt.Addr, opt.Password, common.SessionSecret)
-	// 	server.Use(sessions.Sessions("session", store))
-	// } else {
-	// 	store := cookie.NewStore([]byte(common.SessionSecret))
-	// 	server.Use(sessions.Sessions("session", store))
-	// }
-
 	route.SetRouter(server, buildFS, indexPage)
-	server.NoRoute(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			c.JSON(404, gin.H{
-				"success": false,
-				"message": "API route not found",
-			})
-		} else {
-			c.File("./frontend/dist/index.html")
-		}
-	})
 
 	port := strconv.Itoa(*common.Port)
 	common.SysLog("Server listening on port: " + port)

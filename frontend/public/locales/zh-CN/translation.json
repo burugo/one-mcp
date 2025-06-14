@@ -45,8 +45,8 @@
     "dashboard": {
         "title": "仪表盘",
         "welcome": "欢迎使用 One MCP",
-        "description": "您的多云平台管理中心",
-        "content": "通过统一界面管理您的 MCP 服务，监控性能并配置多云平台。",
+        "description": "您的 MCP（模型上下文协议）服务集中代理",
+        "content": "通过统一代理界面管理 MCP 服务并监控其性能。",
         "activeServices": "启用服务",
         "activeServicesDesc": "已启用的服务数量",
         "todayRequests": "今日请求",

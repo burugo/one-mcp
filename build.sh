@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# 使用环境变量PORT或默认3000端口
 export PORT=${PORT:-3000}
 echo "Using port: $PORT"
 

@@ -1,105 +1,211 @@
-# One MCP 开发指南
+# One MCP Development Guide
 
-本文档介绍如何设置和运行 One MCP 开发环境。
+This document describes how to set up and run the One MCP development environment.
 
-## 项目结构
+## Project Structure
 
 ```
 one-mcp/
-├── backend/         # Go后端代码
-├── frontend/        # React前端代码
-├── tests/           # 测试文件
-├── main.go          # 程序入口点
-├── build.sh         # 构建脚本
-└── dev.sh           # 开发环境启动脚本
+├── backend/         # Go backend code
+│   ├── api/         # API handlers and routes
+│   ├── common/      # Common utilities and helpers
+│   ├── config/      # Configuration management
+│   ├── data/        # Data access layer
+│   ├── library/     # Third-party library integrations
+│   ├── model/       # Data models and database schemas
+│   └── service/     # Business logic services
+├── frontend/        # React frontend code
+│   ├── src/         # Frontend source code
+│   ├── public/      # Static assets and localization files
+│   └── dist/        # Built frontend files (generated)
+├── data/            # Database and persistent data
+├── upload/          # File upload storage
+├── locales/         # Internationalization files
+├── doc/             # Documentation
+├── config/          # Configuration files
+├── main.go          # Program entry point
+├── build.sh         # Production build script
+├── run.sh           # Development environment startup script
+└── .env_example     # Environment variables template
 ```
 
-## 开发环境设置
+## Development Environment Setup
 
-### 安装依赖
+### Prerequisites
 
-1. 安装Go依赖：
+- Go 1.19 or later
+- Node.js 16 or later
+- Redis (optional, for rate limiting)
+
+### Install Dependencies
+
+1. Install Go dependencies:
 ```bash
 go mod tidy
 ```
 
-2. 安装前端依赖：
+2. Install frontend dependencies:
 ```bash
 cd frontend
 npm install
 cd ..
 ```
 
-### 运行开发环境
+### Environment Configuration
 
-使用开发脚本同时启动前端和后端服务器：
-
+1. Copy the environment template:
 ```bash
-# 使用默认3000端口
-./dev.sh
-
-# 或指定自定义端口
-PORT=8080 ./dev.sh
+cp .env_example .env
 ```
 
-- 后端服务器将在 http://localhost:$PORT 上运行（默认为3000）
-- 前端开发服务器将在另一个端口上运行（通常是5173，请查看控制台输出）
-- 前端开发服务器会自动将API请求代理到后端（使用相同的PORT环境变量）
+2. Edit `.env` file with your configuration:
+```bash
+# Server configuration
+PORT=3000
 
-### 构建生产版本
+# Database configuration (optional, defaults to SQLite)
+# SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
 
-要构建生产版本并运行服务器：
+# Redis configuration (optional, for rate limiting)
+# REDIS_CONN_STRING=redis://localhost:6379
+
+# Github Token (optional, for calling github api rate limiting)
+# GITHUB_TOKEN=your-github-token
+```
+
+### Run Development Environment
+
+Use the development script to start both frontend and backend servers simultaneously:
 
 ```bash
-# 使用默认3000端口
+# Use default port 3000
+./run.sh
+
+# Or specify a custom port
+PORT=8080 ./run.sh
+```
+
+This will:
+- Build and start the backend server on http://localhost:$PORT (default 3000)
+- Start the frontend development server on http://localhost:5173
+- Automatically proxy API requests from frontend to backend
+- Set up hot reloading for both frontend and backend changes
+- Create necessary database tables on first run
+
+The script will:
+- Load environment variables from `.env` file
+- Clean up any existing processes on the specified ports
+- Build the Go backend and start it in the background
+- Start the Vite development server for the frontend
+- Handle graceful shutdown when you press Ctrl+C
+
+### Build Production Version
+
+To build the production version:
+
+```bash
+# Use default port 3000
 ./build.sh
 
-# 或指定自定义端口
+# Or specify a custom port
 PORT=8080 ./build.sh
 ```
 
-这将：
-1. 构建前端代码并输出到 `frontend/dist` 目录
-2. 启动后端服务器，后端服务器将提供编译好的前端资源
+This will:
+1. Build the frontend code and output to `frontend/dist` directory
+2. Start the backend server which serves the compiled frontend resources
 
-服务器将在 http://localhost:$PORT 上运行（默认为3000）。
+The server will run on http://localhost:$PORT (default 3000).
 
-## API 访问
+## API Access
 
-所有API端点都以 `/api/` 开头，并由后端处理。在开发模式下，Vite开发服务器会自动将这些请求代理到后端服务器。
+All API endpoints are prefixed with `/api/` and handled by the backend. In development mode, the Vite development server automatically proxies these requests to the backend server.
 
-### API使用
 
-前端代码应使用我们提供的API工具函数访问后端API：
+### API Authentication
 
-```typescript
-// 导入API工具
-import api from '@/utils/api';
+The API uses token-based authentication:
+- Login endpoints: `/api/auth/login`, `/api/oauth/github`, `/api/oauth/google`
+- Protected endpoints require `Authorization: Bearer <token>` header
+- The frontend API utility automatically handles token management
 
-// 使用API
-async function fetchData() {
-  try {
-    const response = await api.get('/endpoint');
-    // response已经自动提取data部分
-    console.log(response);
-  } catch (error) {
-    // 错误已在api.ts中得到统一处理
-    console.error('Could not fetch data');
-  }
-}
+## Database
+
+The application uses SQLite by default, with the database file stored in `./data/one-mcp.db`.
+
+### Database Initialization
+
+On first startup, the application will:
+- Create the database file if it doesn't exist
+- Run database migrations to create necessary tables
+- Create a default root user (username: `root`, password: `123456`)
+
+### Using External Database
+
+You can configure an external database by setting the `SQL_DSN` environment variable:
+
+```bash
+# MySQL example
+SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
+
+# PostgreSQL example  
+SQL_DSN=postgres://user:password@localhost/one_mcp?sslmode=disable
 ```
 
-## 端口配置
+## Port Configuration
 
-项目中的前端和后端端口配置是同步的：
+The project synchronizes frontend and backend port configuration:
 
-- 默认使用`3000`端口
-- 可以通过环境变量`PORT`来更改
-- 前端开发服务器在开发模式下会使用一个不同的端口运行（如5173），但会自动将API请求代理到后端的PORT端口
-- 生产模式下，前端和后端共用相同端口，前端资源被嵌入到后端二进制文件中
+- Default port is `3000`
+- Can be changed via the `PORT` environment variable
+- In development mode:
+  - Frontend dev server runs on port `5173`
+  - Backend runs on the specified `PORT`
+  - API requests are automatically proxied from frontend to backend
+- In production mode:
+  - Frontend and backend share the same port
+  - Frontend assets are embedded in the backend binary
 
-## 注意事项
+## Development Workflow
 
-- 构建过程中使用了Go的嵌入功能将前端文件嵌入到后端二进制文件中
-- `frontend/dist` 目录中的文件在每次构建时都会被重新创建
-- API请求将自动代理到后端服务器，无需手动配置CORS 
+### Making Changes
+
+1. **Backend changes**: The `run.sh` script will automatically rebuild and restart the backend when you make changes
+2. **Frontend changes**: Vite provides hot module replacement for instant updates
+3. **Database changes**: Modify models in `backend/model/` and restart the application
+
+### Testing
+
+Run tests for different components:
+
+```bash
+# Frontend tests
+cd frontend
+npm test
+
+# Backend tests (if available)
+go test ./...
+```
+
+### Logs and Debugging
+
+- Backend logs are written to `backend.log`
+- View real-time logs: `tail -f backend.log`
+- Filter error logs: `grep "ERROR\|WARN\|Failed" backend.log`
+
+## Internationalization (i18n)
+
+The frontend supports multiple languages using react-i18next:
+
+- Translation files are located in `frontend/public/locales/{language}/translation.json`
+- Supported languages: English (`en`) and Chinese Simplified (`zh-CN`)
+- Language preference is stored in localStorage
+- Backend API responses include localized content based on `Accept-Language` header
+
+## Notes
+
+- The build process uses Go's embed functionality to embed frontend files into the backend binary
+- Files in the `frontend/dist` directory are recreated on each build
+- API requests are automatically proxied to the backend server, no manual CORS configuration needed
+- The application supports OAuth authentication with GitHub and Google (requires configuration)
+- Redis can be used for distributed rate limiting in production environments 

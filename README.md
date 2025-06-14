@@ -1,104 +1,289 @@
-<p align="right">
-   <strong>中文</strong> | <a href="./README.en.md">English</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/songquanpeng/gin-template"><img src="https://raw.githubusercontent.com/songquanpeng/gin-template/main/web/public/logo.png" width="150" height="150" alt="gin-template logo"></a>
-</p>
+# One MCP
 
 <div align="center">
 
-# Gin 项目模板
+**One MCP** - A centralized proxy for Model Context Protocol (MCP) services
 
-_✨ 用于 Gin & React 项目的模板 ✨_
+*✨ Manage, monitor, and configure your MCP services from a single interface ✨*
 
 </div>
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/songquanpeng/gin-template/main/LICENSE">
-    <img src="https://img.shields.io/github/license/songquanpeng/gin-template?color=brightgreen" alt="license">
-  </a>
-  <a href="https://github.com/songquanpeng/gin-template/releases/latest">
-    <img src="https://img.shields.io/github/v/release/songquanpeng/gin-template?color=brightgreen&include_prereleases" alt="release">
-  </a>
-  <a href="https://hub.docker.com/repository/docker/justsong/gin-template">
-    <img src="https://img.shields.io/docker/pulls/justsong/gin-template?color=brightgreen" alt="docker pull">
-  </a>
-  <a href="https://github.com/songquanpeng/gin-template/releases/latest">
-    <img src="https://img.shields.io/github/downloads/songquanpeng/gin-template/total?color=brightgreen&include_prereleases" alt="release">
-  </a>
-  <a href="https://goreportcard.com/report/github.com/songquanpeng/gin-template">
-    <img src="https://goreportcard.com/badge/github.com/songquanpeng/gin-template" alt="GoReportCard">
-  </a>
+  <a href="#features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#development">Development</a> •
+  <a href="#contributing">Contributing</a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/songquanpeng/gin-template/releases">程序下载</a>
-  ·
-  <a href="https://github.com/songquanpeng/gin-template#部署">部署教程</a>
-  ·
-  <a href="https://github.com/songquanpeng/gin-template/issues">意见反馈</a>
-  ·
-  <a href="https://gin-template.vercel.app/">在线演示</a>
-</p>
+---
 
-## 功能
-+ [x] 内置用户管理
-+ [x] 内置文件管理
-+ [x] [GitHub 开放授权](https://github.com/settings/applications/new)
-+ [x] 微信公众号授权（需要 [wechat-server](https://github.com/songquanpeng/wechat-server)）
-+ [x] 邮箱验证以及通过邮件进行密码重置
-+ [x] 请求频率限制
-+ [x] 静态文件缓存
-+ [x] 移动端适配
-+ [x] 基于令牌的鉴权
-+ [x] 使用 GitHub Actions 自动打包可执行文件与 Docker 镜像
-+ [x] Cloudflare Turnstile 用户校验
+## Overview
 
-## 部署
-### 基于 Docker 进行部署
-执行：`docker run --name gin-template -d --restart always -p 3000:3000 -v /home/ubuntu/data/gin-template:/data justsong/gin-template`
+One MCP is a comprehensive management platform for Model Context Protocol (MCP) services. Acting as a centralized proxy, it lets you discover, install, configure, and monitor MCP services from various providers. Built with Go and React, it offers both powerful backend capabilities and an intuitive web interface.
 
-数据将会保存在宿主机的 `/home/ubuntu/data/gin-template` 目录。
+<!-- Screenshot placeholder - Dashboard/Main Interface -->
+*[Screenshot of main dashboard will be inserted here]*
 
-### 手动部署
-1. 从 [GitHub Releases](https://github.com/songquanpeng/gin-template/releases/latest) 下载可执行文件或者从源码编译：
-   ```shell
-   git clone https://github.com/songquanpeng/gin-template.git
-   cd gin-template/web
-   npm install
-   npm run build
-   cd ..
-   go mod download
-   go build -ldflags "-s -w" -o gin-template
-   ````
-2. 运行：
-   ```shell
-   chmod u+x gin-template
-   ./gin-template --port 3000 --log-dir ./logs
+## Features
+
+### 🚀 **Service Management**
+- **Install & Configure**: Deploy MCP services from marketplace or custom sources
+- **Multiple Service Types**: Support for stdio, Server-Sent Events (SSE), and streamable HTTP services
+- **Environment Management**: Secure handling of service environment variables and configurations
+- **Health Monitoring**: Real-time service health checks and status monitoring
+
+### 🛒 **Service Marketplace**
+- **Discover Services**: Browse and search MCP services from various repositories
+- **One-Click Installation**: Simple installation process with automatic dependency resolution
+- **Custom Services**: Create and deploy custom MCP services with flexible configuration options
+
+### 📊 **Analytics & Monitoring**
+- **Usage Statistics**: Track service utilization and performance metrics
+- **Request Analytics**: Monitor API requests, response times, and error rates
+- **System Health**: Comprehensive system status and uptime monitoring
+
+### 👥 **User Management**
+- **Multi-User Support**: Role-based access control with admin and user roles
+- **OAuth Integration**: Login with GitHub and Google accounts
+- **Secure Authentication**: Token-based authentication with refresh token support
+
+### 🌐 **Internationalization**
+- **Multi-Language Support**: English and Chinese (Simplified) interface
+- **Localized Content**: Fully translated user interface and error messages
+- **Language Persistence**: User language preferences saved across sessions
+
+### ⚙️ **Advanced Configuration**
+- **Environment Variables**: Flexible configuration management
+- **Database Support**: SQLite (default) with MySQL/PostgreSQL support
+- **Redis Integration**: Optional Redis support for distributed caching and rate limiting
+- **Docker Ready**: Full Docker support for easy deployment
+
+<!-- Screenshot placeholder - Service Management Interface -->
+*[Screenshot of service management interface will be inserted here]*
+
+## Quick Start
+
+### Using Docker (Recommended)
+
+```bash
+# Run with Docker
+docker run --name one-mcp -d \
+  --restart always \
+  -p 3000:3000 \
+  -v $(pwd)/data:/data \
+  burugo/one-mcp:latest
+
+# Access the application
+open http://localhost:3000
+```
+
+### Manual Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/burugo/one-mcp.git
+cd one-mcp
+
+# Set up environment
+cp .env_example .env
+
+# Install dependencies and build
+go mod tidy
+cd frontend && npm install && npm run build && cd ..
+
+# Run the application
+go run main.go
+```
+
+**Default Login**: Username `root`, Password `123456`
+
+## Installation
+
+### Prerequisites
+
+- **Go**: Version 1.19 or later
+- **Node.js**: Version 16 or later  
+- **Database**: SQLite (default), MySQL, or PostgreSQL
+- **Redis**: Optional, for distributed caching
+
+### Environment Configuration
+
+Create a `.env` file from the template:
+
+```bash
+cp .env_example .env
+```
+
+Key configuration options:
+
+```bash
+# Server Configuration
+PORT=3000
+
+# Database (optional, defaults to SQLite)
+SQL_DSN=root:password@tcp(localhost:3306)/one_mcp
+
+# Redis (optional, for rate limiting)
+REDIS_CONN_STRING=redis://localhost:6379
+
+# GitHub API (optional, for rate limiting)
+GITHUB_TOKEN=your-github-token
+```
+
+### Docker Deployment
+
+```bash
+# Build the Docker image
+docker build -t one-mcp .
+
+# Run with docker-compose (recommended)
+docker-compose up -d
+
+# Or run directly
+docker run -d \
+  --name one-mcp \
+  -p 3000:3000 \
+  -v ./data:/data \
+  -e PORT=3000 \
+  one-mcp
+```
+
+### Manual Deployment
+
+1. **Build the application**:
+   ```bash
+   ./build.sh
    ```
-3. 访问 [http://localhost:3000/](http://localhost:3000/) 并登录。初始账号用户名为 `root`，密码为 `123456`。
 
-更加详细的部署教程[参见此处](https://iamazing.cn/page/how-to-deploy-a-website)。
+2. **Run the server**:
+   ```bash
+   ./one-mcp --port 3000
+   ```
 
-## 配置
-系统本身开箱即用。
+3. **Access the application**:
+   Open http://localhost:3000 in your browser
 
-你可以通过设置环境变量或者命令行参数进行配置。
+## Configuration
 
-等到系统启动后，使用 `root` 用户登录系统并做进一步的配置。
+### OAuth Setup
 
-### 环境变量
-1. `REDIS_CONN_STRING`：设置之后将使用 Redis 作为请求频率限制的存储，而非使用内存存储。
-   + 例子：`REDIS_CONN_STRING=redis://default:redispw@localhost:49153`
-2. `SESSION_SECRET`：设置之后将使用固定的会话密钥，这样系统重新启动后已登录用户的 cookie 将依旧有效。
-   + 例子：`SESSION_SECRET=random_string`
-3. `SQL_DSN`：设置之后将使用指定数据库而非 SQLite。
-   + 例子：`SQL_DSN=root:123456@tcp(localhost:3306)/gin-template`
+#### GitHub OAuth
+1. Create a GitHub OAuth App at https://github.com/settings/applications/new
+2. Set Homepage URL: `http://your-domain.com`
+3. Set Authorization callback URL: `http://your-domain.com/oauth/github`
+4. Configure in the application preferences
 
-### 命令行参数
-1. `--port <port_number>`: 指定服务器监听的端口号，默认为 `3000`。
-   + 例子：`--port 3000`
-2. `--log-dir <log_dir>`: 指定日志文件夹，如果没有设置，日志将不会被保存。
-   + 例子：`--log-dir ./logs`
-3. `--version`: 打印系统版本号并退出。
+#### Google OAuth
+1. Create credentials at https://console.developers.google.com/
+2. Set Authorized JavaScript origins: `http://your-domain.com`
+3. Set Authorized redirect URIs: `http://your-domain.com/oauth/google`
+4. Configure in the application preferences
+
+### Database Configuration
+
+#### SQLite (Default)
+No additional configuration required. Database file is created at `./data/one-mcp.db`.
+
+#### MySQL
+```bash
+SQL_DSN=username:password@tcp(localhost:3306)/database_name
+```
+
+#### PostgreSQL
+```bash
+SQL_DSN=postgres://username:password@localhost/database_name?sslmode=disable
+```
+
+## API Documentation
+
+The application provides RESTful APIs for all functionality:
+
+- **Base URL**: `http://localhost:3000/api`
+- **Authentication**: Bearer token (obtained via login)
+- **Content-Type**: `application/json`
+
+### Key Endpoints
+
+- `POST /api/auth/login` - User authentication
+- `GET /api/services` - List installed services
+- `POST /api/services` - Install new service
+- `GET /api/market/search` - Search marketplace
+- `GET /api/analytics/usage` - Usage statistics
+
+## Development
+
+### Development Environment
+
+```bash
+# Start development servers
+./run.sh
+
+# This will start:
+# - Backend server on :3000
+# - Frontend dev server on :5173 (with hot reload)
+```
+
+### Project Structure
+
+```
+one-mcp/
+├── backend/         # Go backend code
+├── frontend/        # React frontend code  
+├── data/           # Database and uploads
+├── main.go         # Application entry point
+├── build.sh        # Production build script
+└── run.sh          # Development script
+```
+
+### Testing
+
+```bash
+# Frontend tests
+cd frontend && npm test
+
+# Backend tests
+go test ./...
+```
+
+For detailed development instructions, see [DEVELOPMENT.md](./DEVELOPMENT.md).
+
+## Contributing
+
+We welcome contributions! Please see our contributing guidelines:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+### Development Guidelines
+
+- Follow Go and TypeScript best practices
+- Add tests for new functionality
+- Update documentation as needed
+- Ensure all tests pass before submitting
+
+## Roadmap
+
+
+## Support
+
+- **Documentation**: [Wiki](https://github.com/burugo/one-mcp/wiki)
+- **Issues**: [GitHub Issues](https://github.com/burugo/one-mcp/issues)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+**[⭐ Star this project](https://github.com/burugo/one-mcp)** if you find it helpful!
+
+Made with ❤️ by the One MCP team
+
+</div>
