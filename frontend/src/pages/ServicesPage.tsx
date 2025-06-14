@@ -361,7 +361,7 @@ export function ServicesPage() {
                 <CardContent className="flex-grow">
                     <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{service.description}</p>
                     {/* RPD Limit and Usage Display */}
-                    {service.rpd_limit && service.rpd_limit > 0 && (
+                    {service.rpd_limit !== undefined && service.rpd_limit !== null && service.rpd_limit > 0 && (
                         <div className="mt-2 pt-2 border-t border-border/50">
                             <div className="flex items-center justify-between text-xs">
                                 <span className="text-muted-foreground">{t('services.dailyRequests')}:</span>

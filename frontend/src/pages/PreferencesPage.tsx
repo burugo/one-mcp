@@ -67,6 +67,7 @@ export function PreferencesPage() {
         if (res.success) {
             setMessage(t('preferences.messages.saveSuccess'));
             setServerAddress(clean); // 立即同步到全局
+            sessionStorage.setItem('server_address', clean); // 同步更新缓存
         } else {
             setMessage(res.message || t('preferences.messages.saveFailed'));
         }
