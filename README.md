@@ -73,7 +73,7 @@ docker run --name one-mcp -d \
   --restart always \
   -p 3000:3000 \
   -v $(pwd)/data:/data \
-  burugo/one-mcp:latest
+  buru2020/one-mcp:latest
 
 # Access the application
 open http://localhost:3000
