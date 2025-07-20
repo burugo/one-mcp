@@ -211,13 +211,15 @@ func TestInstallNPMPackage(t *testing.T) {
 
 	// 测试安装一个简单的npm包
 	packageName := "chalk"
-	version := "4.1.2" // 指定一个特定版本以确保测试一致性
-	workDir := ""      // 使用默认工作目录
+	version := "4.1.2"     // 指定一个特定版本以确保测试一致性
+	command := "npx"       // 默认命令
+	args := []string{"-y"} // 默认参数
+	workDir := ""          // 使用默认工作目录
 	envVars := map[string]string{
 		"TEST_ENV_VAR": "test_value",
 	}
 
-	serverInfo, err := InstallNPMPackage(ctx, packageName, version, workDir, envVars)
+	serverInfo, err := InstallNPMPackage(ctx, packageName, version, command, args, workDir, envVars)
 	if err != nil {
 		t.Fatalf("Failed to install npm package: %v", err)
 	}

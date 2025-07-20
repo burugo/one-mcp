@@ -114,16 +114,21 @@ func SetApiRouter(route *gin.Engine) {
 			marketRoute.GET("/package_details", handler.GetPackageDetails)
 			marketRoute.GET("/install_status/:id", handler.GetInstallationStatus)
 			marketRoute.PATCH("/env_var", handler.PatchEnvVar)
-			marketRoute.POST("/custom_service", handler.CreateCustomService)
 
 			// Admin-only endpoints
 			adminMarketRoute := marketRoute.Group("/")
 			adminMarketRoute.Use(middleware.AdminAuth()) // JWTAuth already applied by parent group
 			{
 				adminMarketRoute.POST("/install_or_add_service", handler.InstallOrAddService)
+				adminMarketRoute.POST("/batch-import", handler.StartBatchImport)
 				adminMarketRoute.POST("/uninstall", handler.UninstallService)
+				adminMarketRoute.POST("/custom_service", handler.CreateCustomService)
 			}
 		}
+
+		// SSE endpoint for batch import progress (no middleware, handles auth internally)
+		// This must be outside the marketRoute group to avoid JWTAuth middleware
+		apiRouter.GET("/mcp_market/batch-import/progress/:task_id", handler.StreamBatchImportProgress)
 
 		// User Config routes
 		// configRoute := apiRouter.Group("/configs")

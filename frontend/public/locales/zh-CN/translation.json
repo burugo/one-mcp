@@ -42,6 +42,17 @@
         "refresh": "刷新",
         "uninstall": "卸载"
     },
+    "batchImport": {
+        "title": "批量导入服务",
+        "placeholder": "{\n  \"mcpServers\": {\n    \"my-stdio-service\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"some-package\"],\n      \"env\": {\"API_KEY\": \"your_key\"}\n    },\n    \"my-sse-service\": {\n      \"url\": \"http://example.com/events/sse\"\n    },\n    \"my-http-service\": {\n      \"url\": \"http://example.com/mcp?key=your_key\"\n    }\n  }\n}",
+        "import": "导入",
+        "importing": "导入中...",
+        "invalidJsonError": "JSON 格式无效，请检查您的输入。",
+        "processingServices": "正在处理服务...",
+        "importComplete": "导入完成",
+        "importSummary": "导入完成：{{success}} 个成功，{{skipped}} 个跳过，{{failed}} 个失败。",
+        "successMessage": "服务已成功导入，服务列表已刷新。"
+    },
     "dashboard": {
         "title": "仪表盘",
         "welcome": "欢迎使用 One MCP",
@@ -103,6 +114,7 @@
         "title": "MCP 服务",
         "description": "管理和配置您的多云平台服务",
         "addService": "添加服务",
+        "batchImport": "批量导入",
         "fromMarket": "从市场安装",
         "customInstall": "自定义安装",
         "noServicesFound": "未找到服务。",
@@ -128,7 +140,7 @@
         "dailyRequests": "每日请求",
         "requestsRemaining": "剩余请求",
         "confirmUninstall": "确认卸载",
-        "confirmUninstallDescription": "确定要卸载此服务吗？这将移除所有相关配置。",
+        "confirmUninstallDescription": "您确定要卸载此服务吗？这将删除所有相关配置。",
         "cancel": "取消"
     },
     "market": {

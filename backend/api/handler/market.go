@@ -13,14 +13,17 @@ import (
 	"one-mcp/backend/library/market"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
+	"one-mcp/backend/service"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"log"
 
 	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // sanitizeURLForDisplay removes sensitive query parameters and fragments from URL
@@ -463,6 +466,42 @@ func extractPackageNameWithoutVersion(packageNameWithVersion string) string {
 		return parts[0]
 	}
 }
+
+type CustomServiceReq struct {
+	Type    model.ServiceType `json:"type"`
+	Name    string            `json:"name"`
+	URL     string            `json:"url"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Envs    map[string]string `json:"envs"`
+	Headers map[string]string `json:"headers"`
+}
+
+type BatchImportTask struct {
+	ID          string
+	Status      string // e.g., "processing", "completed", "failed"
+	Progress    chan ProgressUpdate
+	CreatedAt   time.Time
+	ServiceData map[string]interface{}
+}
+
+type ProgressUpdate struct {
+	Name    string              `json:"name"`
+	Status  string              `json:"status"` // "success", "skipped", "failed", "done"
+	Message string              `json:"message"`
+	Summary *BatchImportSummary `json:"summary,omitempty"`
+}
+
+type BatchImportSummary struct {
+	Success int `json:"success"`
+	Skipped int `json:"skipped"`
+	Failed  int `json:"failed"`
+}
+
+var (
+	batchImportTasks = make(map[string]*BatchImportTask)
+	tasksMutex       = &sync.Mutex{}
+)
 
 // InstallOrAddService godoc
 // @Summary 安装或添加服务
@@ -1680,4 +1719,500 @@ func CreateCustomService(c *gin.Context) {
 		"mcp_service_id": newService.ID,
 		"service":        newService,
 	})
+}
+
+func StartBatchImport(c *gin.Context) {
+	var requestBody map[string]interface{}
+	if err := c.ShouldBindJSON(&requestBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format: " + err.Error()})
+		return
+	}
+
+	// Support both direct format and wrapped format
+	var services map[string]interface{}
+	if mcpServers, exists := requestBody["mcpServers"]; exists {
+		// New wrapped format: {"mcpServers": {...}}
+		if mcpServersMap, ok := mcpServers.(map[string]interface{}); ok {
+			services = mcpServersMap
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mcpServers field must be an object"})
+			return
+		}
+	} else {
+		// Legacy direct format: {"service1": {...}, "service2": {...}}
+		services = requestBody
+	}
+
+	if len(services) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No services provided"})
+		return
+	}
+
+	taskID := uuid.New().String()
+	task := &BatchImportTask{
+		ID:          taskID,
+		Status:      "processing",
+		Progress:    make(chan ProgressUpdate, 100), // Buffered channel
+		CreatedAt:   time.Now(),
+		ServiceData: services,
+	}
+
+	tasksMutex.Lock()
+	batchImportTasks[taskID] = task
+	tasksMutex.Unlock()
+
+	go processBatchImport(task)
+
+	c.JSON(http.StatusOK, gin.H{"task_id": taskID})
+}
+
+func processBatchImport(task *BatchImportTask) {
+	defer func() {
+		close(task.Progress)
+		tasksMutex.Lock()
+		delete(batchImportTasks, task.ID)
+		tasksMutex.Unlock()
+	}()
+
+	summary := &BatchImportSummary{}
+	ctx := context.Background()
+
+	for name, serviceData := range task.ServiceData {
+		serviceMap, ok := serviceData.(map[string]interface{})
+		if !ok {
+			summary.Failed++
+			task.Progress <- ProgressUpdate{
+				Name:    name,
+				Status:  "failed",
+				Message: "Invalid service data format.",
+			}
+			continue
+		}
+
+		// We will handle transactions inside the creation function
+		err := createSingleServiceFromBatch(ctx, name, serviceMap)
+		if err != nil {
+			if errors.Is(err, ErrServiceExists) {
+				summary.Skipped++
+				task.Progress <- ProgressUpdate{
+					Name:    name,
+					Status:  "skipped",
+					Message: "Service already exists",
+				}
+			} else {
+				summary.Failed++
+				task.Progress <- ProgressUpdate{
+					Name:    name,
+					Status:  "failed",
+					Message: err.Error(),
+				}
+			}
+		} else {
+			summary.Success++
+			task.Progress <- ProgressUpdate{
+				Name:    name,
+				Status:  "success",
+				Message: "Service imported successfully.",
+			}
+		}
+	}
+
+	task.Status = "completed"
+	task.Progress <- ProgressUpdate{
+		Status:  "done",
+		Summary: summary,
+	}
+}
+
+// createSingleServiceFromBatch handles the creation of a single service.
+// It manages its own transaction.
+// Returns: nil for success, ErrServiceExists for skip, other errors for failure
+var ErrServiceExists = errors.New("service already exists")
+
+func createSingleServiceFromBatch(ctx context.Context, serviceName string, serviceData map[string]interface{}) error {
+	common.SysLog(fmt.Sprintf("Starting batch import for service: %s", serviceName))
+
+	// 1. Sanitize and check for existing service name using Thing ORM
+	sanitizedName := sanitizeServiceName(serviceName)
+	common.SysLog(fmt.Sprintf("Sanitized name for %s: %s", serviceName, sanitizedName))
+
+	// Use Thing ORM to check for existing service
+	mcpServiceThing, err := thing.Use[*model.MCPService]()
+	if err != nil {
+		err = fmt.Errorf("failed to get Thing ORM instance: %w", err)
+		common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+		return err
+	}
+
+	// Check if service already exists
+	existingServices, err := mcpServiceThing.Query(thing.QueryParams{
+		Where: "name = ? AND deleted = 0",
+		Args:  []interface{}{sanitizedName},
+	}).Fetch(0, 1)
+
+	if err != nil {
+		err = fmt.Errorf("failed to check for existing service: %w", err)
+		common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+		return err
+	}
+
+	if len(existingServices) > 0 {
+		// Service exists, this should be treated as "skip", not failure
+		common.SysLog(fmt.Sprintf("Service '%s' already exists (ID: %d), skipping", sanitizedName, existingServices[0].ID))
+		return ErrServiceExists
+	}
+
+	common.SysLog(fmt.Sprintf("Service %s does not exist, proceeding with creation", sanitizedName))
+
+	// 2. Map data and determine service type
+	var req CustomServiceReq
+	if err := mapToCustomServiceReq(serviceData, &req); err != nil {
+		err = fmt.Errorf("error mapping service data: %w", err)
+		common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+		return err
+	}
+	req.Name = sanitizedName
+
+	common.SysLog(fmt.Sprintf("Mapped service data for %s: Type=%s, Command=%s, URL=%s", sanitizedName, req.Type, req.Command, req.URL))
+
+	if req.URL != "" {
+		// Parse URL to extract path without query parameters
+		parsedURL, err := url.Parse(req.URL)
+		if err != nil {
+			err = fmt.Errorf("invalid URL format: %w", err)
+			common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+			return err
+		}
+
+		urlPath := parsedURL.Path
+		common.SysLog(fmt.Sprintf("Parsed URL path for %s: %s", sanitizedName, urlPath))
+
+		if strings.HasSuffix(urlPath, "/sse") {
+			req.Type = model.ServiceTypeSSE
+		} else {
+			req.Type = model.ServiceTypeStreamableHTTP
+		}
+		common.SysLog(fmt.Sprintf("Determined service type for %s: %s", sanitizedName, req.Type))
+	} else if req.Command != "" {
+		req.Type = model.ServiceTypeStdio
+		common.SysLog(fmt.Sprintf("Service %s is stdio type with command: %s", sanitizedName, req.Command))
+	} else {
+		err = errors.New("invalid service definition: must contain 'url' or 'command'")
+		common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+		return err
+	}
+
+	common.SysLog(fmt.Sprintf("Creating service %s with type %s", sanitizedName, req.Type))
+
+	// Determine package manager based on command and args
+	packageManager := "custom"
+	sourcePackageName := req.Name
+	if req.Command == "npx" && len(req.Args) > 0 {
+		// Check if this looks like an npm package
+		lastArg := req.Args[len(req.Args)-1]
+		if strings.Contains(lastArg, "@") || strings.Contains(lastArg, "/") {
+			packageManager = "npm"
+			sourcePackageName = lastArg
+		}
+	} else if req.Command == "uvx" && len(req.Args) > 0 {
+		// Check if this looks like a python package
+		// Case 1: uvx --from package_name command (args: ["--from", "package_name", "command"])
+		for i, arg := range req.Args {
+			if arg == "--from" && i+1 < len(req.Args) {
+				packageManager = "pypi"
+				sourcePackageName = req.Args[i+1]
+				break
+			}
+		}
+
+		// Case 2: uvx package_name [args...] (args: ["package_name", "arg1", "arg2"])
+		if packageManager == "custom" {
+			// First arg is typically the package name if no --from is used
+			firstArg := req.Args[0]
+			if firstArg != "" && !strings.HasPrefix(firstArg, "-") {
+				packageManager = "pypi"
+				sourcePackageName = firstArg
+			}
+		}
+	}
+
+	common.SysLog(fmt.Sprintf("Detected package manager for %s: %s, source package: %s", sanitizedName, packageManager, sourcePackageName))
+
+	// Get real package information if it's from npm or pypi
+	var packageDescription string
+	var packageVersion string
+	switch packageManager {
+	case "npm":
+		// Extract package name without version for API calls
+		cleanPackageName := extractPackageNameWithoutVersion(sourcePackageName)
+		if details, err := market.GetNPMPackageDetails(ctx, cleanPackageName); err == nil {
+			packageDescription = details.Description
+			packageVersion = details.Version
+			common.SysLog(fmt.Sprintf("Retrieved npm package info for %s: description=%s, version=%s", cleanPackageName, packageDescription, packageVersion))
+		} else {
+			common.SysLog(fmt.Sprintf("WARNING: Failed to get npm package details for %s: %v", cleanPackageName, err))
+		}
+	case "pypi":
+		// Extract package name without version
+		cleanPackageName := sourcePackageName
+		if strings.Contains(cleanPackageName, "==") {
+			parts := strings.Split(cleanPackageName, "==")
+			cleanPackageName = parts[0]
+		}
+		if description, err := validateAndGetPyPIPackageInfo(ctx, cleanPackageName); err == nil {
+			packageDescription = description
+			// PyPI version might need separate call or parsing from sourcePackageName
+			packageVersion = "latest"
+			common.SysLog(fmt.Sprintf("Retrieved pypi package info for %s: description=%s", cleanPackageName, packageDescription))
+		} else {
+			common.SysLog(fmt.Sprintf("WARNING: Failed to get pypi package details for %s: %v", cleanPackageName, err))
+		}
+	}
+
+	// Use retrieved package info or fallbacks
+	description := packageDescription
+	if description == "" {
+		description = "Imported via batch import"
+	}
+
+	installedVersion := packageVersion
+	if installedVersion == "" {
+		installedVersion = "0.0.1"
+	}
+
+	common.SysLog(fmt.Sprintf("Using for service %s: description=%s, version=%s", sanitizedName, description, installedVersion))
+
+	// 3. Create the service using Thing ORM instead of raw SQL
+	var mcpService model.MCPService
+	envsJSON, _ := json.Marshal(req.Envs)
+
+	switch req.Type {
+	case model.ServiceTypeStdio:
+		if req.Command == "" {
+			err = errors.New("missing 'command' for stdio service")
+			common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+			return err
+		}
+		argsJSON, _ := json.Marshal(req.Args)
+		common.SysLog(fmt.Sprintf("Creating stdio service %s: command=%s, args=%s", sanitizedName, req.Command, string(argsJSON)))
+
+		mcpService = model.MCPService{
+			Name:                  req.Name,
+			DisplayName:           req.Name,
+			Description:           description,
+			Category:              model.CategoryUtil,
+			Icon:                  "",
+			DefaultOn:             true,
+			AdminOnly:             false,
+			OrderNum:              0,
+			AllowUserOverride:     true,
+			ClientConfigTemplates: "{}",
+			RequiredEnvVarsJSON:   "[]",
+			InstalledVersion:      installedVersion,
+			Type:                  req.Type,
+			Command:               req.Command,
+			ArgsJSON:              string(argsJSON),
+			DefaultEnvsJSON:       string(envsJSON),
+			Enabled:               true,
+			InstallerUserID:       0, // System user for batch import
+			PackageManager:        packageManager,
+			SourcePackageName:     sourcePackageName,
+		}
+
+	case model.ServiceTypeSSE, model.ServiceTypeStreamableHTTP:
+		if req.URL == "" {
+			err = errors.New("missing 'url' for web service")
+			common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+			return err
+		}
+		headersJSON, _ := json.Marshal(req.Headers)
+		common.SysLog(fmt.Sprintf("Creating web service %s: url=%s, headers=%s", sanitizedName, req.URL, string(headersJSON)))
+
+		mcpService = model.MCPService{
+			Name:                  req.Name,
+			DisplayName:           req.Name,
+			Description:           description,
+			Category:              model.CategoryUtil,
+			Icon:                  "",
+			DefaultOn:             true,
+			AdminOnly:             false,
+			OrderNum:              0,
+			AllowUserOverride:     true,
+			ClientConfigTemplates: "{}",
+			RequiredEnvVarsJSON:   "[]",
+			InstalledVersion:      installedVersion,
+			Type:                  req.Type,
+			Command:               req.URL, // Store URL in Command field
+			HeadersJSON:           string(headersJSON),
+			DefaultEnvsJSON:       string(envsJSON),
+			Enabled:               true,
+			InstallerUserID:       0, // System user for batch import
+			PackageManager:        packageManager,
+			SourcePackageName:     sourcePackageName,
+		}
+
+	default:
+		err = fmt.Errorf("unsupported service type: %s", req.Type)
+		common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+		return err
+	}
+
+	// Use Thing ORM to create the service (this will set created_at, updated_at, etc.)
+	common.SysLog(fmt.Sprintf("Creating service %s using Thing ORM", sanitizedName))
+	if err := model.CreateService(&mcpService); err != nil {
+		err = fmt.Errorf("failed to create service using Thing ORM: %w", err)
+		common.SysLog(fmt.Sprintf("ERROR for service %s: %v", serviceName, err))
+		return err
+	}
+
+	common.SysLog(fmt.Sprintf("Successfully created service %s with ID %d", sanitizedName, mcpService.ID))
+
+	// For stdio services, submit installation task asynchronously for batch import
+	if mcpService.Type == model.ServiceTypeStdio && mcpService.PackageManager != "custom" {
+		// Parse ArgsJSON to get command arguments
+		var args []string
+		if mcpService.ArgsJSON != "" {
+			if err := json.Unmarshal([]byte(mcpService.ArgsJSON), &args); err != nil {
+				common.SysLog(fmt.Sprintf("WARNING: Failed to parse ArgsJSON for service %s: %v", sanitizedName, err))
+				args = []string{} // Use empty args on parse error
+			}
+		}
+
+		installationTask := market.InstallationTask{
+			ServiceID:      mcpService.ID,
+			UserID:         0, // System user for batch import
+			PackageName:    mcpService.SourcePackageName,
+			PackageManager: mcpService.PackageManager,
+			Version:        mcpService.InstalledVersion,
+			Command:        mcpService.Command,
+			Args:           args,
+			EnvVars:        req.Envs,
+		}
+
+		common.SysLog(fmt.Sprintf("Submitting installation task for service %s (ID: %d) - async mode for batch import", sanitizedName, mcpService.ID))
+		market.GetInstallationManager().SubmitTask(installationTask)
+
+		// For batch import, don't wait for installation completion
+		// Installation will happen asynchronously in the background
+		common.SysLog(fmt.Sprintf("Service %s (ID: %d) installation submitted, continuing with next service", sanitizedName, mcpService.ID))
+	}
+
+	return nil
+}
+
+func mapToCustomServiceReq(data map[string]interface{}, req *CustomServiceReq) error {
+	if url, ok := data["url"].(string); ok {
+		req.URL = url
+	}
+	if command, ok := data["command"].(string); ok {
+		req.Command = command
+	}
+	if args, ok := data["args"].([]interface{}); ok {
+		for _, arg := range args {
+			if argStr, ok := arg.(string); ok {
+				req.Args = append(req.Args, argStr)
+			}
+		}
+	} else if data["args"] != nil {
+		return errors.New("'args' field must be an array of strings")
+	}
+
+	if envs, ok := data["envs"].(map[string]interface{}); ok {
+		req.Envs = make(map[string]string)
+		for k, v := range envs {
+			if vStr, ok := v.(string); ok {
+				req.Envs[k] = vStr
+			}
+		}
+	} else if data["envs"] != nil {
+		return errors.New("'envs' field must be a map of strings")
+	}
+
+	// Also support 'env' field for compatibility with mcp.json format
+	if env, ok := data["env"].(map[string]interface{}); ok {
+		if req.Envs == nil {
+			req.Envs = make(map[string]string)
+		}
+		for k, v := range env {
+			if vStr, ok := v.(string); ok {
+				req.Envs[k] = vStr
+			}
+		}
+	} else if data["env"] != nil {
+		return errors.New("'env' field must be a map of strings")
+	}
+
+	if headers, ok := data["headers"].(map[string]interface{}); ok {
+		req.Headers = make(map[string]string)
+		for k, v := range headers {
+			if vStr, ok := v.(string); ok {
+				req.Headers[k] = vStr
+			}
+		}
+	} else if data["headers"] != nil {
+		return errors.New("'headers' field must be a map of strings")
+	}
+
+	return nil
+}
+
+func StreamBatchImportProgress(c *gin.Context) {
+	taskID := c.Param("task_id")
+
+	// Check authentication via query parameter since SSE doesn't support custom headers
+	token := c.Query("token")
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication token required"})
+		return
+	}
+
+	// Validate the token (reuse existing JWT validation logic)
+	claims, err := service.ValidateToken(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		return
+	}
+
+	// Check if user is admin (similar to AdminAuth middleware)
+	if claims.Role < common.RoleAdminUser {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	tasksMutex.Lock()
+	task, exists := batchImportTasks[taskID]
+	tasksMutex.Unlock()
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		return
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming unsupported"})
+		return
+	}
+
+	// Listen to the progress channel and send updates to the client
+	for update := range task.Progress {
+		jsonData, err := json.Marshal(update)
+		if err != nil {
+			// Log the error but continue if possible
+			common.SysLog(fmt.Sprintf("Error marshaling progress update: %v", err))
+			continue
+		}
+
+		// SSE message format: "data: <json_string>\n\n"
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+		flusher.Flush()
+	}
+
+	// When the loop finishes, it means task.Progress was closed, so the task is complete.
+	common.SysLog(fmt.Sprintf("SSE stream for task %s finished.", taskID))
 }

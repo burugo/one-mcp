@@ -42,6 +42,17 @@
         "refresh": "Refresh",
         "uninstall": "Uninstall"
     },
+    "batchImport": {
+        "title": "Batch Import Services",
+        "placeholder": "{\n  \"mcpServers\": {\n    \"my-stdio-service\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"some-package\"],\n      \"env\": {\"API_KEY\": \"your_key\"}\n    },\n    \"my-sse-service\": {\n      \"url\": \"http://example.com/events/sse\"\n    },\n    \"my-http-service\": {\n      \"url\": \"http://example.com/mcp?key=your_key\"\n    }\n  }\n}",
+        "import": "Import",
+        "importing": "Importing...",
+        "invalidJsonError": "Invalid JSON format. Please check your input.",
+        "processingServices": "Processing services...",
+        "importComplete": "Import Complete",
+        "importSummary": "Import completed: {{success}} successful, {{skipped}} skipped, {{failed}} failed.",
+        "successMessage": "Services have been imported successfully and the service list has been refreshed."
+    },
     "dashboard": {
         "title": "Dashboard",
         "welcome": "Welcome to One MCP",
@@ -103,6 +114,7 @@
         "title": "MCP Services",
         "description": "Manage and configure your multi-cloud platform services",
         "addService": "Add Service",
+        "batchImport": "Batch Import",
         "fromMarket": "Install from Market",
         "customInstall": "Custom Install",
         "noServicesFound": "No services found.",

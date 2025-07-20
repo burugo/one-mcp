@@ -10,6 +10,17 @@
 
 *✨ 从单一界面管理、监控和配置您的 MCP 服务 ✨*
 
+<br />
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/burugo/one-mcp?style=flat-square)](https://goreportcard.com/report/github.com/burugo/one-mcp)
+[![Go CI](https://img.shields.io/github/actions/workflow/status/burugo/one-mcp/go.yml?style=flat-square&logo=github&label=Go%20CI)](https://github.com/burugo/one-mcp/actions)
+[![GitHub license](https://img.shields.io/github/license/burugo/one-mcp?style=flat-square)](https://github.com/burugo/one-mcp/blob/main/LICENSE)
+
+[![Go](https://img.shields.io/badge/Go-1.19+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://golang.org/)
+[![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat-square&logo=react&logoColor=black)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/r/buru2020/one-mcp)
+
 </div>
 
 <p align="center">

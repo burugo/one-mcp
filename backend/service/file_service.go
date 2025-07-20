@@ -1,7 +1,7 @@
 package service
 
 // File related operations have been commented out as not needed
-/* 
+/*
 import (
 	"fmt"
 	"mime/multipart"
@@ -19,4 +19,4 @@ func UploadAndRecordFile(user *model.User, file *multipart.FileHeader) (string, 
 }
 
 // More function implementations...
-*/ 
+*/

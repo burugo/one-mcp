@@ -3,12 +3,13 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, PlusCircle, Trash2, Plus, RotateCcw, Grid, List } from 'lucide-react';
+import { Search, PlusCircle, Trash2, Plus, RotateCcw, Grid, List, Upload } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
 import CustomServiceModal, { CustomServiceData } from '@/components/market/CustomServiceModal';
+import BatchImportModal from '@/components/market/BatchImportModal';
 import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Switch } from '@/components/ui/switch';
@@ -30,6 +31,7 @@ export function ServicesPage() {
     const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService, toggleService, checkServiceHealth } = useMarketStore();
     const [configModalOpen, setConfigModalOpen] = useState(false);
     const [customServiceModalOpen, setCustomServiceModalOpen] = useState(false);
+    const [batchImportModalOpen, setBatchImportModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<ServiceType | null>(null);
     const [uninstallDialogOpen, setUninstallDialogOpen] = useState(false);
     const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
@@ -585,6 +587,13 @@ export function ServicesPage() {
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => {
+                                    setTimeout(() => {
+                                        setBatchImportModalOpen(true);
+                                    }, 50);
+                                }}>
+                                    <Upload className="w-4 h-4 mr-2" /> {t('services.batchImport')}
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => navigate('/market')}>
                                     <Search className="w-4 h-4 mr-2" /> {t('services.installFromMarket')}
                                 </DropdownMenuItem>
@@ -657,6 +666,19 @@ export function ServicesPage() {
                 onCreateService={handleCreateCustomService}
                 autoFillEnv={autoFillEnv}
                 setAutoFillEnv={setAutoFillEnv}
+            />
+
+            <BatchImportModal
+                open={batchImportModalOpen}
+                onClose={() => setBatchImportModalOpen(false)}
+                onImportSuccess={() => {
+                    fetchInstalledServices();
+                    toast({
+                        title: t('batchImport.importComplete'),
+                        description: t('batchImport.successMessage'),
+                        variant: 'default'
+                    });
+                }}
             />
 
             <ConfirmDialog

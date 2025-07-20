@@ -7,4 +7,4 @@ type File struct {
 	Filename  string `json:"filename"`
 	Link      string `json:"link"`
 	CreatedAt int64  `json:"created_at"`
-} 
+}

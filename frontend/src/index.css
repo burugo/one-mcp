@@ -176,6 +176,30 @@ button:focus-visible {
   .bg-info-code {
     @apply bg-blue-100 dark:bg-blue-900/50;
   }
+
+  /* Scrollbar styles for light and dark mode */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-md;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) hsl(var(--background));
+  }
 }
 
 /* Animation for successful installation checkmark */
