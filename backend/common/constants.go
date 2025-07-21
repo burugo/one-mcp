@@ -58,11 +58,11 @@ var (
 // All duration's unit is seconds
 // Shouldn't larger then RateLimitKeyExpirationDuration
 var (
-	GlobalApiRateLimitNum            = 60
-	GlobalApiRateLimitDuration int64 = 3 * 60
+	GlobalApiRateLimitNum            = 500
+	GlobalApiRateLimitDuration int64 = 5 * 60
 
-	GlobalWebRateLimitNum            = 60
-	GlobalWebRateLimitDuration int64 = 3 * 60
+	GlobalWebRateLimitNum            = 500
+	GlobalWebRateLimitDuration int64 = 5 * 60
 
 	UploadRateLimitNum            = 10
 	UploadRateLimitDuration int64 = 60

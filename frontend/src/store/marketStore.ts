@@ -409,7 +409,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             };
             const response = await api.post('/mcp_market/install_or_add_service', requestBody) as APIResponse<any>;
             // RESTful: 如果需要补充 env vars，直接返回 response（完整 APIResponse）
-            if (response.success === true && response.data && Array.isArray(response.data.required_env_vars) && response.data.required_env_vars.length > 0) {
+            if (response.success === false && response.data && Array.isArray(response.data.required_env_vars) && response.data.required_env_vars.length > 0) {
                 return response;
             }
 

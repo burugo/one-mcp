@@ -336,6 +336,25 @@ export function ServicesPage() {
                 }
                 return res.data;
             } else {
+                // Handle case where success is false but response is HTTP 200 (missing env vars)
+                if (res.success === false && res.data?.required_env_vars && Array.isArray(res.data.required_env_vars) && res.data.required_env_vars.length > 0) {
+                    // Auto-fill environment variable if missing
+                    const missingEnvs = res.data.required_env_vars;
+                    const envVarToSet = `${missingEnvs[0]}=`;
+                    setAutoFillEnv(envVarToSet);
+
+                    toast({
+                        title: t('customServiceModal.messages.createFailed'),
+                        description: res.message || '缺少必需环境变量',
+                        variant: 'destructive'
+                    });
+                } else {
+                    toast({
+                        title: t('customServiceModal.messages.createFailed'),
+                        description: res.message || '创建失败',
+                        variant: 'destructive'
+                    });
+                }
                 throw new Error(res.message || '创建失败');
             }
         } catch (error: any) {

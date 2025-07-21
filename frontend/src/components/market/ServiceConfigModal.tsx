@@ -167,20 +167,19 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         return JSON.stringify(config, null, 2);
     };
 
-    const handleCopySSE = async () => {
-        const jsonConfig = generateSSEJSONConfig();
-        const result = await copyToClipboard(jsonConfig);
+    // copy endpoint url
+    const handleCopyEndpoint = async () => {
+        const urlToCopy = selectedEndpointType === 'sse' ? sseEndpoint : httpEndpoint;
+        const result = await copyToClipboard(urlToCopy);
 
         if (result.success) {
-            setCopied((prev) => ({ ...prev, 'sse': true }));
-            setTimeout(() => setCopied((prev) => ({ ...prev, 'sse': false })), 1200);
+            setCopied((prev) => ({ ...prev, 'endpoint': true }));
+            setTimeout(() => setCopied((prev) => ({ ...prev, 'endpoint': false })), 1200);
             toast({
-                title: t('serviceConfigModal.messages.sseConfigCopied'),
-                description: t('serviceConfigModal.messages.sseConfigCopiedDesc')
+                title: t('serviceConfigModal.messages.endpointUrlCopied'),
+                description: t('serviceConfigModal.messages.endpointUrlCopiedDesc')
             });
         } else {
-            // 显示手动复制区域
-            setShowManualCopy((prev) => ({ ...prev, 'sse': true }));
             const errorMessageKey = getClipboardErrorMessage(result.error);
             toast({
                 variant: "destructive",
@@ -190,20 +189,21 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         }
     };
 
-    const handleCopyHTTP = async () => {
-        const jsonConfig = generateHTTPJSONConfig();
+    // copy json config
+    const handleCopyJSON = async () => {
+        const jsonConfig = selectedEndpointType === 'sse' ? generateSSEJSONConfig() : generateHTTPJSONConfig();
         const result = await copyToClipboard(jsonConfig);
 
         if (result.success) {
-            setCopied((prev) => ({ ...prev, 'http': true }));
-            setTimeout(() => setCopied((prev) => ({ ...prev, 'http': false })), 1200);
+            setCopied((prev) => ({ ...prev, 'json': true }));
+            setTimeout(() => setCopied((prev) => ({ ...prev, 'json': false })), 1200);
             toast({
-                title: t('serviceConfigModal.messages.httpConfigCopied'),
-                description: t('serviceConfigModal.messages.httpConfigCopiedDesc')
+                title: t('serviceConfigModal.messages.jsonConfigCopied'),
+                description: t('serviceConfigModal.messages.jsonConfigCopiedDesc')
             });
         } else {
-            // 显示手动复制区域
-            setShowManualCopy((prev) => ({ ...prev, 'http': true }));
+            // 
+            setShowManualCopy((prev) => ({ ...prev, [selectedEndpointType]: true }));
             const errorMessageKey = getClipboardErrorMessage(result.error);
             toast({
                 variant: "destructive",
@@ -212,6 +212,8 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
             });
         }
     };
+
+
 
     const handleCopyHeaderText = async () => {
         if (!userToken) return;
@@ -365,7 +367,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                         </Label>
                     </div>
 
-                    {/* URL display and Copy JSON button */}
+                    {/* URL display and copy button */}
                     <div className="flex items-center gap-2 mt-1">
                         <Input
                             id="endpoint-url-input"
@@ -377,11 +379,11 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                         <Button
                             size="icon"
                             variant="ghost"
-                            onClick={selectedEndpointType === 'sse' ? handleCopySSE : handleCopyHTTP}
+                            onClick={handleCopyEndpoint}
                             disabled={!(selectedEndpointType === 'sse' ? sseEndpoint : httpEndpoint)}
-                            title={selectedEndpointType === 'sse' ? t('serviceConfigModal.actions.copySSEConfig') : t('serviceConfigModal.actions.copyHTTPConfig')}
+                            title={t('serviceConfigModal.actions.copyEndpointUrl')}
                         >
-                            {copied[selectedEndpointType === 'sse' ? 'sse' : 'http'] ? <Check className="text-green-500 w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                            {copied['endpoint'] ? <Check className="text-green-500 w-5 h-5" /> : <Copy className="w-5 h-5" />}
                         </Button>
                     </div>
 
@@ -458,8 +460,17 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                     </div>
                 </div>
 
-                <DialogFooter className="mt-4">
+                <DialogFooter className="mt-4 flex justify-between">
                     <Button variant="outline" onClick={onClose} type="button">{t('serviceConfigModal.actions.close')}</Button>
+                    <Button
+                        variant="default"
+                        onClick={handleCopyJSON}
+                        disabled={!(selectedEndpointType === 'sse' ? sseEndpoint : httpEndpoint)}
+                        type="button"
+                        title={t('serviceConfigModal.actions.copyJsonTooltip')}
+                    >
+                        {t('serviceConfigModal.actions.copyJson')}
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

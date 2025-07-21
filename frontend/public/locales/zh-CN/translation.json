@@ -538,6 +538,9 @@
             "close": "关闭",
             "copySSEConfig": "复制SSE配置",
             "copyHTTPConfig": "复制HTTP配置",
+            "copyEndpointUrl": "复制端点URL",
+            "copyJson": "复制",
+            "copyJsonTooltip": "复制JSON配置",
             "limitPlaceholder": "0 表示不限制"
         },
         "messages": {
@@ -545,6 +548,10 @@
             "sseConfigCopiedDesc": "SSE端点的MCP服务器配置已复制到剪贴板",
             "httpConfigCopied": "HTTP配置已复制",
             "httpConfigCopiedDesc": "HTTP端点的MCP服务器配置已复制到剪贴板",
+            "endpointUrlCopied": "端点URL已复制",
+            "endpointUrlCopiedDesc": "端点URL已复制到剪贴板",
+            "jsonConfigCopied": "JSON配置已复制",
+            "jsonConfigCopiedDesc": "JSON配置已复制到剪贴板",
             "copyFailed": "复制失败",
             "clipboardNotSupported": "剪贴板功能不可用",
             "manualCopyHint": "由于安全限制，自动复制功能在HTTP环境下不可用。请使用下方的文本区域手动复制配置。",

@@ -661,8 +661,8 @@ func InstallOrAddService(c *gin.Context) {
 		if len(missingEnvVars) > 0 {
 			// Use i18n for the error message
 			msg := i18n.Translate("missing_required_env_vars", lang, strings.Join(missingEnvVars, ", "))
-			c.JSON(http.StatusBadRequest, common.APIResponse{ // 使用 400 Bad Request
-				Success: false, // 明确表示失败
+			c.JSON(http.StatusOK, common.APIResponse{ // use 200 OK, because this is not an error, but requires user input
+				Success: false, // require next action from user
 				Message: msg,
 				Data: gin.H{
 					"required_env_vars": missingEnvVars,

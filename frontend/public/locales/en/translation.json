@@ -527,6 +527,9 @@
             "copyHTTPConfig": "Copy HTTP Config",
             "copyConfigLabel": "Copy Endpoint Config",
             "copyHeaderText": "Copy Header Text",
+            "copyEndpointUrl": "Copy endpoint URL",
+            "copyJson": "Copy",
+            "copyJsonTooltip": "Copy JSON config",
             "limitPlaceholder": "Enter limit (0 for unlimited)"
         },
         "sections": {
@@ -547,6 +550,10 @@
             "sseConfigCopiedDesc": "The SSE client configuration has been copied to your clipboard.",
             "httpConfigCopied": "HTTP config copied",
             "httpConfigCopiedDesc": "The HTTP client configuration has been copied to your clipboard.",
+            "endpointUrlCopied": "Endpoint URL copied",
+            "endpointUrlCopiedDesc": "The endpoint URL has been copied to your clipboard.",
+            "jsonConfigCopied": "JSON config copied",
+            "jsonConfigCopiedDesc": "The JSON configuration has been copied to your clipboard.",
             "headerCopied": "Header copied to clipboard",
             "copyFailed": "Failed to copy to clipboard.",
             "manualCopyHint": "Clipboard access might be restricted. Please select and copy the text manually.",
