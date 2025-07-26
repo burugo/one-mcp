@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 )
 
@@ -25,10 +26,12 @@ var (
 
 // ServiceManager 管理所有MCP服务的实例
 type ServiceManager struct {
-	services      map[int64]Service
-	mutex         sync.RWMutex
-	healthChecker *HealthChecker
-	initialized   bool
+	services                 map[int64]Service
+	mutex                    sync.RWMutex
+	healthChecker            *HealthChecker
+	initialized              bool
+	lastAccessed             map[int64]time.Time
+	stdioOnDemandIdleTimeout time.Duration
 }
 
 // globalManager 是全局服务管理器实例
@@ -39,9 +42,11 @@ var managerOnce sync.Once
 func GetServiceManager() *ServiceManager {
 	managerOnce.Do(func() {
 		globalManager = &ServiceManager{
-			services:      make(map[int64]Service),
-			healthChecker: NewHealthChecker(10 * time.Minute),
-			initialized:   false,
+			services:                 make(map[int64]Service),
+			healthChecker:            NewHealthChecker(10 * time.Minute),
+			initialized:              false,
+			lastAccessed:             make(map[int64]time.Time),
+			stdioOnDemandIdleTimeout: 15 * time.Minute, // Default 15 minutes for idle timeout
 		}
 	})
 	return globalManager
@@ -53,10 +58,11 @@ func (m *ServiceManager) Initialize(ctx context.Context) error {
 		return nil
 	}
 
-	// 启动健康检查
-	m.healthChecker.Start()
+	// Note: HealthChecker is used for registration and health caching, but we don't start
+	// its separate checking routine since StartDaemon() already performs comprehensive
+	// health checking with additional service management features.
 
-	// 启动自动重启守护线程
+	// 启动服务管理守护线程（包含健康检查、自动重启和闲置管理）
 	m.StartDaemon()
 
 	// 加载并注册所有启用的服务
@@ -79,8 +85,8 @@ func (m *ServiceManager) Initialize(ctx context.Context) error {
 
 // Shutdown 关闭服务管理器
 func (m *ServiceManager) Shutdown(ctx context.Context) error {
-	// 停止健康检查
-	m.healthChecker.Stop()
+	// Note: HealthChecker doesn't run a separate daemon anymore, so no need to stop it.
+	// The StartDaemon goroutine will naturally terminate when the program exits.
 
 	// 停止所有服务
 	m.mutex.Lock()
@@ -121,14 +127,29 @@ func (m *ServiceManager) RegisterService(ctx context.Context, mcpService *model.
 	// 注册服务
 	m.services[mcpService.ID] = service
 
-	// 注册到健康检查器
+	// Register to health checker
 	m.healthChecker.RegisterService(service)
 
-	// 如果服务配置为默认启用，则启动服务
+	// Decide whether to start service based on startup strategy
 	if mcpService.DefaultOn && mcpService.Enabled {
-		if err := service.Start(ctx); err != nil {
-			// 启动失败，但仍然保留注册
-			log.Printf("Failed to start service %s (ID: %d): %v", mcpService.Name, mcpService.ID, err)
+		shouldStart := true
+
+		// For stdio services, check startup strategy
+		if mcpService.Type == model.ServiceTypeStdio {
+			strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+			if strategy == common.StrategyStartOnDemand {
+				shouldStart = false
+				log.Printf("Service %s (ID: %d) registered but not started due to on-demand strategy", mcpService.Name, mcpService.ID)
+			}
+		}
+
+		if shouldStart {
+			if err := service.Start(ctx); err != nil {
+				// Failed to start, but keep the registration
+				log.Printf("Failed to start service %s (ID: %d): %v", mcpService.Name, mcpService.ID, err)
+			} else {
+				log.Printf("Service %s (ID: %d) started at registration", mcpService.Name, mcpService.ID)
+			}
 		}
 	}
 
@@ -176,6 +197,13 @@ func (m *ServiceManager) GetService(serviceID int64) (Service, error) {
 	}
 
 	return service, nil
+}
+
+// UpdateServiceAccessTime 更新服务的最后访问时间
+func (m *ServiceManager) UpdateServiceAccessTime(serviceID int64) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.lastAccessed[serviceID] = time.Now()
 }
 
 // StartService 启动一个服务
@@ -302,40 +330,87 @@ func (m *ServiceManager) UpdateMCPServiceHealth(serviceID int64) error {
 	return nil
 }
 
-// StartDaemon starts the daemon thread for auto-restarting stopped services
+// StartDaemon starts the primary service management daemon that handles:
+// 1. Health checking for all services
+// 2. Auto-restart of stopped services (except on-demand stdio services)
+// 3. Idle shutdown for on-demand stdio services
+// This replaces the need for a separate HealthChecker daemon.
 func (m *ServiceManager) StartDaemon() {
 	go func() {
+		// Wait a short time for services to stabilize after registration
+		time.Sleep(5 * time.Second)
+
+		// Perform initial health check
+		m.performHealthCheckAndManagement()
+
 		ticker := time.NewTicker(600 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			m.mutex.RLock()
-			services := make([]Service, 0, len(m.services))
-			for _, service := range m.services {
-				services = append(services, service)
-			}
-			m.mutex.RUnlock()
+			m.performHealthCheckAndManagement()
+		}
+	}()
+}
 
-			for _, service := range services {
-				// 检查服务状态
-				health, err := m.ForceCheckServiceHealth(service.ID())
-				if err != nil {
-					continue
-				}
+// performHealthCheckAndManagement performs health checking and service management operations
+func (m *ServiceManager) performHealthCheckAndManagement() {
+	m.mutex.RLock()
+	services := make([]Service, 0, len(m.services))
+	for _, service := range m.services {
+		services = append(services, service)
+	}
+	lastAccessedCopy := make(map[int64]time.Time)
+	for k, v := range m.lastAccessed {
+		lastAccessedCopy[k] = v
+	}
+	m.mutex.RUnlock()
 
-				// 如果服务已停止，尝试重启
-				if health.Status == StatusStopped {
-					ctx := context.Background()
-					if err := m.RestartService(ctx, service.ID()); err != nil {
-						// 记录错误但继续处理其他服务
-						log.Printf("Failed to auto-restart service %d: %v", service.ID(), err)
-						continue
+	for _, service := range services {
+		// Check if this is a stdio service with on-demand strategy
+		if service.Type() == model.ServiceTypeStdio {
+			strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+			if strategy == common.StrategyStartOnDemand && service.IsRunning() {
+				// Check for idle timeout
+				if lastAccess, exists := lastAccessedCopy[service.ID()]; exists {
+					if time.Since(lastAccess) > m.stdioOnDemandIdleTimeout {
+						ctx := context.Background()
+						if err := m.StopService(ctx, service.ID()); err != nil {
+							log.Printf("Failed to stop idle stdio service %s (ID: %d): %v", service.Name(), service.ID(), err)
+						} else {
+							log.Printf("Stopped idle stdio service: %s (ID: %d) after %v of inactivity",
+								service.Name(), service.ID(), time.Since(lastAccess))
+						}
+						continue // Skip auto-restart logic for this service
 					}
-					log.Printf("Auto-restarted stopped service: %s (ID: %d)", service.Name(), service.ID())
 				}
 			}
 		}
-	}()
+
+		// Standard auto-restart logic for services that should not be idle-stopped
+		health, err := m.ForceCheckServiceHealth(service.ID())
+		if err != nil {
+			continue
+		}
+
+		// Only auto-restart services that are not stdio services with on-demand strategy
+		shouldAutoRestart := true
+		if service.Type() == model.ServiceTypeStdio {
+			strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+			if strategy == common.StrategyStartOnDemand {
+				shouldAutoRestart = false
+			}
+		}
+
+		if shouldAutoRestart && health.Status == StatusStopped {
+			ctx := context.Background()
+			if err := m.RestartService(ctx, service.ID()); err != nil {
+				// Log error but continue processing other services
+				log.Printf("Failed to auto-restart service %d: %v", service.ID(), err)
+				continue
+			}
+			log.Printf("Auto-restarted stopped service: %s (ID: %d)", service.Name(), service.ID())
+		}
+	}
 }
 
 // GetSSEServiceByName 根据服务名查找 SSESvc 实例

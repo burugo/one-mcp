@@ -381,6 +381,8 @@
         "description": "Manage your system configuration and login options",
         "general": "General Settings",
         "generalDesc": "Configure basic system settings",
+        "startupStrategy": "Stdio Service Startup Strategy",
+        "startupStrategyDesc": "Choose how Stdio-type MCP services are started",
         "oauth": "OAuth Configuration",
         "oauthDesc": "Configure third-party login providers",
         "github": "Configure GitHub OAuth App",
@@ -397,6 +399,10 @@
             "googleClientSecret": "Google Client Secret",
             "enableGithubOAuth": "Allow login & registration via GitHub account",
             "enableGoogleOAuth": "Allow login & registration via Google account",
+            "startupStrategyBoot": "Start on Boot",
+            "startupStrategyDemand": "Start on Demand",
+            "startupStrategyBootDesc": "Start all Stdio services immediately when system boots (default)",
+            "startupStrategyDemandDesc": "Start Stdio services only when actually requested, saving memory resources",
             "githubClientIdPlaceholder": "Enter GitHub Client ID",
             "githubClientSecretPlaceholder": "Enter GitHub Client Secret",
             "googleClientIdPlaceholder": "Enter Google Client ID",
@@ -419,8 +425,8 @@
             "githubOAuthDisabled": "GitHub OAuth disabled",
             "googleOAuthEnabled": "Google OAuth enabled",
             "googleOAuthDisabled": "Google OAuth disabled",
-            "githubOAuthSaved": "GitHub OAuth configuration saved",
-            "googleOAuthSaved": "Google OAuth configuration saved"
+            "googleOAuthSaved": "Google OAuth settings saved",
+            "startupStrategyUpdated": "Startup strategy updated"
         }
     },
     "analytics": {

@@ -74,6 +74,14 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case common.OptionStdioServiceStartupStrategy:
+		if option.Value != common.StrategyStartOnBoot && option.Value != common.StrategyStartOnDemand {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid startup strategy, only 'boot' or 'demand' are supported",
+			})
+			return
+		}
 	}
 	err = service.UpdateOption(option.Key, option.Value)
 	if err != nil {

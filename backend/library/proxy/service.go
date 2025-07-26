@@ -320,6 +320,20 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// For on-demand stdio services that haven't been started yet, report as stopped without attempting self-healing
+	if s.Type() == model.ServiceTypeStdio && s.sharedInstance == nil {
+		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+		if strategy == common.StrategyStartOnDemand {
+			if s.health.Status != StatusStopped {
+				s.health.Status = StatusStopped
+				s.health.ErrorMessage = "Service is configured for on-demand start"
+				s.health.LastChecked = time.Now()
+			}
+			healthCopy := s.health
+			return &healthCopy, nil
+		}
+	}
+
 	startTime := time.Now()
 
 	if s.sharedInstance == nil || s.sharedInstance.Client == nil {
@@ -330,7 +344,9 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 		s.health.FailureCount++
 		s.health.WarningLevel = 3 // Critical if not initialized
 		healthCopy := s.health
-		// Ensure dbServiceConfig is available for re-creation attempt if this is the first check after a restart
+
+		// Self-healing logic: attempt to re-create the instance for services that should be running
+		// Skip this for on-demand stdio services (already handled above)
 		if s.sharedInstance == nil && s.dbServiceConfig != nil {
 			common.SysLog(fmt.Sprintf("CheckHealth: Instance for %s (ID: %d) is nil, attempting re-initialization.", s.serviceName, s.serviceID))
 			cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
@@ -480,57 +496,80 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 	return &healthCopy, finalErrToReturn
 }
 
-// Start for MonitoredProxiedService ensures the shared instance is active
+// Start for MonitoredProxiedService properly recreates the SharedMcpInstance when starting
 func (s *MonitoredProxiedService) Start(ctx context.Context) error {
-	// Call BaseService's Start first
+	// First call the base Start method to update basic state
 	if err := s.BaseService.Start(ctx); err != nil {
 		return err
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// If shared instance is nil, attempt to create/get it
+	// If we don't have a shared instance, create one
 	if s.sharedInstance == nil && s.dbServiceConfig != nil {
-		common.SysLog(fmt.Sprintf("Attempting to (re)create shared MCP instance for health monitoring for %s (ID: %d)", s.serviceName, s.serviceID))
+		common.SysLog(fmt.Sprintf("Creating new SharedMcpInstance for %s during Start", s.serviceName))
 
-		// Use unified global cache key and standardized parameters
 		cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
-		instanceNameDetail := fmt.Sprintf("global-shared-svc-%d", s.dbServiceConfig.ID)
+		instanceNameDetail := fmt.Sprintf("global-shared-svc-%d-start", s.dbServiceConfig.ID)
 		effectiveEnvs := s.dbServiceConfig.DefaultEnvsJSON
 
-		sharedInst, err := GetOrCreateSharedMcpInstanceWithKey(ctx, s.dbServiceConfig, cacheKey, instanceNameDetail, effectiveEnvs)
+		newInstance, err := GetOrCreateSharedMcpInstanceWithKey(ctx, s.dbServiceConfig, cacheKey, instanceNameDetail, effectiveEnvs)
 		if err != nil {
-			s.health.Status = StatusUnhealthy
-			s.health.ErrorMessage = fmt.Sprintf("Failed to recreate shared instance on Start: %v", err)
-			common.SysError(fmt.Sprintf("Failed to recreate shared instance for %s on Start: %v", s.serviceName, err))
-			return fmt.Errorf("failed to recreate shared instance for %s: %w", s.serviceName, err)
+			// Revert the BaseService state since we failed to create the instance
+			s.BaseService.Stop(ctx)
+			return fmt.Errorf("failed to create SharedMcpInstance during Start: %w", err)
 		}
-		s.sharedInstance = sharedInst
-		s.health.Status = StatusHealthy
-		s.health.ErrorMessage = ""
-		common.SysLog(fmt.Sprintf("Successfully (re)created shared MCP instance for health monitoring for %s", s.serviceName))
-	} else if s.sharedInstance != nil {
-		s.health.Status = StatusHealthy
-		s.health.ErrorMessage = ""
-	} else {
-		// dbServiceConfig is nil, cannot recreate
-		s.health.Status = StatusUnhealthy
-		s.health.ErrorMessage = "Cannot start monitored service: dbServiceConfig is nil, unable to create shared instance."
-		common.SysError(s.health.ErrorMessage)
-		return errors.New(s.health.ErrorMessage)
+
+		s.sharedInstance = newInstance
+		common.SysLog(fmt.Sprintf("Successfully created SharedMcpInstance for %s during Start", s.serviceName))
 	}
 
 	return nil
 }
 
-// Stop for MonitoredProxiedService updates state; actual cleanup handled by cache management
+// Stop for MonitoredProxiedService properly shuts down the underlying MCP instance
 func (s *MonitoredProxiedService) Stop(ctx context.Context) error {
 	if err := s.BaseService.Stop(ctx); err != nil {
 		return err
 	}
-	// The SharedMcpInstance is managed by the cache and cleanup functions
-	common.SysLog(fmt.Sprintf("MonitoredProxiedService %s stopped. Underlying shared instance will be cleaned up by cache management.", s.serviceName))
+
+	// Properly shutdown the SharedMcpInstance if it exists
+	if s.sharedInstance != nil {
+		if err := s.sharedInstance.Shutdown(ctx); err != nil {
+			common.SysError(fmt.Sprintf("Error shutting down SharedMcpInstance for %s: %v", s.serviceName, err))
+			// Don't return error here, as we want to continue cleanup
+		}
+
+		// Critical: Remove from global cache to prevent reuse of the closed instance
+		if s.dbServiceConfig != nil {
+			cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
+			sharedMCPServersMutex.Lock()
+			if cachedInstance, exists := sharedMCPServers[cacheKey]; exists && cachedInstance == s.sharedInstance {
+				delete(sharedMCPServers, cacheKey)
+				common.SysLog(fmt.Sprintf("Removed SharedMcpInstance for %s from global cache (key: %s)", s.serviceName, cacheKey))
+			}
+			sharedMCPServersMutex.Unlock()
+
+			// Also clear handler caches that reference the old SharedMcpInstance
+			sseHandlerCacheKey := fmt.Sprintf("service-%d-sseproxy", s.dbServiceConfig.ID)
+			sseWrappersMutex.Lock()
+			if _, exists := initializedSSEProxyWrappers[sseHandlerCacheKey]; exists {
+				delete(initializedSSEProxyWrappers, sseHandlerCacheKey)
+				common.SysLog(fmt.Sprintf("Cleared SSE handler cache for service %s (key: %s)", s.serviceName, sseHandlerCacheKey))
+			}
+			sseWrappersMutex.Unlock()
+
+			httpHandlerCacheKey := fmt.Sprintf("service-%d-httpproxy", s.dbServiceConfig.ID)
+			httpWrappersMutex.Lock()
+			if _, exists := initializedHTTPProxyWrappers[httpHandlerCacheKey]; exists {
+				delete(initializedHTTPProxyWrappers, httpHandlerCacheKey)
+				common.SysLog(fmt.Sprintf("Cleared HTTP handler cache for service %s (key: %s)", s.serviceName, httpHandlerCacheKey))
+			}
+			httpWrappersMutex.Unlock()
+		}
+
+		s.sharedInstance = nil // Clear the reference
+	}
+
+	common.SysLog(fmt.Sprintf("MonitoredProxiedService %s stopped and cleaned up.", s.serviceName))
 	return nil
 }
 
@@ -811,12 +850,26 @@ func CacheHandler(key string, handler http.Handler) {
 	initializedStdioSSEWrappers[key] = handler
 }
 
-// ServiceFactory 用于创建适合特定类型的服务实例，包含真实的MCP连接用于准确的健康监测
+// ServiceFactory creates a suitable service instance for a given service type,
+// including a real MCP connection for accurate health monitoring.
 func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
 	baseService := NewBaseService(mcpDBService.ID, mcpDBService.Name, mcpDBService.Type)
 
 	switch mcpDBService.Type {
-	case model.ServiceTypeStdio, model.ServiceTypeSSE, model.ServiceTypeStreamableHTTP:
+	case model.ServiceTypeStdio:
+		// For stdio services, check the startup strategy first.
+		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+		if strategy == common.StrategyStartOnDemand {
+			common.SysLog(fmt.Sprintf("ServiceFactory: Creating deferred MonitoredProxiedService for %s (on-demand)", mcpDBService.Name))
+			// Create a monitored service but without an active shared instance yet.
+			// The instance will be created on the first request in ProxyHandler.
+			monitoredService := NewMonitoredProxiedService(baseService, nil, mcpDBService)
+			monitoredService.UpdateHealth(StatusStopped, 0, "Service is configured for on-demand start")
+			return monitoredService, nil
+		}
+		fallthrough // If strategy is 'boot', proceed to the common logic below.
+
+	case model.ServiceTypeSSE, model.ServiceTypeStreamableHTTP:
 		common.SysLog(fmt.Sprintf("ServiceFactory: Creating MonitoredProxiedService for %s (type: %s)", mcpDBService.Name, mcpDBService.Type))
 
 		ctx := context.Background()

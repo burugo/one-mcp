@@ -56,6 +56,7 @@ func InitOptionMap() error {
 	common.OptionMap["Port"] = strconv.Itoa(*common.Port)
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
 	common.OptionMap["EnableGzip"] = strconv.FormatBool(*common.EnableGzip)
+	common.OptionMap[common.OptionStdioServiceStartupStrategy] = common.StrategyStartOnBoot
 
 	if err := InitOptionMapFromDB(); err != nil {
 		common.SysError(fmt.Sprintf("Failed to initialize option map from database: %v", err))

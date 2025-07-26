@@ -239,6 +239,33 @@ func ProxyHandler(c *gin.Context) {
 		}
 	}
 
+	// Handle on-demand startup for stdio services
+	if mcpDBService.Type == model.ServiceTypeStdio {
+		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+		if strategy == common.StrategyStartOnDemand {
+			serviceManager := proxy.GetServiceManager()
+			service, err := serviceManager.GetService(mcpDBService.ID)
+			if err != nil {
+				common.SysError(fmt.Sprintf("[ProxyHandler] Failed to get service %s: %v", serviceName, err))
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Service unavailable"})
+				return
+			}
+
+			if !service.IsRunning() {
+				common.SysLog(fmt.Sprintf("[ProxyHandler] Starting on-demand stdio service: %s", serviceName))
+				ctx := c.Request.Context()
+				if err := serviceManager.StartService(ctx, mcpDBService.ID); err != nil {
+					common.SysError(fmt.Sprintf("[ProxyHandler] Failed to start on-demand service %s: %v", serviceName, err))
+					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Failed to start service"})
+					return
+				}
+			}
+
+			// Update access time for idle shutdown tracking
+			serviceManager.UpdateServiceAccessTime(mcpDBService.ID)
+		}
+	}
+
 	if userID > 0 && mcpDBService.AllowUserOverride && mcpDBService.Type == model.ServiceTypeStdio {
 		// Determine proxy type based on action (SSE vs Streamable endpoint routing)
 		proxyType := "sseproxy" // default to SSE

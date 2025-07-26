@@ -28,15 +28,19 @@ export function PreferencesPage() {
     const [savingGithubEnabled, setSavingGithubEnabled] = useState(false);
     const [savingGoogleEnabled, setSavingGoogleEnabled] = useState(false);
 
+    // Stdio startup strategy
+    const [stdioStartupStrategy, setStdioStartupStrategy] = useState('boot');
+    const [savingStartupStrategy, setSavingStartupStrategy] = useState(false);
+
     useEffect(() => {
         setLoading(true);
         Promise.all([
             fetchServerAddress(),
-            loadOAuthConfigs()
+            loadSettings()
         ]).finally(() => setLoading(false));
     }, [fetchServerAddress]);
 
-    const loadOAuthConfigs = async () => {
+    const loadSettings = async () => {
         try {
             const res = await api.get('/option/') as APIResponse;
             if (res.success && Array.isArray(res.data)) {
@@ -46,6 +50,7 @@ export function PreferencesPage() {
                 const googleClientSecretOption = res.data.find((item: any) => item.key === 'GoogleClientSecret');
                 const githubOAuthEnabledOption = res.data.find((item: any) => item.key === 'GitHubOAuthEnabled');
                 const googleOAuthEnabledOption = res.data.find((item: any) => item.key === 'GoogleOAuthEnabled');
+                const startupStrategyOption = res.data.find((item: any) => item.key === 'StdioServiceStartupStrategy');
 
                 if (githubClientIdOption) setGithubClientId(githubClientIdOption.value);
                 if (githubClientSecretOption) setGithubClientSecret(githubClientSecretOption.value);
@@ -53,9 +58,10 @@ export function PreferencesPage() {
                 if (googleClientSecretOption) setGoogleClientSecret(googleClientSecretOption.value);
                 if (githubOAuthEnabledOption) setGithubOAuthEnabled(githubOAuthEnabledOption.value === 'true');
                 if (googleOAuthEnabledOption) setGoogleOAuthEnabled(googleOAuthEnabledOption.value === 'true');
+                if (startupStrategyOption) setStdioStartupStrategy(startupStrategyOption.value);
             }
         } catch (error) {
-            console.error('Failed to load OAuth configs:', error);
+            console.error('Failed to load settings:', error);
         }
     };
 
@@ -182,6 +188,32 @@ export function PreferencesPage() {
         setSavingGoogleEnabled(false);
     };
 
+    const handleSaveStartupStrategy = async (newValue: string) => {
+        setSavingStartupStrategy(true);
+        try {
+            const res = await api.put('/option/', { key: 'StdioServiceStartupStrategy', value: newValue }) as APIResponse;
+            if (res.success) {
+                toast({
+                    title: t('preferences.messages.saveSuccess'),
+                    description: t('preferences.messages.startupStrategyUpdated')
+                });
+            } else {
+                toast({
+                    variant: "destructive",
+                    title: t('preferences.messages.saveFailed'),
+                    description: res.message || t('preferences.messages.saveFailed')
+                });
+            }
+        } catch (error: any) {
+            toast({
+                variant: "destructive",
+                title: t('preferences.messages.saveFailed'),
+                description: error.message || t('preferences.messages.saveFailed')
+            });
+        }
+        setSavingStartupStrategy(false);
+    };
+
     return (
         <div className="w-full max-w-4xl mx-auto space-y-8 p-6">
             <div className="space-y-2">
@@ -215,6 +247,69 @@ export function PreferencesPage() {
                         {saving ? t('preferences.actions.saving') : t('preferences.actions.save')}
                     </button>
                     {message && <div className="text-green-600 text-sm mt-2">{message}</div>}
+                </div>
+            </div>
+
+            {/* Stdio 服务启动策略 */}
+            <div className="space-y-6">
+                <div className="space-y-2">
+                    <h3 className="text-xl font-semibold">{t('preferences.startupStrategy')}</h3>
+                    <p className="text-sm text-muted-foreground">{t('preferences.startupStrategyDesc')}</p>
+                </div>
+                <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+                    <div className="space-y-4">
+                        <div className="flex items-center space-x-3">
+                            <input
+                                type="radio"
+                                id="strategyBoot"
+                                name="startupStrategy"
+                                value="boot"
+                                checked={stdioStartupStrategy === 'boot'}
+                                onChange={(e) => {
+                                    const newValue = e.target.value;
+                                    setStdioStartupStrategy(newValue);
+                                    setTimeout(() => handleSaveStartupStrategy(newValue), 0);
+                                }}
+                                className="h-4 w-4 text-primary focus:ring-primary border-border"
+                                disabled={loading || savingStartupStrategy}
+                            />
+                            <div className="flex-1">
+                                <label htmlFor="strategyBoot" className="text-sm font-medium cursor-pointer">
+                                    {t('preferences.form.startupStrategyBoot')}
+                                </label>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {t('preferences.form.startupStrategyBootDesc')}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                            <input
+                                type="radio"
+                                id="strategyDemand"
+                                name="startupStrategy"
+                                value="demand"
+                                checked={stdioStartupStrategy === 'demand'}
+                                onChange={(e) => {
+                                    const newValue = e.target.value;
+                                    setStdioStartupStrategy(newValue);
+                                    setTimeout(() => handleSaveStartupStrategy(newValue), 0);
+                                }}
+                                className="h-4 w-4 text-primary focus:ring-primary border-border"
+                                disabled={loading || savingStartupStrategy}
+                            />
+                            <div className="flex-1">
+                                <label htmlFor="strategyDemand" className="text-sm font-medium cursor-pointer">
+                                    {t('preferences.form.startupStrategyDemand')}
+                                </label>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {t('preferences.form.startupStrategyDemandDesc')}
+                                </p>
+                            </div>
+                        </div>
+                        {savingStartupStrategy && (
+                            <div className="text-sm text-muted-foreground">{t('preferences.actions.saving')}</div>
+                        )}
+                    </div>
                 </div>
             </div>
 

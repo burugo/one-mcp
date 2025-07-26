@@ -381,6 +381,8 @@
         "description": "管理您的系统配置和登录选项",
         "general": "通用设置",
         "generalDesc": "配置系统的基本设置",
+        "startupStrategy": "Stdio 服务启动策略",
+        "startupStrategyDesc": "选择 Stdio 类型 MCP 服务的启动方式",
         "oauth": "OAuth 配置",
         "oauthDesc": "配置第三方登录提供商",
         "github": "配置 GitHub OAuth App",
@@ -397,6 +399,10 @@
             "googleClientSecret": "Google 客户端密钥",
             "enableGithubOAuth": "允许通过 GitHub 账户登录 & 注册",
             "enableGoogleOAuth": "允许通过 Google 账户登录 & 注册",
+            "startupStrategyBoot": "启动时连接",
+            "startupStrategyDemand": "按需连接",
+            "startupStrategyBootDesc": "系统启动时立即启动所有 Stdio 服务（默认）",
+            "startupStrategyDemandDesc": "仅在实际请求时启动 Stdio 服务，节省内存资源",
             "githubClientIdPlaceholder": "输入 GitHub Client ID",
             "githubClientSecretPlaceholder": "输入 GitHub Client Secret",
             "googleClientIdPlaceholder": "输入 Google Client ID",
@@ -420,7 +426,8 @@
             "googleOAuthEnabled": "Google OAuth 已启用",
             "googleOAuthDisabled": "Google OAuth 已禁用",
             "githubOAuthSaved": "GitHub OAuth 配置已保存",
-            "googleOAuthSaved": "Google OAuth 配置已保存"
+            "googleOAuthSaved": "Google OAuth 配置已保存",
+            "startupStrategyUpdated": "启动策略已更新"
         }
     },
     "analytics": {
