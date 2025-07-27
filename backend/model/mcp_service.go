@@ -48,9 +48,9 @@ type EnvVarDefinition struct {
 // MCPService represents an MCP service that can be enabled or configured
 type MCPService struct {
 	thing.BaseModel
-	Name                  string          `db:"name"`
-	DisplayName           string          `db:"display_name"`
-	Description           string          `db:"description"`
+	Name                  string          `db:"name" json:"name"`
+	DisplayName           string          `db:"display_name" json:"display_name"`
+	Description           string          `db:"description" json:"description"`
 	Category              ServiceCategory `db:"category"`
 	Icon                  string          `db:"icon"`
 	DefaultOn             bool            `db:"default_on"`
@@ -58,8 +58,8 @@ type MCPService struct {
 	OrderNum              int             `db:"order_num"`
 	Enabled               bool            `db:"enabled"`
 	Type                  ServiceType     `db:"type"`
-	Command               string          `db:"command"`
-	ArgsJSON              string          `db:"args_json,default:'{}'"`
+	Command               string          `json:"command,omitempty" db:"command"`
+	ArgsJSON              string          `json:"args_json,omitempty" db:"args_json,default:'{}'"`
 	AllowUserOverride     bool            `db:"allow_user_override"`     // Whether users can override admin settings
 	ClientConfigTemplates string          `db:"client_config_templates"` // JSON map of client_type to template details
 	RequiredEnvVarsJSON   string          `db:"required_env_vars_json"`  // JSON array of environment variables required by the service
@@ -70,7 +70,7 @@ type MCPService struct {
 	HealthStatus          string          `db:"-"`                       // 健康状态: unknown, healthy, unhealthy, starting, stopped
 	LastHealthCheck       time.Time       `db:"-"`                       // 最后健康检查时间
 	HealthDetails         string          `db:"-"`                       // 健康详情的JSON字符串
-	DefaultEnvsJSON       string          `db:"default_envs_json,default:'{}'"`
+	DefaultEnvsJSON       string          `json:"default_envs_json,omitempty" db:"default_envs_json,default:'{}'"`
 	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json,default:'{}'"` // JSON string for custom request headers map[string]string
 	RPDLimit              int             `json:"rpd_limit,omitempty" db:"rpd_limit,default:0"`          // 每日请求次数限制(0表示不限制)
 }

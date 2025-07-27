@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -663,6 +664,25 @@ func createActualMcpGoServerAndClientUncached(
 		}
 		common.SysLog(fmt.Sprintf("Stdio config for %s: Command=%s, Args=%v, Env=%v", serviceConfigForInstance.Name, stdioConf.Command, stdioConf.Args, stdioConf.Env))
 		mcpGoClient, err = mcpclient.NewStdioMCPClient(stdioConf.Command, stdioConf.Env, stdioConf.Args...)
+		if err == nil {
+			// Capture stderr output from the subprocess to get detailed error messages
+			if client, ok := mcpGoClient.(*mcpclient.Client); ok {
+				if stderrReader, hasStderr := mcpclient.GetStderr(client); hasStderr {
+					go func() {
+						scanner := bufio.NewScanner(stderrReader)
+						for scanner.Scan() {
+							line := scanner.Text()
+							if line != "" {
+								common.SysError(fmt.Sprintf("Stderr from %s: %s", serviceConfigForInstance.Name, line))
+							}
+						}
+						if err := scanner.Err(); err != nil {
+							common.SysError(fmt.Sprintf("Error reading stderr from %s: %v", serviceConfigForInstance.Name, err))
+						}
+					}()
+				}
+			}
+		}
 		needManualStart = false
 
 	case model.ServiceTypeSSE:
@@ -776,11 +796,15 @@ func createActualMcpGoServerAndClientUncached(
 
 	_, err = mcpGoClient.Initialize(ctx, initRequest)
 	if err != nil {
+		// Give stderr some time to output error details before we return
+		// This helps capture the actual error messages from the subprocess
+		time.Sleep(100 * time.Millisecond)
+
 		closeErr := mcpGoClient.Close()
 		if closeErr != nil {
 			common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after initialization error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 		}
-		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err)
+		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s (%s): %v. Check stderr logs for detailed error messages from the subprocess.", serviceConfigForInstance.Name, instanceNameDetail, err)
 		common.SysError(errMsg)
 		return nil, nil, errors.New(errMsg)
 	}

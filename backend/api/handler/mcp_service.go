@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +48,8 @@ func UpdateMCPService(c *gin.Context) {
 	// 保存原始值用于比较
 	oldPackageManager := service.PackageManager
 	oldSourcePackageName := service.SourcePackageName
+	oldCommand := service.Command                 // For SSE/HTTP services, this is the URL
+	oldDefaultEnvsJSON := service.DefaultEnvsJSON // For stdio services, check env changes
 	// Preserve original Command and ArgsJSON before binding, so we can see if user explicitly changed them
 	// or if our PackageManager logic should take precedence if they become empty after binding.
 	// However, the current logic is that PackageManager dictates Command/ArgsJSON if they are empty.
@@ -105,17 +109,77 @@ func UpdateMCPService(c *gin.Context) {
 	} // Add else if for other package managers or if service.PackageManager == "" to potentially clear Command/ArgsJSON if they were auto-set.
 	// For now, if PackageManager is not npm or pypi, Command and ArgsJSON remain as bound from request.
 
+	// Check if URL (Command) changed for SSE/HTTP services - need to restart the service
+	needsRestart := false
+	if (service.Type == model.ServiceTypeSSE || service.Type == model.ServiceTypeStreamableHTTP) &&
+		oldCommand != service.Command {
+		needsRestart = true
+		common.SysLog(fmt.Sprintf("URL changed for %s service %s (ID: %d) from '%s' to '%s', will restart instance",
+			service.Type, service.Name, service.ID, oldCommand, service.Command))
+	}
+
+	// Check if environment variables changed for stdio services - need to restart the service
+	if service.Type == model.ServiceTypeStdio && oldDefaultEnvsJSON != service.DefaultEnvsJSON {
+		needsRestart = true
+		common.SysLog(fmt.Sprintf("Environment variables changed for stdio service %s (ID: %d), will restart instance. Old: %s, New: %s",
+			service.Name, service.ID, oldDefaultEnvsJSON, service.DefaultEnvsJSON))
+	}
+
+	// Skip immediate restart preparation - we'll handle everything in background after DB update
+	// This avoids blocking the HTTP response
+	var needsRestartAfterUpdate = needsRestart
+
+	common.SysLog(fmt.Sprintf("Updating service %s (ID: %d) in database", service.Name, service.ID))
 	if err := model.UpdateService(service); err != nil {
+		common.SysError(fmt.Sprintf("Failed to update service %s (ID: %d) in database: %v", service.Name, service.ID, err))
 		common.RespError(c, http.StatusInternalServerError, i18n.Translate("update_service_failed", lang), err)
 		return
 	}
+	common.SysLog(fmt.Sprintf("Successfully updated service %s (ID: %d) in database", service.Name, service.ID))
 
-	jsonBytes, err := model.MCPServiceDB.ToJSON(service)
-	if err != nil {
-		common.RespError(c, http.StatusInternalServerError, i18n.Translate("serialize_service_failed", lang), err)
-		return
+	// Restart the service if configuration changed - do everything in background to avoid blocking
+	if needsRestartAfterUpdate {
+		common.SysLog(fmt.Sprintf("Configuration changed for service %s (ID: %d), starting background restart process", service.Name, service.ID))
+
+		// Handle everything in background to avoid blocking the HTTP response
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			serviceManager := proxy.GetServiceManager()
+
+			// Step 1: Re-fetch fresh configuration from database to ensure we have the latest settings
+			freshService, err := model.GetServiceByID(service.ID)
+			if err != nil {
+				common.SysError(fmt.Sprintf("Failed to re-fetch service %s (ID: %d) from database after configuration change: %v. Restart aborted.", service.Name, service.ID, err))
+				return
+			}
+			common.SysLog(fmt.Sprintf("Re-fetched fresh configuration for service %s (ID: %d) from database. New DefaultEnvsJSON: %s", freshService.Name, freshService.ID, freshService.DefaultEnvsJSON))
+
+			// Step 2: Check if service exists in manager and unregister it to clean up old configuration
+			if currentService, err := serviceManager.GetService(service.ID); err == nil && currentService != nil {
+				common.SysLog(fmt.Sprintf("Found service %s (ID: %d) in manager, unregistering to clean up old configuration", freshService.Name, freshService.ID))
+
+				// Unregister the old service completely (this stops it and cleans up all caches)
+				if err := serviceManager.UnregisterService(ctx, service.ID); err != nil {
+					common.SysError(fmt.Sprintf("Failed to unregister service %s (ID: %d) after configuration change: %v. Restart aborted.", freshService.Name, freshService.ID, err))
+					return
+				}
+				common.SysLog(fmt.Sprintf("Successfully unregistered service %s (ID: %d)", freshService.Name, freshService.ID))
+
+				// Step 3: Register the service again with fresh configuration
+				// RegisterService will create a new instance with the updated config and start it if enabled
+				if err := serviceManager.RegisterService(ctx, freshService); err != nil {
+					common.SysError(fmt.Sprintf("Failed to register service %s (ID: %d) with new configuration: %v. Please check system logs for details.", freshService.Name, freshService.ID, err))
+				} else {
+					common.SysLog(fmt.Sprintf("Successfully registered service %s (ID: %d) with updated configuration", freshService.Name, freshService.ID))
+				}
+			} else {
+				common.SysLog(fmt.Sprintf("Service %s (ID: %d) not found in manager, no restart needed", freshService.Name, freshService.ID))
+			}
+		}()
 	}
-	c.Data(http.StatusOK, "application/json", jsonBytes)
+
+	common.RespSuccess(c, service)
 }
 
 // ToggleMCPService godoc
@@ -153,8 +217,10 @@ func ToggleMCPService(c *gin.Context) {
 		return
 	}
 
+	// service.Enabled holds the state *before* the toggle.
+	// So, if it was true, it's now disabled, and vice-versa.
 	status := i18n.Translate("enabled", lang)
-	if !service.Enabled {
+	if service.Enabled {
 		status = i18n.Translate("disabled", lang)
 	}
 

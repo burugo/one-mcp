@@ -570,5 +570,32 @@
             "saveFailed": "保存失败",
             "rpdUpdateError": "更新RPD限制时发生错误"
         }
+    },
+    "editServiceModal": {
+        "title": "编辑服务",
+        "description": "更新此MCP服务的配置",
+        "form": {
+            "displayName": "显示名称",
+            "displayNamePlaceholder": "输入显示名称",
+            "description": "描述",
+            "descriptionPlaceholder": "输入服务描述",
+            "serviceTypeNote": "服务类型创建后无法更改",
+            "commandNotAvailable": "命令不可用",
+            "commandNote": "stdio服务的命令无法修改",
+            "argumentsNotAvailable": "参数不可用",
+            "argumentsNote": "stdio服务的参数无法修改",
+            "environmentsNote": "每行一个环境变量，格式：KEY=value"
+        },
+        "status": {
+            "validationSuccessDescription": "准备更新...",
+            "updating": "正在更新服务",
+            "updatingDescription": "正在保存更改..."
+        },
+        "actions": {
+            "saveChanges": "保存更改",
+            "validating": "验证中...",
+            "validationSuccess": "验证成功 ✓",
+            "updating": "更新中..."
+        }
     }
 }

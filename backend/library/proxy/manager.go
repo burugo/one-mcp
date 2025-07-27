@@ -71,12 +71,32 @@ func (m *ServiceManager) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to load enabled services: %w", err)
 	}
 
+	// 并发注册服务，避免一个服务失败阻塞其他服务
+	var wg sync.WaitGroup
 	for _, mcpService := range services {
-		if err := m.RegisterService(ctx, mcpService); err != nil {
-			log.Printf("Failed to register service %s (ID: %d): %v", mcpService.Name, mcpService.ID, err)
-			// 继续注册其他服务
-			continue
-		}
+		wg.Add(1)
+		go func(service *model.MCPService) {
+			defer wg.Done()
+			if err := m.RegisterService(ctx, service); err != nil {
+				log.Printf("Failed to register service %s (ID: %d): %v. Please check system logs for details.", service.Name, service.ID, err)
+			} else {
+				log.Printf("Successfully registered service %s (ID: %d)", service.Name, service.ID)
+			}
+		}(mcpService)
+	}
+
+	// 等待所有服务注册完成（但不阻塞太久）
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Printf("All services registration completed")
+	case <-time.After(60 * time.Second):
+		log.Printf("Service registration timeout after 60 seconds, but continuing...")
 	}
 
 	m.initialized = true
@@ -166,11 +186,10 @@ func (m *ServiceManager) UnregisterService(ctx context.Context, serviceID int64)
 		return ErrServiceNotFound
 	}
 
-	// 如果服务正在运行，先停止它
-	if service.IsRunning() {
-		if err := service.Stop(ctx); err != nil {
-			return fmt.Errorf("failed to stop service: %w", err)
-		}
+	// 总是停止服务以确保彻底清理（不依赖IsRunning()的判断）
+	if err := service.Stop(ctx); err != nil {
+		// Log the error but continue with cleanup
+		log.Printf("Warning: failed to stop service %d during unregister: %v", serviceID, err)
 	}
 
 	// 从健康检查器中移除

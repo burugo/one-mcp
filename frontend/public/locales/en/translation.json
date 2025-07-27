@@ -571,5 +571,32 @@
             "rpdUpdateError": "An unexpected error occurred while updating the RPD limit.",
             "unlimitedValue": "Unlimited"
         }
+    },
+    "editServiceModal": {
+        "title": "Edit Service",
+        "description": "Update the configuration for this MCP service",
+        "form": {
+            "displayName": "Display Name",
+            "displayNamePlaceholder": "Enter display name",
+            "description": "Description",
+            "descriptionPlaceholder": "Enter service description",
+            "serviceTypeNote": "Service type cannot be changed after creation",
+            "commandNotAvailable": "Command not available",
+            "commandNote": "Command cannot be modified for stdio services",
+            "argumentsNotAvailable": "Arguments not available",
+            "argumentsNote": "Arguments cannot be modified for stdio services",
+            "environmentsNote": "One environment variable per line in format: KEY=value"
+        },
+        "status": {
+            "validationSuccessDescription": "Preparing to update...",
+            "updating": "Updating Service",
+            "updatingDescription": "Saving changes..."
+        },
+        "actions": {
+            "saveChanges": "Save Changes",
+            "validating": "Validating...",
+            "validationSuccess": "Validated ✓",
+            "updating": "Updating..."
+        }
     }
 }

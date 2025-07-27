@@ -32,7 +32,7 @@ export const createMockService = (overrides = {}) => ({
     description: 'A test service',
     health_status: 'active',
     enabled: true,
-    type: 'stdio',
+    type: 'stdio' as 'stdio' | 'sse' | 'streamableHttp',
     package_manager: 'npm',
     source_package_name: 'test-package',
     client_config_templates: '{}',
@@ -41,6 +41,8 @@ export const createMockService = (overrides = {}) => ({
     source: 'npm' as 'npm' | 'pypi' | 'local' | 'recommended',
     envVars: [],
     readme: 'This is a readme',
+    command: '',
+    headers_json: '',
     ...overrides,
 })
 

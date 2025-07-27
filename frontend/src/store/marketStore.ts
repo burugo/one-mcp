@@ -28,6 +28,12 @@ export interface ServiceType {
     rpd_limit?: number;
     user_daily_request_count?: number;
     remaining_requests?: number;
+    // 添加编辑功能需要的字段
+    command?: string;
+    headers_json?: string;
+    type?: 'stdio' | 'sse' | 'streamableHttp';
+    args_json?: string;
+    default_envs_json?: string;
 }
 
 // 详细服务类型定义
@@ -648,7 +654,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             if (response.success) {
                 toastEmitter.emit({
                     title: "Service Status Updated",
-                    description: "Service status has been successfully changed."
+                    description: response.message || "Service status has been successfully changed."
                 });
 
                 // Update the service in the store directly

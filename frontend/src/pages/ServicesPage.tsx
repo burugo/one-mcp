@@ -3,12 +3,13 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, PlusCircle, Trash2, Plus, RotateCcw, Grid, List, Upload } from 'lucide-react';
+import { Search, PlusCircle, Trash2, Plus, RotateCcw, Grid, List, Upload, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
 import CustomServiceModal, { CustomServiceData } from '@/components/market/CustomServiceModal';
+import EditServiceModal, { EditServiceData } from '@/components/market/EditServiceModal';
 import BatchImportModal from '@/components/market/BatchImportModal';
 import api, { APIResponse } from '@/utils/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -32,7 +33,9 @@ export function ServicesPage() {
     const [configModalOpen, setConfigModalOpen] = useState(false);
     const [customServiceModalOpen, setCustomServiceModalOpen] = useState(false);
     const [batchImportModalOpen, setBatchImportModalOpen] = useState(false);
+    const [editModalOpen, setEditModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<ServiceType | null>(null);
+    const [serviceToEdit, setServiceToEdit] = useState<ServiceType | null>(null);
     const [uninstallDialogOpen, setUninstallDialogOpen] = useState(false);
     const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
     const [togglingServices, setTogglingServices] = useState<Set<string>>(new Set());
@@ -56,24 +59,7 @@ export function ServicesPage() {
     const activeServices = globalInstalledServices.filter(s => s.enabled === true);
     const inactiveServices = globalInstalledServices.filter(s => s.enabled === false);
 
-    const handleSaveVar = async (varName: string, value: string) => {
-        if (!selectedService) return;
-        const service_id = selectedService.id;
-        const res = await api.patch('/mcp_market/env_var', {
-            service_id,
-            var_name: varName,
-            var_value: value,
-        }) as APIResponse<any>;
-        if (res.success) {
-            toast({
-                title: 'Saved',
-                description: `${varName} has been saved.`
-            });
-            fetchInstalledServices();
-        } else {
-            throw new Error(res.message || 'Failed to save');
-        }
-    };
+
 
     const handleUninstallClick = (serviceId: string) => {
         setPendingUninstallId(serviceId);
@@ -386,6 +372,89 @@ export function ServicesPage() {
         }
     };
 
+    const handleUpdateService = async (serviceData: EditServiceData) => {
+        try {
+            // Base fields that can always be updated
+            const updatePayload: any = {
+                name: serviceData.name,
+                display_name: serviceData.display_name,
+                description: serviceData.description,
+            };
+
+            // Add type-specific fields
+            if (serviceData.type === 'sse' || serviceData.type === 'streamableHttp') {
+                // For SSE/HTTP services, URL is stored in the command field
+                if (serviceData.url) {
+                    updatePayload.command = serviceData.url;
+                }
+
+                // For non-stdio services, also update headers
+                if (serviceData.headers) {
+                    updatePayload.headers_json = JSON.stringify(
+                        serviceData.headers.split('\n')
+                            .filter(line => line.trim())
+                            .reduce((acc, line) => {
+                                const [key, ...valueParts] = line.split('=');
+                                if (key?.trim() && valueParts.length > 0) {
+                                    acc[key.trim()] = valueParts.join('=').trim();
+                                }
+                                return acc;
+                            }, {} as Record<string, string>)
+                    );
+                }
+            } else if (serviceData.type === 'stdio') {
+                // For stdio services, update environment variables
+                if (serviceData.envVars !== undefined) {
+                    updatePayload.default_envs_json = JSON.stringify(
+                        serviceData.envVars.split('\n')
+                            .filter(line => line.trim())
+                            .reduce((acc, line) => {
+                                const [key, ...valueParts] = line.split('=');
+                                if (key?.trim() && valueParts.length > 0) {
+                                    acc[key.trim()] = valueParts.join('=').trim();
+                                }
+                                return acc;
+                            }, {} as Record<string, string>)
+                    );
+                }
+            }
+
+            const response = await api.put(`/mcp_services/${serviceData.id}`, updatePayload) as APIResponse<any>;
+
+            if (response.success) {
+                toast({
+                    title: 'Update Successful',
+                    description: 'Service has been successfully updated.'
+                });
+
+                // Refresh the services list
+                await fetchInstalledServices();
+
+                // Close the modal
+                setEditModalOpen(false);
+                setServiceToEdit(null);
+            } else {
+                throw new Error(response.message || 'Update failed');
+            }
+        } catch (error: any) {
+            let errorMessage = 'Unknown error';
+            if (error.response?.data?.message) {
+                errorMessage = error.response.data.message;
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+
+            toast({
+                title: 'Update Failed',
+                description: errorMessage,
+                variant: 'destructive'
+            });
+
+            // Re-throw the error so EditServiceModal can handle its loading state
+            throw error;
+        }
+    };
+
     // 渲染列表视图
     const renderListView = (services: ServiceType[]) => {
         if (services.length === 0) {
@@ -462,13 +531,22 @@ export function ServicesPage() {
                                         {t('services.configure')}
                                     </Button>
                                     {isAdmin && (
-                                        <button
-                                            className="p-1 rounded hover:bg-red-100 text-red-500"
-                                            onClick={() => handleUninstallClick(service.id)}
-                                            title={t('services.uninstallService')}
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
+                                        <>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => { setServiceToEdit(service); setEditModalOpen(true); }}
+                                            >
+                                                {t('services.edit')}
+                                            </Button>
+                                            <button
+                                                className="p-1 rounded hover:bg-red-100 text-red-500"
+                                                onClick={() => handleUninstallClick(service.id)}
+                                                title={t('services.uninstallService')}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </>
                                     )}
                                 </div>
                             </TableCell>
@@ -516,13 +594,22 @@ export function ServicesPage() {
                             </div>
                         </div>
                         {isAdmin && (
-                            <button
-                                className="ml-2 p-1 rounded hover:bg-red-100 text-red-500"
-                                onClick={() => handleUninstallClick(service.id)}
-                                title={t('services.uninstallService')}
-                            >
-                                <Trash2 size={18} />
-                            </button>
+                            <div className="flex items-center space-x-1 ml-2">
+                                <button
+                                    className="p-1 rounded hover:bg-blue-100 text-blue-500"
+                                    onClick={() => { setServiceToEdit(service); setEditModalOpen(true); }}
+                                    title={t('services.editService')}
+                                >
+                                    <Pencil size={16} />
+                                </button>
+                                <button
+                                    className="p-1 rounded hover:bg-red-100 text-red-500"
+                                    onClick={() => handleUninstallClick(service.id)}
+                                    title={t('services.uninstallService')}
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                            </div>
                         )}
                     </div>
                 </CardHeader>
@@ -675,7 +762,15 @@ export function ServicesPage() {
                     open={configModalOpen}
                     onClose={() => setConfigModalOpen(false)}
                     service={selectedService}
-                    onSaveVar={handleSaveVar}
+                />
+            )}
+
+            {serviceToEdit && (
+                <EditServiceModal
+                    open={editModalOpen}
+                    onClose={() => setEditModalOpen(false)}
+                    service={serviceToEdit}
+                    onUpdateService={handleUpdateService}
                 />
             )}
 

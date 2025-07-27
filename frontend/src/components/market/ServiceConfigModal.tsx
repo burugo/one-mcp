@@ -33,21 +33,13 @@ interface ServiceConfigModalProps {
     open: boolean;
     service: Service | null; // Use the specific type
     onClose: () => void;
-    onSaveVar: (varName: string, value: string) => Promise<void>;
 }
 
-function getEnvVars(service: Service | null): Record<string, string> {
-    if (!service) return {};
-    if (service.env_vars && typeof service.env_vars === 'object') return service.env_vars;
-    return {};
-}
 
-const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, onClose, onSaveVar }) => {
+
+const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, onClose }) => {
     const { t } = useTranslation();
-    const [envValues, setEnvValues] = useState<Record<string, string>>(getEnvVars(service));
-    const [saving, setSaving] = useState<string | null>(null);
     const [copied, setCopied] = useState<{ [k: string]: boolean }>({});
-    const [error, setError] = useState<string | null>(null);
     const [userToken, setUserToken] = useState<string>('');
     const [showManualCopy, setShowManualCopy] = useState<{ [k: string]: boolean }>({});
     const serverAddress = useServerAddress();
@@ -55,9 +47,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
     const { toast } = useToast();
     const [selectedEndpointType, setSelectedEndpointType] = useState<'sse' | 'streamableHttp'>('streamableHttp');
 
-    React.useEffect(() => {
-        setEnvValues(getEnvVars(service));
-    }, [service]);
+
 
     // 获取用户token
     React.useEffect(() => {
@@ -100,24 +90,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         }
     }, [open, currentUser, updateUserInfo]);
 
-    const handleChange = (name: string, value: string) => {
-        setEnvValues((prev) => ({ ...prev, [name]: value }));
-    };
 
-    const handleSave = async (varName: string) => {
-        setSaving(varName);
-        setError(null);
-        try {
-            await onSaveVar(varName, envValues[varName]);
-        } catch (e: unknown) {
-            if (e instanceof Error) {
-                setError(e.message || t('serviceConfigModal.messages.saveFailed'));
-            } else {
-                setError(t('serviceConfigModal.messages.saveFailed'));
-            }
-        }
-        setSaving(null);
-    };
 
     // 检查用户是否是管理员(role >= 10)
     const isAdmin = currentUser?.role && currentUser.role >= 10;
@@ -290,43 +263,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
                     </DialogDescription>
                 </DialogHeader>
 
-                {/* 环境变量配置部分 - 只有管理员可以看到 */}
-                {isAdmin && (
-                    <div className="space-y-4 mt-2">
-                        <div className="text-sm font-medium text-foreground mb-2">{t('serviceConfigModal.sections.environmentVariables')}</div>
-                        {Object.keys(envValues).length === 0 && (
-                            <div className="text-muted-foreground text-sm">{t('serviceConfigModal.sections.noEnvironmentVariables')}</div>
-                        )}
-                        {Object.keys(envValues).map((varName) => (
-                            <div key={varName} className="mb-4">
-                                <label
-                                    className="block text-sm font-medium mb-1 break-all"
-                                    title={varName}
-                                >
-                                    {varName}
-                                </label>
-                                <div className="flex gap-2 items-center">
-                                    <Input
-                                        type="text"
-                                        value={envValues[varName] || ''}
-                                        onChange={(e) => handleChange(varName, e.target.value)}
-                                        className="flex-1 min-w-0"
-                                    />
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={() => handleSave(varName)}
-                                        disabled={saving === varName}
-                                    >
-                                        {saving === varName ? t('serviceConfigModal.actions.saving') : t('serviceConfigModal.actions.save')}
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
-                        {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
-                        {Object.keys(envValues).length > 0 && <div className="my-4 border-t border-border"></div>}
-                    </div>
-                )}
+
 
                 {/* 端点地址部分 - 所有用户都可以看到 */}
                 <div className="space-y-3">
