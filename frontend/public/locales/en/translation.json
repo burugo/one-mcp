@@ -141,7 +141,9 @@
         "requestsRemaining": "requests remaining",
         "confirmUninstall": "Confirm Uninstall",
         "confirmUninstallDescription": "Are you sure you want to uninstall this service? This will remove all related configurations.",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "edit": "Edit",
+        "editService": "Edit Service"
     },
     "market": {
         "title": "Service Marketplace",
@@ -585,7 +587,10 @@
             "commandNote": "Command cannot be modified for stdio services",
             "argumentsNotAvailable": "Arguments not available",
             "argumentsNote": "Arguments cannot be modified for stdio services",
-            "environmentsNote": "One environment variable per line in format: KEY=value"
+            "environmentsNote": "One environment variable per line in format: KEY=value",
+            "commandLine": "Command Line",
+            "commandLinePlaceholder": "Command line will be displayed here",
+            "commandLineNote": "Complete command line for stdio service (read-only)"
         },
         "status": {
             "validationSuccessDescription": "Preparing to update...",

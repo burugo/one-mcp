@@ -141,7 +141,9 @@
         "requestsRemaining": "剩余请求",
         "confirmUninstall": "确认卸载",
         "confirmUninstallDescription": "您确定要卸载此服务吗？这将删除所有相关配置。",
-        "cancel": "取消"
+        "cancel": "取消",
+        "edit": "编辑",
+        "editService": "编辑服务"
     },
     "market": {
         "title": "服务市场",
@@ -584,7 +586,10 @@
             "commandNote": "stdio服务的命令无法修改",
             "argumentsNotAvailable": "参数不可用",
             "argumentsNote": "stdio服务的参数无法修改",
-            "environmentsNote": "每行一个环境变量，格式：KEY=value"
+            "environmentsNote": "每行一个环境变量，格式：KEY=value",
+            "commandLine": "执行命令",
+            "commandLinePlaceholder": "命令行将在此显示",
+            "commandLineNote": "stdio服务的完整命令行（不可修改）"
         },
         "status": {
             "validationSuccessDescription": "准备更新...",

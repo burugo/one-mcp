@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 interface Service {
     id: string | number; // 兼容 ServiceType 的 string 类型 id
     name: string;
+    display_name?: string; // 显示名称
     env_vars?: Record<string, string>;
     rpd_limit?: number; // 改为可选
     user_daily_request_count?: number;
@@ -257,7 +258,9 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         <Dialog open={open} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader className="mb-4">
-                    <DialogTitle>{t('serviceConfigModal.title')}</DialogTitle>
+                    <DialogTitle>
+                        {service?.display_name || service?.name || t('serviceConfigModal.title')}
+                    </DialogTitle>
                     <DialogDescription>
                         {t('serviceConfigModal.description')}
                     </DialogDescription>

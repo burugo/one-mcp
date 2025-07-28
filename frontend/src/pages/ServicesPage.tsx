@@ -376,7 +376,6 @@ export function ServicesPage() {
         try {
             // Base fields that can always be updated
             const updatePayload: any = {
-                name: serviceData.name,
                 display_name: serviceData.display_name,
                 description: serviceData.description,
             };

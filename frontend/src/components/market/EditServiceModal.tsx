@@ -19,7 +19,7 @@ interface EditServiceModalProps {
 
 export interface EditServiceData {
     id: string;
-    name: string;
+    name?: string;
     display_name: string;
     description: string;
     type: 'stdio' | 'sse' | 'streamableHttp';
@@ -28,6 +28,7 @@ export interface EditServiceData {
     url?: string;
     headers?: string;
     envVars?: string;
+    commandLine?: string; // For stdio services merged command display
 }
 
 // Define submission status types
@@ -54,19 +55,42 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
     // Initialize form data when service prop changes
     useEffect(() => {
         if (service && open) {
-            // Determine service type based on service.source or other indicators
+            // Determine service type based on service.type or command field
             let serviceType: 'stdio' | 'sse' | 'streamableHttp' = 'streamableHttp';
 
             // Try to determine type from the service data
             if (service.type) {
-                // Use the explicit type if available
+                // Use the explicit type if available (most reliable)
                 serviceType = service.type;
+            } else if (service.command) {
+                // If no explicit type, determine from command field
+                const command = service.command.trim();
+
+                // Check if it's a stdio command (npx, uvx)
+                if (command === 'npx' || command === 'uvx') {
+                    serviceType = 'stdio';
+                } else {
+                    // Check if it looks like a URL (for SSE/HTTP services)
+                    try {
+                        new URL(command);
+                        // It's a valid URL, determine if SSE or streamableHttp
+                        if (command.includes('/sse')) {
+                            serviceType = 'sse';
+                        } else {
+                            serviceType = 'streamableHttp';
+                        }
+                    } catch {
+                        // Not a valid URL, fallback to source-based detection
+                        if (service.source === 'npm' || service.source === 'pypi') {
+                            serviceType = 'stdio';
+                        } else {
+                            serviceType = 'streamableHttp'; // Default assumption
+                        }
+                    }
+                }
             } else if (service.source === 'npm' || service.source === 'pypi') {
+                // Fallback to source-based detection if no command
                 serviceType = 'stdio';
-            } else if (service.source === 'local') {
-                // For local/custom services, we need to guess from other fields
-                // This is a simplified approach - in a real app you might store the type explicitly
-                serviceType = 'streamableHttp'; // Default assumption
             }
 
             // Extract data based on service type
@@ -91,17 +115,23 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                     }
                 }
             } else if (serviceType === 'stdio') {
-                // For stdio services, extract arguments from args_json
+                // For stdio services, create merged command line display
+                let commandLine = service.command || '';
                 if (service.args_json) {
                     try {
                         const argsArray = JSON.parse(service.args_json);
                         if (Array.isArray(argsArray)) {
+                            // Merge command and arguments into single command line
+                            commandLine = [service.command || '', ...argsArray].filter(Boolean).join(' ');
+                            // Also keep separate args for backward compatibility
                             args = argsArray.join('\n');
                         }
                     } catch (e) {
                         console.warn('Failed to parse args_json:', e);
                     }
                 }
+                // Store the merged command line in url field (reusing existing field)
+                url = commandLine;
 
                 // Extract environment variables from default_envs_json
                 if (service.default_envs_json) {
@@ -126,7 +156,8 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                 arguments: args,
                 url: url,
                 headers: headers,
-                envVars: envVars
+                envVars: envVars,
+                commandLine: serviceType === 'stdio' ? url : undefined
             });
             setErrors({});
             setSubmissionStatus('idle');
@@ -148,10 +179,6 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
 
     const validateForm = (): boolean => {
         const newErrors: Record<string, string> = {};
-
-        if (!serviceData.name.trim()) {
-            newErrors.name = t('customServiceModal.form.serviceNamePlaceholder');
-        }
 
         if (!serviceData.display_name.trim()) {
             newErrors.display_name = 'Display name cannot be empty';
@@ -276,18 +303,6 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
 
                 <form onSubmit={handleSubmit} className="space-y-4 py-2">
                     <div className="space-y-2">
-                        <Label htmlFor="service-name">{t('customServiceModal.form.serviceName')}</Label>
-                        <Input
-                            id="service-name"
-                            value={serviceData.name}
-                            onChange={(e) => handleChange('name', e.target.value)}
-                            placeholder={t('customServiceModal.form.serviceNamePlaceholder')}
-                            className={errors.name ? 'border-red-500' : ''}
-                        />
-                        {errors.name && <p className="text-red-500 text-xs">{errors.name}</p>}
-                    </div>
-
-                    <div className="space-y-2">
                         <Label htmlFor="service-display-name">{t('editServiceModal.form.displayName')}</Label>
                         <Input
                             id="service-display-name"
@@ -332,27 +347,15 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                     {serviceData.type === 'stdio' && (
                         <>
                             <div className="space-y-2">
-                                <Label htmlFor="service-command">{t('customServiceModal.form.command')}</Label>
+                                <Label htmlFor="service-command-line">{t('editServiceModal.form.commandLine')}</Label>
                                 <Input
-                                    id="service-command"
-                                    value={serviceData.command}
+                                    id="service-command-line"
+                                    value={serviceData.commandLine || ''}
                                     readOnly
                                     className="bg-gray-50 dark:bg-gray-800 opacity-75"
-                                    placeholder={t('editServiceModal.form.commandNotAvailable')}
+                                    placeholder={t('editServiceModal.form.commandLinePlaceholder')}
                                 />
-                                <p className="text-xs text-muted-foreground">{t('editServiceModal.form.commandNote')}</p>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="service-arguments">{t('customServiceModal.form.arguments')}</Label>
-                                <Textarea
-                                    id="service-arguments"
-                                    value={serviceData.arguments}
-                                    readOnly
-                                    className="bg-gray-50 dark:bg-gray-800 opacity-75 min-h-[60px]"
-                                    placeholder={t('editServiceModal.form.argumentsNotAvailable')}
-                                />
-                                <p className="text-xs text-muted-foreground">{t('editServiceModal.form.argumentsNote')}</p>
+                                <p className="text-xs text-muted-foreground">{t('editServiceModal.form.commandLineNote')}</p>
                             </div>
 
                             <div className="space-y-2">
