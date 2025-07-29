@@ -880,20 +880,7 @@ func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
 	baseService := NewBaseService(mcpDBService.ID, mcpDBService.Name, mcpDBService.Type)
 
 	switch mcpDBService.Type {
-	case model.ServiceTypeStdio:
-		// For stdio services, check the startup strategy first.
-		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
-		if strategy == common.StrategyStartOnDemand {
-			common.SysLog(fmt.Sprintf("ServiceFactory: Creating deferred MonitoredProxiedService for %s (on-demand)", mcpDBService.Name))
-			// Create a monitored service but without an active shared instance yet.
-			// The instance will be created on the first request in ProxyHandler.
-			monitoredService := NewMonitoredProxiedService(baseService, nil, mcpDBService)
-			monitoredService.UpdateHealth(StatusStopped, 0, "Service is configured for on-demand start")
-			return monitoredService, nil
-		}
-		fallthrough // If strategy is 'boot', proceed to the common logic below.
-
-	case model.ServiceTypeSSE, model.ServiceTypeStreamableHTTP:
+	case model.ServiceTypeStdio, model.ServiceTypeSSE, model.ServiceTypeStreamableHTTP:
 		common.SysLog(fmt.Sprintf("ServiceFactory: Creating MonitoredProxiedService for %s (type: %s)", mcpDBService.Name, mcpDBService.Type))
 
 		ctx := context.Background()

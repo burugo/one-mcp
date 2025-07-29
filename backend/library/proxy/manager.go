@@ -150,26 +150,13 @@ func (m *ServiceManager) RegisterService(ctx context.Context, mcpService *model.
 	// Register to health checker
 	m.healthChecker.RegisterService(service)
 
-	// Decide whether to start service based on startup strategy
+	// Start service if it's enabled and default on (always start stdio services regardless of strategy)
 	if mcpService.DefaultOn && mcpService.Enabled {
-		shouldStart := true
-
-		// For stdio services, check startup strategy
-		if mcpService.Type == model.ServiceTypeStdio {
-			strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
-			if strategy == common.StrategyStartOnDemand {
-				shouldStart = false
-				log.Printf("Service %s (ID: %d) registered but not started due to on-demand strategy", mcpService.Name, mcpService.ID)
-			}
-		}
-
-		if shouldStart {
-			if err := service.Start(ctx); err != nil {
-				// Failed to start, but keep the registration
-				log.Printf("Failed to start service %s (ID: %d): %v", mcpService.Name, mcpService.ID, err)
-			} else {
-				log.Printf("Service %s (ID: %d) started at registration", mcpService.Name, mcpService.ID)
-			}
+		if err := service.Start(ctx); err != nil {
+			// Failed to start, but keep the registration
+			log.Printf("Failed to start service %s (ID: %d): %v", mcpService.Name, mcpService.ID, err)
+		} else {
+			log.Printf("Service %s (ID: %d) started at registration", mcpService.Name, mcpService.ID)
 		}
 	}
 
