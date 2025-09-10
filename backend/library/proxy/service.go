@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,113 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
+
+// stderrLogThrottler provides a simple throttling mechanism for stderr logs
+type stderrLogThrottler struct {
+	mu               sync.Mutex
+	serviceLastLog   map[int64]time.Time // serviceID -> last log time
+	throttleInterval time.Duration       // minimum interval between log writes
+}
+
+var globalStderrThrottler = &stderrLogThrottler{
+	serviceLastLog:   make(map[int64]time.Time),
+	throttleInterval: 10 * time.Second, // 10 seconds minimum interval
+}
+
+// shouldLog checks if we should log for this service based on throttling rules
+func (t *stderrLogThrottler) shouldLog(serviceID int64, message string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now()
+	lastLogTime, exists := t.serviceLastLog[serviceID]
+
+	// Always log if it's the first time or enough time has passed
+	if !exists || now.Sub(lastLogTime) >= t.throttleInterval {
+		t.serviceLastLog[serviceID] = now
+		return true
+	}
+
+	// For urgent errors (like "fatal", "critical", "crash"), ignore throttling
+	lowerMsg := strings.ToLower(message)
+	if strings.Contains(lowerMsg, "fatal") ||
+		strings.Contains(lowerMsg, "critical") ||
+		strings.Contains(lowerMsg, "crash") ||
+		strings.Contains(lowerMsg, "panic") {
+		t.serviceLastLog[serviceID] = now
+		return true
+	}
+
+	return false
+}
+
+// classifyStderrLogLevel intelligently determines the log level based on message content
+func classifyStderrLogLevel(message string) model.MCPLogLevel {
+	lowerMsg := strings.ToLower(message)
+
+	// Info level patterns (startup messages, running status)
+	if strings.Contains(lowerMsg, "running on stdio") ||
+		strings.Contains(lowerMsg, "server running") ||
+		strings.Contains(lowerMsg, "started") ||
+		strings.Contains(lowerMsg, "listening") ||
+		strings.Contains(lowerMsg, "ready") ||
+		strings.Contains(lowerMsg, "initialized") ||
+		strings.Contains(lowerMsg, "starting") {
+		return model.MCPLogLevelInfo
+	}
+
+	// Warning level patterns
+	if strings.Contains(lowerMsg, "warning") ||
+		strings.Contains(lowerMsg, "warn") ||
+		strings.Contains(lowerMsg, "deprecated") ||
+		strings.Contains(lowerMsg, "retry") ||
+		strings.Contains(lowerMsg, "timeout") {
+		return model.MCPLogLevelWarn
+	}
+
+	// Error level patterns (default for stderr, but explicitly check for known error patterns)
+	if strings.Contains(lowerMsg, "error") ||
+		strings.Contains(lowerMsg, "failed") ||
+		strings.Contains(lowerMsg, "exception") ||
+		strings.Contains(lowerMsg, "fatal") ||
+		strings.Contains(lowerMsg, "critical") ||
+		strings.Contains(lowerMsg, "crash") ||
+		strings.Contains(lowerMsg, "panic") {
+		return model.MCPLogLevelError
+	}
+
+	// Default to info for unrecognized stderr messages instead of error
+	// This is because many programs write informational messages to stderr
+	return model.MCPLogLevelInfo
+}
+
+// isBenignPipeClosedError returns true when the error indicates a normal pipe/stdio closure
+// which commonly happens when the subprocess exits. These should not be treated as errors.
+func isBenignPipeClosedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "file already closed") ||
+		strings.Contains(lower, "use of closed file") ||
+		strings.Contains(lower, "closed pipe") ||
+		strings.Contains(lower, "broken pipe") {
+		return true
+	}
+	return false
+}
+
+// isBenignStderrLine returns true when the stderr line is a known harmless close-related message
+func isBenignStderrLine(line string) bool {
+	lower := strings.ToLower(line)
+	if strings.Contains(lower, "file already closed") ||
+		strings.Contains(lower, "use of closed file") ||
+		strings.Contains(lower, "closed pipe") ||
+		strings.Contains(lower, "broken pipe") {
+		return true
+	}
+	return false
+}
 
 // SharedMcpInstance encapsulates a shared MCPServer and its MCPClient.
 type SharedMcpInstance struct {
@@ -662,7 +770,14 @@ func createActualMcpGoServerAndClientUncached(
 				}
 			}
 		}
-		common.SysLog(fmt.Sprintf("Stdio config for %s: Command=%s, Args=%v, Env=%v", serviceConfigForInstance.Name, stdioConf.Command, stdioConf.Args, stdioConf.Env))
+		// Extract only environment variable keys for logging (avoid sensitive values)
+		envKeys := make([]string, 0, len(stdioConf.Env))
+		for _, env := range stdioConf.Env {
+			if parts := strings.SplitN(env, "=", 2); len(parts) > 0 {
+				envKeys = append(envKeys, parts[0])
+			}
+		}
+		common.SysLog(fmt.Sprintf("Stdio config for %s: Command=%s, Args=%v, EnvKeys=%v", serviceConfigForInstance.Name, stdioConf.Command, stdioConf.Args, envKeys))
 		mcpGoClient, err = mcpclient.NewStdioMCPClient(stdioConf.Command, stdioConf.Env, stdioConf.Args...)
 		if err == nil {
 			// Capture stderr output from the subprocess to get detailed error messages
@@ -673,11 +788,42 @@ func createActualMcpGoServerAndClientUncached(
 						for scanner.Scan() {
 							line := scanner.Text()
 							if line != "" {
-								common.SysError(fmt.Sprintf("Stderr from %s: %s", serviceConfigForInstance.Name, line))
+								// Skip benign close-related lines
+								if isBenignStderrLine(line) {
+									// Optional: one-line info for visibility (not error, not DB)
+									// common.SysLog(fmt.Sprintf("Process stderr closed for %s (benign): %s", serviceConfigForInstance.Name, line))
+									continue
+								}
+								// Classify log level based on message content
+								logLevel := classifyStderrLogLevel(line)
+
+								// Log to system log (use appropriate level)
+								if logLevel == model.MCPLogLevelError {
+									common.SysError(fmt.Sprintf("Stderr from %s: %s", serviceConfigForInstance.Name, line))
+								} else {
+									common.SysLog(fmt.Sprintf("Stderr from %s: %s", serviceConfigForInstance.Name, line))
+								}
+
+								// Save to database with throttling to prevent high-frequency writes
+								if globalStderrThrottler.shouldLog(serviceConfigForInstance.ID, line) {
+									if err := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, logLevel, line); err != nil {
+										common.SysError(fmt.Sprintf("Failed to save MCP log for %s: %v", serviceConfigForInstance.Name, err))
+									}
+								}
 							}
 						}
 						if err := scanner.Err(); err != nil {
-							common.SysError(fmt.Sprintf("Error reading stderr from %s: %v", serviceConfigForInstance.Name, err))
+							// Skip benign/normal closure errors
+							if isBenignPipeClosedError(err) {
+								// common.SysLog(fmt.Sprintf("Process stderr closed for %s (benign): %v", serviceConfigForInstance.Name, err))
+								return
+							}
+							errMsg := fmt.Sprintf("Error reading stderr from %s: %v", serviceConfigForInstance.Name, err)
+							common.SysError(errMsg)
+							// Also save scanner error to database
+							if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+								common.SysError(fmt.Sprintf("Failed to save MCP scanner error log for %s: %v", serviceConfigForInstance.Name, saveErr))
+							}
 						}
 					}()
 				}
@@ -688,7 +834,12 @@ func createActualMcpGoServerAndClientUncached(
 	case model.ServiceTypeSSE:
 		url := serviceConfigForInstance.Command // URL is stored in Command field for SSE/HTTP
 		if url == "" {
-			return nil, nil, fmt.Errorf("URL (from Command field) is empty for SSE service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
+			errMsg := fmt.Sprintf("URL (from Command field) is empty for SSE service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
+			// Save configuration error to database
+			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
+			}
+			return nil, nil, fmt.Errorf(errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -707,7 +858,12 @@ func createActualMcpGoServerAndClientUncached(
 	case model.ServiceTypeStreamableHTTP:
 		url := serviceConfigForInstance.Command // URL is stored in Command field for SSE/HTTP
 		if url == "" {
-			return nil, nil, fmt.Errorf("URL (from Command field) is empty for StreamableHTTP service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
+			errMsg := fmt.Sprintf("URL (from Command field) is empty for StreamableHTTP service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
+			// Save configuration error to database
+			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
+			}
+			return nil, nil, fmt.Errorf(errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -737,6 +893,12 @@ func createActualMcpGoServerAndClientUncached(
 	if err != nil { // Consolidated error check after switch
 		errMsg := fmt.Sprintf("Failed to create mcp-go client for %s (Type: %s, %s): %v", serviceConfigForInstance.Name, serviceConfigForInstance.Type, instanceNameDetail, err)
 		common.SysError(errMsg)
+
+		// Save client creation failure to database
+		if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+			common.SysError(fmt.Sprintf("Failed to save MCP client creation error log for %s: %v", serviceConfigForInstance.Name, saveErr))
+		}
+
 		return nil, nil, errors.New(errMsg)
 	}
 
@@ -754,6 +916,12 @@ func createActualMcpGoServerAndClientUncached(
 		if startErr != nil {
 			errMsg := fmt.Sprintf("Failed to start mcp-go client for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, startErr)
 			common.SysError(errMsg)
+
+			// Save client start failure to database
+			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save MCP client start error log for %s: %v", serviceConfigForInstance.Name, saveErr))
+			}
+
 			if closeErr := mcpGoClient.Close(); closeErr != nil {
 				common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after Start() error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 			}
@@ -772,7 +940,9 @@ func createActualMcpGoServerAndClientUncached(
 					break PingLoop
 				case <-ticker.C:
 					if err := mcpGoClient.Ping(ctx); err != nil {
-						common.SysError(fmt.Sprintf("Ping failed for %s: %v", serviceConfigForInstance.Name, err))
+						errMsg := fmt.Sprintf("Ping failed for %s: %v", serviceConfigForInstance.Name, err)
+						common.SysError(errMsg)
+						// Note: Ping failures are not logged to database to avoid high-frequency writes
 					}
 				}
 			}
@@ -806,6 +976,12 @@ func createActualMcpGoServerAndClientUncached(
 		}
 		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s (%s): %v. Check stderr logs for detailed error messages from the subprocess.", serviceConfigForInstance.Name, instanceNameDetail, err)
 		common.SysError(errMsg)
+
+		// Save initialization failure to database
+		if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+			common.SysError(fmt.Sprintf("Failed to save MCP initialization error log for %s: %v", serviceConfigForInstance.Name, saveErr))
+		}
+
 		return nil, nil, errors.New(errMsg)
 	}
 
@@ -822,6 +998,8 @@ func createActualMcpGoServerAndClientUncached(
 	if err := addClientResourceTemplatesToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add resource templates for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
+
+	// Note: Success initialization logs are not saved to avoid log spam
 
 	return mcpGoServer, mcpGoClient, nil
 }

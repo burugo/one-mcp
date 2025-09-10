@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"one-mcp/backend/model"
+	"strings"
 	"sync"
 	"time"
 )
@@ -100,6 +101,12 @@ func (m *InstallationManager) SubmitTask(task InstallationTask) {
 	// 保存任务
 	m.tasks[task.ServiceID] = &task
 
+	// Log installation task submission to database
+	logMsg := fmt.Sprintf("Installation task submitted for package %s (package manager: %s)", task.PackageName, task.PackageManager)
+	if err := model.SaveMCPLog(context.Background(), task.ServiceID, task.PackageName, model.MCPLogPhaseInstall, model.MCPLogLevelInfo, logMsg); err != nil {
+		log.Printf("[SubmitTask] Failed to save MCP log for task submission: %v", err)
+	}
+
 	// 启动后台安装任务
 	go m.runInstallationTask(&task)
 }
@@ -110,6 +117,12 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 	m.tasksMutex.Lock()
 	task.Status = StatusInstalling
 	m.tasksMutex.Unlock()
+
+	// Log installation start to database
+	startMsg := fmt.Sprintf("Starting installation of package %s (package manager: %s)", task.PackageName, task.PackageManager)
+	if err := model.SaveMCPLog(context.Background(), task.ServiceID, task.PackageName, model.MCPLogPhaseInstall, model.MCPLogLevelInfo, startMsg); err != nil {
+		log.Printf("[runInstallationTask] Failed to save MCP start log: %v", err)
+	}
 
 	// 创建上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -153,6 +166,21 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 		task.Error = err.Error()
 		log.Printf("[InstallTask] 任务失败: ServiceID=%d, Package=%s, Error=%v", task.ServiceID, task.PackageName, err)
 
+		// Log installation failure to database
+		failMsg := fmt.Sprintf("Installation failed for package %s: %v", task.PackageName, err)
+		if logErr := model.SaveMCPLog(context.Background(), task.ServiceID, task.PackageName, model.MCPLogPhaseInstall, model.MCPLogLevelError, failMsg); logErr != nil {
+			log.Printf("[InstallTask] Failed to save MCP failure log: %v", logErr)
+		}
+
+		// Also log stdout/stderr from package installation if available in error message
+		errStr := err.Error()
+		if strings.Contains(errStr, "stdout:") || strings.Contains(errStr, "stderr:") {
+			// Extract stdout/stderr information and log separately
+			if logErr := model.SaveMCPLog(context.Background(), task.ServiceID, task.PackageName, model.MCPLogPhaseInstall, model.MCPLogLevelError, fmt.Sprintf("Package manager output: %s", errStr)); logErr != nil {
+				log.Printf("[InstallTask] Failed to save MCP package output log: %v", logErr)
+			}
+		}
+
 		// 新增：尝试删除因此次失败安装而在数据库中预先创建的服务记录
 		log.Printf("[InstallTask] 安装失败，尝试删除预创建的服务记录: ServiceID=%d", task.ServiceID)
 		if deleteErr := model.DeleteService(task.ServiceID); deleteErr != nil {
@@ -165,6 +193,16 @@ func (m *InstallationManager) runInstallationTask(task *InstallationTask) {
 	} else {
 		task.Status = StatusCompleted
 		log.Printf("[InstallTask] 任务完成: ServiceID=%d, Package=%s", task.ServiceID, task.PackageName)
+
+		// Log installation success to database
+		successMsg := fmt.Sprintf("Installation completed successfully for package %s", task.PackageName)
+		if serverInfo != nil {
+			successMsg += fmt.Sprintf(" (Server: %s, Version: %s)", serverInfo.Name, serverInfo.Version)
+		}
+		if logErr := model.SaveMCPLog(context.Background(), task.ServiceID, task.PackageName, model.MCPLogPhaseInstall, model.MCPLogLevelInfo, successMsg); logErr != nil {
+			log.Printf("[InstallTask] Failed to save MCP success log: %v", logErr)
+		}
+
 		// 更新数据库中的服务状态
 		go m.updateServiceStatus(task, serverInfo)
 	}

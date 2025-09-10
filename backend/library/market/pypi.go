@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"one-mcp/backend/model"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -165,4 +168,19 @@ func UninstallPyPIPackage(ctx context.Context, packageName string) error {
 		return fmt.Errorf("failed to remove virtual environment for %s at %s: %w", packageName, pkgBaseDir, err)
 	}
 	return nil
+}
+
+// logPackageManagerOutput logs stdout/stderr from package manager commands
+// This is a helper function that can be called from installation tasks to capture command output
+func logPackageManagerOutput(ctx context.Context, serviceID int64, packageName, phase, stdout, stderr string) {
+	if stdout != "" {
+		if err := model.SaveMCPLog(ctx, serviceID, packageName, model.MCPLogPhase(phase), model.MCPLogLevelInfo, fmt.Sprintf("Package manager stdout: %s", stdout)); err != nil {
+			log.Printf("Failed to save stdout log: %v", err)
+		}
+	}
+	if stderr != "" {
+		if err := model.SaveMCPLog(ctx, serviceID, packageName, model.MCPLogPhase(phase), model.MCPLogLevelWarn, fmt.Sprintf("Package manager stderr: %s", stderr)); err != nil {
+			log.Printf("Failed to save stderr log: %v", err)
+		}
+	}
 }

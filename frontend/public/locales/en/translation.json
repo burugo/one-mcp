@@ -9,6 +9,7 @@
         "market": "Service Market",
         "analytics": "Analytics",
         "users": "Users",
+        "logs": "Logs",
         "profile": "Profile",
         "preferences": "Preferences",
         "docs": "Docs"
@@ -603,5 +604,39 @@
             "validationSuccess": "Validated ✓",
             "updating": "Updating..."
         }
+    },
+    "logs": {
+        "title": "MCP Logs",
+        "description": "View installation and runtime logs for MCP services",
+        "filters": "Filters",
+        "filtersDescription": "Filter logs by service ID, name, phase, or level",
+        "serviceId": "Service ID",
+        "serviceIdPlaceholder": "Enter service ID",
+        "serviceName": "Service Name",
+        "serviceNamePlaceholder": "Enter service name",
+        "phase": "Phase",
+        "allPhases": "All Phases",
+        "install": "Install",
+        "run": "Run",
+        "level": "Level",
+        "allLevels": "All Levels",
+        "info": "Info",
+        "warn": "Warning",
+        "error": "Error",
+        "search": "Search",
+        "clearFilters": "Clear Filters",
+        "logEntries": "Log Entries",
+        "totalEntries": "Showing {{total}} entries (Page {{page}} of {{totalPages}})",
+        "noEntries": "No log entries found",
+        "loading": "Loading logs...",
+        "noLogsFound": "No logs found",
+        "tryDifferentFilters": "Try adjusting your search filters",
+        "timestamp": "Timestamp",
+        "service": "Service",
+        "message": "Message",
+        "showing": "Showing {{start}}-{{end}} of {{total}} entries",
+        "previous": "Previous",
+        "next": "Next",
+        "loadError": "Failed to load logs"
     }
 }

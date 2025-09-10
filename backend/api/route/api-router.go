@@ -104,6 +104,14 @@ func SetApiRouter(route *gin.Engine) {
 			}
 		}
 
+		// MCP Logs routes (Admin-only)
+		mcpLogsRoute := apiRouter.Group("/mcp_logs")
+		mcpLogsRoute.Use(middleware.JWTAuth())   // First authenticate with JWT
+		mcpLogsRoute.Use(middleware.AdminAuth()) // Then check admin privileges
+		{
+			mcpLogsRoute.GET("", handler.GetMCPLogs)
+		}
+
 		// Market API routes
 		marketRoute := apiRouter.Group("/mcp_market")
 		marketRoute.Use(middleware.JWTAuth())

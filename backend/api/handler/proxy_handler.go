@@ -124,6 +124,11 @@ func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPSe
 
 	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, mcpDBService, userSharedCacheKey, instanceNameDetail, mergedEnvsJSON)
 	if err != nil {
+		// Log user-specific shared instance creation failure to database
+		errMsg := fmt.Sprintf("Failed to create user-specific shared MCP instance (user %d): %v", userID, err)
+		if saveErr := model.SaveMCPLog(ctx, mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+			common.SysError(fmt.Sprintf("Failed to save user-specific instance error log for %s: %v", mcpDBService.Name, saveErr))
+		}
 		return nil, fmt.Errorf("failed to create user-specific shared MCP instance for %s (user %d): %w", mcpDBService.Name, userID, err)
 	}
 
@@ -132,11 +137,21 @@ func tryGetOrCreateUserSpecificHandler(c *gin.Context, mcpDBService *model.MCPSe
 	case "sseproxy":
 		targetHandler, err = proxy.GetOrCreateProxyToSSEHandler(ctx, mcpDBService, sharedInst)
 		if err != nil {
+			// Log SSE handler creation failure to database
+			errMsg := fmt.Sprintf("Failed to create user-specific SSE proxy handler (user %d): %v", userID, err)
+			if saveErr := model.SaveMCPLog(ctx, mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save SSE handler error log for %s: %v", mcpDBService.Name, saveErr))
+			}
 			return nil, fmt.Errorf("failed to create user-specific SSE proxy handler for %s (user %d): %w", mcpDBService.Name, userID, err)
 		}
 	case "httpproxy":
 		targetHandler, err = proxy.GetOrCreateProxyToHTTPHandler(ctx, mcpDBService, sharedInst)
 		if err != nil {
+			// Log HTTP handler creation failure to database
+			errMsg := fmt.Sprintf("Failed to create user-specific HTTP proxy handler (user %d): %v", userID, err)
+			if saveErr := model.SaveMCPLog(ctx, mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save HTTP handler error log for %s: %v", mcpDBService.Name, saveErr))
+			}
 			return nil, fmt.Errorf("failed to create user-specific HTTP proxy handler for %s (user %d): %w", mcpDBService.Name, userID, err)
 		}
 	default:
@@ -158,6 +173,11 @@ func tryGetOrCreateGlobalHandler(c *gin.Context, mcpDBService *model.MCPService,
 
 	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, mcpDBService, globalSharedCacheKey, instanceNameDetail, effectiveEnvs)
 	if err != nil {
+		// Log shared instance creation failure to database
+		errMsg := fmt.Sprintf("Failed to create shared MCP instance: %v", err)
+		if saveErr := model.SaveMCPLog(ctx, mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+			common.SysError(fmt.Sprintf("Failed to save shared instance error log for %s: %v", mcpDBService.Name, saveErr))
+		}
 		return nil, fmt.Errorf("failed to create shared MCP instance for %s: %w", mcpDBService.Name, err)
 	}
 
@@ -166,11 +186,21 @@ func tryGetOrCreateGlobalHandler(c *gin.Context, mcpDBService *model.MCPService,
 	case "sseproxy":
 		targetHandler, err = proxy.GetOrCreateProxyToSSEHandler(ctx, mcpDBService, sharedInst)
 		if err != nil {
+			// Log SSE handler creation failure to database
+			errMsg := fmt.Sprintf("Failed to create global SSE proxy handler: %v", err)
+			if saveErr := model.SaveMCPLog(ctx, mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save SSE handler error log for %s: %v", mcpDBService.Name, saveErr))
+			}
 			return nil, fmt.Errorf("failed to create SSE proxy handler for %s: %w", mcpDBService.Name, err)
 		}
 	case "httpproxy":
 		targetHandler, err = proxy.GetOrCreateProxyToHTTPHandler(ctx, mcpDBService, sharedInst)
 		if err != nil {
+			// Log HTTP handler creation failure to database
+			errMsg := fmt.Sprintf("Failed to create global HTTP proxy handler: %v", err)
+			if saveErr := model.SaveMCPLog(ctx, mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save HTTP handler error log for %s: %v", mcpDBService.Name, saveErr))
+			}
 			return nil, fmt.Errorf("failed to create HTTP proxy handler for %s: %w", mcpDBService.Name, err)
 		}
 	default:
@@ -304,6 +334,8 @@ func ProxyHandler(c *gin.Context) {
 		shouldRecordStat := false
 		requestTypeForStat := ""
 		methodForStat := ""
+		// Capture client name
+		clientName := c.Request.Header.Get("User-Agent")
 
 		if requestMethod == http.MethodPost {
 			if action == "/message" || action == "/mcp" {
@@ -311,27 +343,21 @@ func ProxyHandler(c *gin.Context) {
 					// Read the entire request body to inspect it.
 					bodyBytes, err := io.ReadAll(c.Request.Body)
 					if err != nil {
-						// Log the error, as it's unexpected.
 						common.SysError(fmt.Sprintf("[ProxyHandler] failed to read request body for stat check: %v", err))
 					}
-
-					// CRITICAL: Always restore the request body so that the downstream handler can read it.
-					// We use the bytes we read, even if there was an error, to preserve as much of the body as possible.
+					// Always restore body
 					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-					// If we successfully read the body, proceed to check if it's a "tools/call".
+					// Parse body: detect tools/call and extract client name if present
 					if err == nil && len(bodyBytes) > 0 {
 						var parsedBody map[string]interface{}
-						// We don't care about unmarshalling errors, as the body might not be JSON.
-						// The downstream handler is responsible for proper body parsing and error handling.
 						if json.Unmarshal(bodyBytes, &parsedBody) == nil {
 							if actualMethod, ok := parsedBody["method"].(string); ok && actualMethod == "tools/call" {
 								shouldRecordStat = true
 								methodForStat = "tools/call"
-								// requestBodyForStat = string(bodyBytes)
 								if action == "/message" {
 									requestTypeForStat = "sse"
-								} else { // action == "/mcp"
+								} else {
 									requestTypeForStat = "http"
 								}
 							}
@@ -341,20 +367,18 @@ func ProxyHandler(c *gin.Context) {
 			}
 		}
 
+		// Measure and serve
+		startTime := time.Now()
+		targetHandler.ServeHTTP(c.Writer, c.Request)
+		duration := time.Since(startTime)
+		statusCode := c.Writer.Status()
+		success := statusCode >= 200 && statusCode < 300
+
+		// Record statistics only for tools/call
 		if shouldRecordStat {
-			startTime := time.Now()
-
-			// It's important to serve the request using the potentially restored body
-			targetHandler.ServeHTTP(c.Writer, c.Request)
-
-			duration := time.Since(startTime)
-			statusCode := c.Writer.Status()
-			success := statusCode >= 200 && statusCode < 300
-
-			// Record the statistic to database and cache (including user-specific daily count)
 			go model.RecordRequestStat(
 				mcpDBService.ID,
-				mcpDBService.Name, // Service Name
+				mcpDBService.Name,
 				userID,
 				model.ProxyRequestType(requestTypeForStat),
 				methodForStat,
@@ -363,11 +387,24 @@ func ProxyHandler(c *gin.Context) {
 				statusCode,
 				success,
 			)
+		}
 
-		} else {
-			// If not recording stats, just serve the request
-			// If body was read for a non-stat HTTP/MCP call, it should have been restored already.
-			targetHandler.ServeHTTP(c.Writer, c.Request)
+		// Save an info log only for real MCP calls (tools/call) and success
+		if shouldRecordStat && success {
+			reqType := ""
+			switch {
+			case action == "/message" || strings.HasPrefix(action, "/message/"):
+				reqType = "sse"
+			case action == "/mcp" || strings.HasPrefix(action, "/mcp/"):
+				reqType = "http"
+			default:
+				reqType = requestMethod
+			}
+			msg := fmt.Sprintf("MCP request OK | user=%d | type=%s | action=%s | path=%s | duration=%dms | status=%d | client=%s",
+				userID, reqType, action, requestPath, duration.Milliseconds(), statusCode, clientName)
+			if saveErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelInfo, msg); saveErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save MCP access log for %s: %v", mcpDBService.Name, saveErr))
+			}
 		}
 
 	} else {
@@ -375,6 +412,12 @@ func ProxyHandler(c *gin.Context) {
 		if handlerErr != nil {
 			finalErrMsg = fmt.Sprintf("Service handler unavailable for %s: %s", serviceName, handlerErr.Error())
 		}
+
+		// Log proxy handler failure to database
+		if saveErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, finalErrMsg); saveErr != nil {
+			common.SysError(fmt.Sprintf("Failed to save proxy handler error log for %s: %v", mcpDBService.Name, saveErr))
+		}
+
 		common.SysError(fmt.Sprintf("[ProxyHandler] Error: %s", finalErrMsg))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": finalErrMsg})
 	}

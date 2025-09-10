@@ -959,3 +959,18 @@ func UninstallNPMPackage(packageName string) error {
 
 	return nil
 }
+
+// logNPMPackageManagerOutput logs stdout/stderr from package manager commands (npm version)
+// This is a helper function that can be called from installation tasks to capture command output
+func logNPMPackageManagerOutput(ctx context.Context, serviceID int64, packageName, phase, stdout, stderr string) {
+	if stdout != "" {
+		if err := model.SaveMCPLog(ctx, serviceID, packageName, model.MCPLogPhase(phase), model.MCPLogLevelInfo, fmt.Sprintf("NPM stdout: %s", stdout)); err != nil {
+			log.Printf("Failed to save npm stdout log: %v", err)
+		}
+	}
+	if stderr != "" {
+		if err := model.SaveMCPLog(ctx, serviceID, packageName, model.MCPLogPhase(phase), model.MCPLogLevelWarn, fmt.Sprintf("NPM stderr: %s", stderr)); err != nil {
+			log.Printf("Failed to save npm stderr log: %v", err)
+		}
+	}
+}
