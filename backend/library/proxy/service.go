@@ -839,7 +839,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, fmt.Errorf(errMsg)
+			return nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -863,7 +863,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, fmt.Errorf(errMsg)
+			return nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
