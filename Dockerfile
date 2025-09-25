@@ -59,12 +59,20 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     go build -ldflags "-s -w -X 'one-mcp/common.Version=$(cat VERSION)' -extldflags '-static'" -o one-mcp; \
     fi
 
-FROM ghcr.io/astral-sh/uv:alpine
+FROM ghcr.io/astral-sh/uv:bookworm-slim
 
-RUN apk update \
-    && apk upgrade \
-    && apk add --no-cache ca-certificates tzdata nodejs npm python3 git \
-    && update-ca-certificates 2>/dev/null || true
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       ca-certificates \
+       tzdata \
+       nodejs \
+       npm \
+       python3 \
+       git \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # 创建 /data 目录
 RUN mkdir -p /data
