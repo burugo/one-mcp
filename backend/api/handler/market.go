@@ -961,28 +961,35 @@ func UninstallService(c *gin.Context) {
 		}
 	}
 
-	// 对于非安装中的服务，进行ServiceManager注销
-	if !isPendingOrInstalling && service.Type == model.ServiceTypeStdio && service.SourcePackageName != "" {
-		log.Printf("[UninstallService] Attempting to unregister service ID %d (Name: %s) from ServiceManager", service.ID, service.Name)
-		serviceManager := proxy.GetServiceManager()
+    // 对于非安装中的服务，进行 ServiceManager 注销（适用于所有类型）
+    if !isPendingOrInstalling {
+        log.Printf("[UninstallService] Attempting to unregister service ID %d (Name: %s) from ServiceManager", service.ID, service.Name)
+        serviceManager := proxy.GetServiceManager()
 
-		// 创建一个专门的超时上下文，给予足够的时间进行清理
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+        // 创建一个专门的超时上下文，给予足够的时间进行清理
+        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+        defer cancel()
 
-		if err := serviceManager.UnregisterService(ctx, service.ID); err != nil {
-			log.Printf("[UninstallService] Error unregistering service ID %d from ServiceManager: %v.", service.ID, err)
-			// 如果是超时错误，我们跳过物理卸载，直接进行软删除
-			if errors.Is(err, context.DeadlineExceeded) {
-				log.Printf("[UninstallService] Unregistration timed out. Skipping physical uninstall.")
-				isPendingOrInstalling = true // Treat as pending to skip physical uninstall
-			}
-		} else {
-			log.Printf("[UninstallService] Successfully unregistered service ID %d from ServiceManager.", service.ID)
-		}
-	} else if isPendingOrInstalling {
-		log.Printf("[UninstallService] Skipping ServiceManager unregistration for pending/installing service ID %d", service.ID)
-	}
+        if err := serviceManager.UnregisterService(ctx, service.ID); err != nil {
+            // 非注册状态也不必视为致命错误
+            if err == proxy.ErrServiceNotFound {
+                log.Printf("[UninstallService] Service ID %d was not registered. Continuing.", service.ID)
+            } else {
+                log.Printf("[UninstallService] Error unregistering service ID %d from ServiceManager: %v.", service.ID, err)
+                // 如果是超时错误，我们跳过物理卸载，直接进行软删除
+                if errors.Is(err, context.DeadlineExceeded) {
+                    log.Printf("[UninstallService] Unregistration timed out. Skipping physical uninstall.")
+                    isPendingOrInstalling = true // Treat as pending to skip physical uninstall
+                }
+            }
+        } else {
+            log.Printf("[UninstallService] Successfully unregistered service ID %d from ServiceManager.", service.ID)
+        }
+        // 无论注销是否成功，都主动删除健康缓存，避免残留状态
+        proxy.GetHealthCacheManager().DeleteServiceHealth(service.ID)
+    } else {
+        log.Printf("[UninstallService] Skipping ServiceManager unregistration for pending/installing service ID %d", service.ID)
+    }
 
 	// 对于安装中的服务，跳过物理卸载，直接进行软删除
 	if isPendingOrInstalling {

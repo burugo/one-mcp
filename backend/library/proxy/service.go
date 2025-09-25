@@ -131,12 +131,18 @@ type SharedMcpInstance struct {
 	Server *mcpserver.MCPServer
 	Client mcpclient.MCPClient
 	// consider adding createdAt time.Time for future LRU cache policies
+	cancel    context.CancelFunc // cancels background goroutines like heartbeat
+	serviceID int64              // owning service ID for cleanup of user-specific instances
 }
 
 // Shutdown gracefully stops the server and closes the client.
 func (s *SharedMcpInstance) Shutdown(ctx context.Context) error {
 	common.SysLog(fmt.Sprintf("Shutting down SharedMcpInstance (Server: %p, Client: %p)", s.Server, s.Client))
 	var firstErr error
+	// Cancel background goroutines so ping loops exit promptly
+	if s.cancel != nil {
+		s.cancel()
+	}
 	// Note: Actual shutdown logic for s.Server depends on mcp-go's MCPServer API.
 	// This might involve calling a Stop() or Shutdown() method on s.Server if available.
 	// For example: if s.Server has a Stop method:
@@ -647,15 +653,28 @@ func (s *MonitoredProxiedService) Stop(ctx context.Context) error {
 			// Don't return error here, as we want to continue cleanup
 		}
 
-		// Critical: Remove from global cache to prevent reuse of the closed instance
+		// Critical: Remove from cache and clean up all instances (global + user-specific) for this service
 		if s.dbServiceConfig != nil {
 			cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
+			instancesToShutdown := make([]*SharedMcpInstance, 0)
+
 			sharedMCPServersMutex.Lock()
 			if cachedInstance, exists := sharedMCPServers[cacheKey]; exists && cachedInstance == s.sharedInstance {
 				delete(sharedMCPServers, cacheKey)
 				common.SysLog(fmt.Sprintf("Removed SharedMcpInstance for %s from global cache (key: %s)", s.serviceName, cacheKey))
 			}
+			for k, inst := range sharedMCPServers {
+				if inst != nil && inst.serviceID == s.dbServiceConfig.ID && inst != s.sharedInstance {
+					delete(sharedMCPServers, k)
+					instancesToShutdown = append(instancesToShutdown, inst)
+					common.SysLog(fmt.Sprintf("Removed additional SharedMcpInstance for %s from cache (key: %s)", s.serviceName, k))
+				}
+			}
 			sharedMCPServersMutex.Unlock()
+
+			for _, inst := range instancesToShutdown {
+				_ = inst.Shutdown(ctx)
+			}
 
 			// Also clear handler caches that reference the old SharedMcpInstance
 			sseHandlerCacheKey := fmt.Sprintf("service-%d-sseproxy", s.dbServiceConfig.ID)
@@ -1243,16 +1262,21 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		serviceConfigForCreation.DefaultEnvsJSON = effectiveEnvsJSONForStdio
 	}
 
-	// Create the actual server and client
-	srv, cli, err := createActualMcpGoServerAndClientUncached(ctx, &serviceConfigForCreation, instanceNameDetail)
+	// Create a dedicated background context with cancel to control heartbeats/lifetimes
+	bgCtx, cancel := context.WithCancel(context.Background())
+	// Create the actual server and client using the controlled context
+	srv, cli, err := createActualMcpGoServerAndClientUncached(bgCtx, &serviceConfigForCreation, instanceNameDetail)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create MCP server and client for %s: %w", originalDbService.Name, err)
 	}
 
 	// Create shared instance
 	instance := &SharedMcpInstance{
-		Server: srv,
-		Client: cli,
+		Server:    srv,
+		Client:    cli,
+		cancel:    cancel,
+		serviceID: originalDbService.ID,
 	}
 
 	// Store in cache
