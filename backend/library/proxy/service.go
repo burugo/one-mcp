@@ -1292,11 +1292,23 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		serviceConfigForCreation.DefaultEnvsJSON = effectiveEnvsJSONForStdio
 	}
 
-	// Create a dedicated background context with cancel to control heartbeats/lifetimes
+	// Build a background context we can cancel on shutdown, while still honoring caller cancellation during creation
 	bgCtx, cancel := context.WithCancel(context.Background())
-	// Create the actual server and client using the controlled context
-	srv, cli, err := createActualMcpGoServerAndClientUncached(bgCtx, &serviceConfigForCreation, instanceNameDetail)
+	handshakeCtx, handshakeCancel := context.WithCancel(bgCtx)
+	handshakeDone := make(chan struct{})
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			handshakeCancel()
+		case <-handshakeDone:
+		}
+	}()
+
+	srv, cli, err := createActualMcpGoServerAndClientUncached(handshakeCtx, &serviceConfigForCreation, instanceNameDetail)
+	close(handshakeDone)
 	if err != nil {
+		handshakeCancel()
 		cancel()
 		return nil, fmt.Errorf("failed to create MCP server and client for %s: %w", originalDbService.Name, err)
 	}
