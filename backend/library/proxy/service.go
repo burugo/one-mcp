@@ -463,6 +463,18 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 		// Self-healing logic: attempt to re-create the instance for services that should be running
 		// Skip this for on-demand stdio services (already handled above)
 		if s.sharedInstance == nil && s.dbServiceConfig != nil {
+			// Check if service is still enabled before attempting re-creation
+			if !s.dbServiceConfig.Enabled {
+				common.SysLog(fmt.Sprintf("CheckHealth: Service %s (ID: %d) is disabled, skipping re-initialization", s.serviceName, s.serviceID))
+				s.health.Status = StatusStopped
+				s.health.ErrorMessage = "Service is disabled"
+				healthCopy.Status = s.health.Status
+				healthCopy.ErrorMessage = s.health.ErrorMessage
+				healthCopy.LastChecked = s.health.LastChecked
+				healthCopy.ResponseTime = s.health.ResponseTime
+				return &healthCopy, errors.New("service is disabled")
+			}
+
 			common.SysLog(fmt.Sprintf("CheckHealth: Instance for %s (ID: %d) is nil, attempting re-initialization.", s.serviceName, s.serviceID))
 			cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
 			instanceNameDetail := fmt.Sprintf("global-shared-svc-%d-reinit", s.dbServiceConfig.ID)
@@ -524,6 +536,11 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 				s.health.Status = StatusUnhealthy
 				s.health.ErrorMessage = fmt.Sprintf("Ping failed (%v) and cannot re-create client (missing config).", originalPingErr)
 				// finalErrToReturn remains originalPingErr
+			} else if !s.dbServiceConfig.Enabled {
+				common.SysLog(fmt.Sprintf("CheckHealth: Service %s (ID: %d) is disabled, skipping re-creation after ping failure", s.serviceName, s.serviceID))
+				s.health.Status = StatusStopped
+				s.health.ErrorMessage = "Service is disabled"
+				finalErrToReturn = errors.New("service is disabled")
 			} else {
 				cacheKey := fmt.Sprintf("global-service-%d-shared", s.dbServiceConfig.ID)
 				instanceToShutdown := s.sharedInstance
@@ -1080,6 +1097,14 @@ func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
 	case model.ServiceTypeStdio, model.ServiceTypeSSE, model.ServiceTypeStreamableHTTP:
 		common.SysLog(fmt.Sprintf("ServiceFactory: Creating MonitoredProxiedService for %s (type: %s)", mcpDBService.Name, mcpDBService.Type))
 
+		// Check if service is enabled before creating shared instances
+		if !mcpDBService.Enabled {
+			common.SysLog(fmt.Sprintf("ServiceFactory: Service %s (ID: %d) is disabled, creating unhealthy service without shared instance", mcpDBService.Name, mcpDBService.ID))
+			monitoredService := NewMonitoredProxiedService(baseService, nil, mcpDBService)
+			monitoredService.UpdateHealth(StatusStopped, 0, "Service is disabled")
+			return monitoredService, nil
+		}
+
 		ctx := context.Background()
 		// Use unified global cache key and standardized parameters
 		cacheKey := fmt.Sprintf("global-service-%d-shared", mcpDBService.ID)
@@ -1247,6 +1272,11 @@ type GetOrCreateSharedMcpInstanceWithKeyFuncType func(ctx context.Context, origi
 
 // getOrCreateSharedMcpInstanceWithKeyInternal is the actual implementation.
 func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDbService *model.MCPService, cacheKey string, instanceNameDetail string, effectiveEnvsJSONForStdio string) (*SharedMcpInstance, error) {
+	// Check if service is enabled before creating any instances
+	if !originalDbService.Enabled {
+		return nil, fmt.Errorf("service %s (ID: %d) is disabled", originalDbService.Name, originalDbService.ID)
+	}
+
 	sharedMCPServersMutex.Lock()
 	defer sharedMCPServersMutex.Unlock()
 

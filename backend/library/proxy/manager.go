@@ -407,6 +407,19 @@ func (m *ServiceManager) performHealthCheckAndManagement() {
 			}
 		}
 
+		// Get current service config from database to check if it's still enabled
+		currentService, err := model.GetServiceByID(service.ID())
+		if err != nil {
+			log.Printf("Failed to get current service config for %d: %v", service.ID(), err)
+			continue
+		}
+
+		// Don't auto-restart disabled services
+		if !currentService.Enabled {
+			shouldAutoRestart = false
+			log.Printf("Skipping auto-restart for disabled service: %s (ID: %d)", service.Name(), service.ID())
+		}
+
 		if shouldAutoRestart && health.Status == StatusStopped {
 			ctx := context.Background()
 			if err := m.RestartService(ctx, service.ID()); err != nil {

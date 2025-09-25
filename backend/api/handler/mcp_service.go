@@ -211,17 +211,48 @@ func ToggleMCPService(c *gin.Context) {
 		return
 	}
 
-	// 切换启用状态
+	wasEnabled := service.Enabled
 	if err := model.ToggleServiceEnabled(id); err != nil {
 		common.RespError(c, http.StatusInternalServerError, i18n.Translate("toggle_service_status_failed", lang), err)
 		return
 	}
 
-	// service.Enabled holds the state *before* the toggle.
-	// So, if it was true, it's now disabled, and vice-versa.
-	status := i18n.Translate("enabled", lang)
-	if service.Enabled {
-		status = i18n.Translate("disabled", lang)
+	updatedService, err := model.GetServiceByID(id)
+	if err != nil {
+		// Attempt to revert to original state for consistency
+		if revertErr := model.ToggleServiceEnabled(id); revertErr != nil {
+			common.SysError(fmt.Sprintf("failed to revert service %d enabled state after reload failure: %v", id, revertErr))
+		}
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("toggle_service_status_failed", lang), err)
+		return
+	}
+
+	serviceManager := proxy.GetServiceManager()
+	ctx := c.Request.Context()
+
+	if wasEnabled {
+		if err := serviceManager.UnregisterService(ctx, id); err != nil && err != proxy.ErrServiceNotFound {
+			common.SysError(fmt.Sprintf("failed to unregister disabled service %d: %v", id, err))
+			if revertErr := model.ToggleServiceEnabled(id); revertErr != nil {
+				common.SysError(fmt.Sprintf("failed to revert service %d enabled state after unregister failure: %v", id, revertErr))
+			}
+			common.RespError(c, http.StatusInternalServerError, i18n.Translate("toggle_service_status_failed", lang), err)
+			return
+		}
+	} else {
+		if err := serviceManager.RegisterService(ctx, updatedService); err != nil && err != proxy.ErrServiceAlreadyExists {
+			common.SysError(fmt.Sprintf("failed to register enabled service %d: %v", id, err))
+			if revertErr := model.ToggleServiceEnabled(id); revertErr != nil {
+				common.SysError(fmt.Sprintf("failed to revert service %d enabled state after register failure: %v", id, revertErr))
+			}
+			common.RespError(c, http.StatusInternalServerError, i18n.Translate("toggle_service_status_failed", lang), err)
+			return
+		}
+	}
+
+	status := i18n.Translate("disabled", lang)
+	if updatedService.Enabled {
+		status = i18n.Translate("enabled", lang)
 	}
 
 	common.RespSuccessStr(c, i18n.Translate("service_toggle_success", lang)+status)
