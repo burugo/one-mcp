@@ -228,7 +228,10 @@ func ToggleMCPService(c *gin.Context) {
 	}
 
 	serviceManager := proxy.GetServiceManager()
-	ctx := c.Request.Context()
+
+	// Add timeout control for service operations to prevent hanging in container environments
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
 
 	if wasEnabled {
 		if err := serviceManager.UnregisterService(ctx, id); err != nil && err != proxy.ErrServiceNotFound {

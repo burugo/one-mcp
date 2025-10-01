@@ -1853,8 +1853,8 @@ func createSingleServiceFromBatch(ctx context.Context, serviceName string, servi
 
 	// Check if service already exists
 	existingServices, err := mcpServiceThing.Query(thing.QueryParams{
-		Where: "name = ? AND deleted = 0",
-		Args:  []interface{}{sanitizedName},
+		Where: "name = ? AND deleted = ?",
+		Args:  []interface{}{sanitizedName, false},
 	}).Fetch(0, 1)
 
 	if err != nil {

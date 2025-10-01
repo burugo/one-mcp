@@ -173,8 +173,12 @@ func (m *ServiceManager) UnregisterService(ctx context.Context, serviceID int64)
 		return ErrServiceNotFound
 	}
 
-	// 总是停止服务以确保彻底清理（不依赖IsRunning()的判断）
-	if err := service.Stop(ctx); err != nil {
+	// Always stop the service to ensure thorough cleanup (don't rely on IsRunning() check)
+	// Add timeout control for stop operation to prevent hanging in container environments
+	stopCtx, stopCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer stopCancel()
+
+	if err := service.Stop(stopCtx); err != nil {
 		// Log the error but continue with cleanup
 		log.Printf("Warning: failed to stop service %d during unregister: %v", serviceID, err)
 	}

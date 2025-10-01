@@ -168,13 +168,13 @@ func GetAllServices() ([]*MCPService, error) {
 // GetEnabledServices returns all enabled MCP services
 func GetEnabledServices() ([]*MCPService, error) {
 	// Filter out soft-deleted services as well
-	return MCPServiceDB.Where("enabled = ? AND deleted = 0", true).Order("category ASC, order_num ASC").All()
+	return MCPServiceDB.Where("enabled = ? AND deleted = ?", true, false).Order("category ASC, order_num ASC").All()
 }
 
 // GetInstalledServices returns all installed MCP services (regardless of enabled status)
 func GetInstalledServices() ([]*MCPService, error) {
 	// Only return non-deleted services
-	return MCPServiceDB.Where("deleted = 0").Order("category ASC, order_num ASC").All()
+	return MCPServiceDB.Where("deleted = ?", false).Order("category ASC, order_num ASC").All()
 }
 
 // GetServiceByID retrieves a specific service by ID

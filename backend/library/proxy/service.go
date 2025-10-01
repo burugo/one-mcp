@@ -7,14 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -133,6 +137,7 @@ type SharedMcpInstance struct {
 	// consider adding createdAt time.Time for future LRU cache policies
 	cancel    context.CancelFunc // cancels background goroutines like heartbeat
 	serviceID int64              // owning service ID for cleanup of user-specific instances
+	stdioCmd  *exec.Cmd          // tracks stdio-backed subprocess for forced termination
 }
 
 // Shutdown gracefully stops the server and closes the client.
@@ -155,16 +160,67 @@ func (s *SharedMcpInstance) Shutdown(ctx context.Context) error {
 	common.SysLog(fmt.Sprintf("MCPServer %p shutdown initiated/completed (actual stop method TBD based on mcp-go API)", s.Server))
 
 	if s.Client != nil {
-		if err := s.Client.Close(); err != nil {
-			common.SysError(fmt.Sprintf("Error closing MCPClient for SharedMcpInstance: %v", err))
-			if firstErr == nil {
+		done := make(chan error, 1)
+		go func() {
+			done <- s.Client.Close()
+		}()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				common.SysError(fmt.Sprintf("Error closing MCPClient for SharedMcpInstance: %v", err))
 				firstErr = err
+			} else {
+				common.SysLog(fmt.Sprintf("MCPClient %p closed.", s.Client))
 			}
-		} else {
-			common.SysLog(fmt.Sprintf("MCPClient %p closed.", s.Client))
+		case <-ctx.Done():
+			common.SysError("Timeout while closing MCPClient for SharedMcpInstance")
+			s.forceTerminateStdioProcess()
+			select {
+			case err := <-done:
+				if err != nil {
+					common.SysError(fmt.Sprintf("Error closing MCPClient after forced termination: %v", err))
+					if firstErr == nil {
+						firstErr = err
+					}
+				} else {
+					common.SysLog(fmt.Sprintf("MCPClient %p closed after forced termination.", s.Client))
+				}
+			case <-time.After(5 * time.Second):
+				common.SysError(fmt.Sprintf("MCPClient close still pending after force termination for service %d", s.serviceID))
+				if firstErr == nil {
+					firstErr = fmt.Errorf("mcp client forced shutdown timed out")
+				}
+			}
+			if firstErr == nil {
+				firstErr = ctx.Err()
+			}
 		}
+		s.stdioCmd = nil
 	}
 	return firstErr
+}
+
+func (s *SharedMcpInstance) forceTerminateStdioProcess() {
+	if s.stdioCmd == nil || s.stdioCmd.Process == nil {
+		return
+	}
+
+	if err := s.stdioCmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		common.SysError(fmt.Sprintf("Failed to send SIGTERM to stdio MCP process for service %d: %v", s.serviceID, err))
+		return
+	}
+	common.SysLog(fmt.Sprintf("Sent SIGTERM to stdio MCP process for service %d", s.serviceID))
+
+	time.Sleep(500 * time.Millisecond)
+
+	if err := s.stdioCmd.Process.Signal(syscall.Signal(0)); err == nil {
+		if err := s.stdioCmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			common.SysError(fmt.Sprintf("Failed to SIGKILL stdio MCP process for service %d: %v", s.serviceID, err))
+		} else {
+			common.SysLog(fmt.Sprintf("Sent SIGKILL to stdio MCP process for service %d", s.serviceID))
+		}
+	}
 }
 
 // ServiceStatus 表示服务的健康状态
@@ -765,23 +821,24 @@ var (
 
 // createActualMcpGoServerAndClientUncached creates and initializes an mcp-go client and server instance.
 // For Stdio clients, client.Start() is not called.
-// It returns the mcp-go server, the mcp-go client, and an error.
+// It returns the mcp-go server, the mcp-go client, any spawned stdio command, and an error.
 func createActualMcpGoServerAndClientUncached(
 	ctx context.Context,
 	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
-) (*mcpserver.MCPServer, mcpclient.MCPClient, error) {
+) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, error) {
 
 	var mcpGoClient mcpclient.MCPClient
 	var err error
 	var needManualStart bool
+	var stdioCmd *exec.Cmd
 
 	switch serviceConfigForInstance.Type {
 	case model.ServiceTypeStdio:
 		var stdioConf model.StdioConfig
 		stdioConf.Command = serviceConfigForInstance.Command
 		if stdioConf.Command == "" {
-			return nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
+			return nil, nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
 				"This usually indicates the service was not properly configured during installation. "+
 				"Expected Command field to contain the executable name (e.g., 'npx' for npm packages). "+
 				"PackageManager: %s, SourcePackageName: %s, InstanceDetail: %s",
@@ -814,7 +871,16 @@ func createActualMcpGoServerAndClientUncached(
 			}
 		}
 		common.SysLog(fmt.Sprintf("Stdio config for %s: Command=%s, Args=%v, EnvKeys=%v", serviceConfigForInstance.Name, stdioConf.Command, stdioConf.Args, envKeys))
-		mcpGoClient, err = mcpclient.NewStdioMCPClient(stdioConf.Command, stdioConf.Env, stdioConf.Args...)
+		stdioOption := transport.WithCommandFunc(func(cmdCtx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
+			if cmdCtx == nil {
+				cmdCtx = context.Background()
+			}
+			cmd := exec.CommandContext(cmdCtx, command, args...)
+			cmd.Env = append(os.Environ(), env...)
+			stdioCmd = cmd
+			return cmd, nil
+		})
+		mcpGoClient, err = mcpclient.NewStdioMCPClientWithOptions(stdioConf.Command, stdioConf.Env, stdioConf.Args, stdioOption)
 		if err == nil {
 			// Capture stderr output from the subprocess to get detailed error messages
 			if client, ok := mcpGoClient.(*mcpclient.Client); ok {
@@ -875,7 +941,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, fmt.Errorf("%s", errMsg)
+			return nil, nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -899,7 +965,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, fmt.Errorf("%s", errMsg)
+			return nil, nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -923,7 +989,7 @@ func createActualMcpGoServerAndClientUncached(
 		needManualStart = true
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported service type %s in createActualMcpGoServerAndClientUncached", serviceConfigForInstance.Type)
+		return nil, nil, nil, fmt.Errorf("unsupported service type %s in createActualMcpGoServerAndClientUncached", serviceConfigForInstance.Type)
 	}
 
 	if err != nil { // Consolidated error check after switch
@@ -935,7 +1001,7 @@ func createActualMcpGoServerAndClientUncached(
 			common.SysError(fmt.Sprintf("Failed to save MCP client creation error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
-		return nil, nil, errors.New(errMsg)
+		return nil, nil, nil, errors.New(errMsg)
 	}
 
 	// Call client.Start() if needed
@@ -961,7 +1027,7 @@ func createActualMcpGoServerAndClientUncached(
 			if closeErr := mcpGoClient.Close(); closeErr != nil {
 				common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after Start() error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 			}
-			return nil, nil, errors.New(errMsg)
+			return nil, nil, nil, errors.New(errMsg)
 		}
 
 		// Start ping task for SSE and HTTP clients
@@ -1018,7 +1084,7 @@ func createActualMcpGoServerAndClientUncached(
 			common.SysError(fmt.Sprintf("Failed to save MCP initialization error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
-		return nil, nil, errors.New(errMsg)
+		return nil, nil, nil, errors.New(errMsg)
 	}
 
 	// Populate server with resources from client
@@ -1037,7 +1103,7 @@ func createActualMcpGoServerAndClientUncached(
 
 	// Note: Success initialization logs are not saved to avoid log spam
 
-	return mcpGoServer, mcpGoClient, nil
+	return mcpGoServer, mcpGoClient, stdioCmd, nil
 }
 
 // createSSEHttpHandler creates an SSE http.Handler from an mcpserver.MCPServer.
@@ -1294,7 +1360,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 
 	// Build a background context we can cancel on shutdown, while still honoring caller cancellation during creation
 	bgCtx, cancel := context.WithCancel(context.Background())
-	handshakeCtx, handshakeCancel := context.WithCancel(bgCtx)
+	handshakeCtx, handshakeCancel := context.WithTimeout(bgCtx, 20*time.Second)
 	handshakeDone := make(chan struct{})
 
 	go func() {
@@ -1305,13 +1371,14 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		}
 	}()
 
-	srv, cli, err := createActualMcpGoServerAndClientUncached(handshakeCtx, &serviceConfigForCreation, instanceNameDetail)
+	srv, cli, spawnedCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, &serviceConfigForCreation, instanceNameDetail)
 	close(handshakeDone)
 	if err != nil {
 		handshakeCancel()
 		cancel()
 		return nil, fmt.Errorf("failed to create MCP server and client for %s: %w", originalDbService.Name, err)
 	}
+	handshakeCancel()
 
 	// Create shared instance
 	instance := &SharedMcpInstance{
@@ -1319,6 +1386,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		Client:    cli,
 		cancel:    cancel,
 		serviceID: originalDbService.ID,
+		stdioCmd:  spawnedCmd,
 	}
 
 	// Store in cache

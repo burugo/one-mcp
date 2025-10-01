@@ -63,14 +63,16 @@ FROM astral/uv:python3.13-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Install Node.js 22.x (Latest LTS) for better compatibility
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     tzdata \
-    nodejs \
-    npm \
     python3 \
     git \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -80,6 +82,12 @@ RUN mkdir -p /data
 # Default configuration - can be overridden at runtime
 ENV PORT=3000
 ENV SQLITE_PATH=/data/one-mcp.db
+
+# Node.js environment variables for better compatibility in containers
+ENV NODE_ENV=production
+ENV NPM_CONFIG_UNSAFE_PERM=true
+ENV NPM_CONFIG_USER=0
+ENV NPM_CONFIG_PREFIX=/usr/local
 
 COPY --from=builder2 /build/one-mcp /
 COPY --from=builder2 /build/backend/locales /backend/locales
