@@ -59,18 +59,18 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     go build -ldflags "-s -w -X 'one-mcp/common.Version=$(cat VERSION)' -extldflags '-static'" -o one-mcp; \
     fi
 
-FROM ghcr.io/astral-sh/uv:bookworm-slim
+FROM astral/uv:python3.13-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       ca-certificates \
-       tzdata \
-       nodejs \
-       npm \
-       python3 \
-       git \
+    ca-certificates \
+    tzdata \
+    nodejs \
+    npm \
+    python3 \
+    git \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
