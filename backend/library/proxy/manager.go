@@ -382,13 +382,18 @@ func (m *ServiceManager) performHealthCheckAndManagement() {
 			if strategy == common.StrategyStartOnDemand && service.IsRunning() {
 				// Check for idle timeout
 				if lastAccess, exists := lastAccessedCopy[service.ID()]; exists {
-					if time.Since(lastAccess) > m.stdioOnDemandIdleTimeout {
-						ctx := context.Background()
+					idleDuration := time.Since(lastAccess)
+					if idleDuration > m.stdioOnDemandIdleTimeout {
+						log.Printf("Detected idle stdio service %s (ID: %d), idle for %v (threshold: %v). Initiating shutdown...",
+							service.Name(), service.ID(), idleDuration, m.stdioOnDemandIdleTimeout)
+						ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 						if err := m.StopService(ctx, service.ID()); err != nil {
 							log.Printf("Failed to stop idle stdio service %s (ID: %d): %v", service.Name(), service.ID(), err)
+							cancel()
 						} else {
-							log.Printf("Stopped idle stdio service: %s (ID: %d) after %v of inactivity",
-								service.Name(), service.ID(), time.Since(lastAccess))
+							log.Printf("Successfully stopped idle stdio service: %s (ID: %d) after %v of inactivity",
+								service.Name(), service.ID(), idleDuration)
+							cancel()
 						}
 						continue // Skip auto-restart logic for this service
 					}

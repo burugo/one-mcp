@@ -196,6 +196,8 @@ func (s *SharedMcpInstance) Shutdown(ctx context.Context) error {
 				firstErr = ctx.Err()
 			}
 		}
+		// Explicitly set to nil to help with garbage collection
+		s.Client = nil
 		s.stdioCmd = nil
 	}
 	return firstErr
