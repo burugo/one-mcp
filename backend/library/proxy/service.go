@@ -823,7 +823,8 @@ var (
 // For Stdio clients, client.Start() is not called.
 // It returns the mcp-go server, the mcp-go client, any spawned stdio command, and an error.
 func createActualMcpGoServerAndClientUncached(
-	ctx context.Context,
+	handshakeCtx context.Context,
+	runtimeCtx context.Context,
 	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
 ) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, error) {
@@ -908,7 +909,7 @@ func createActualMcpGoServerAndClientUncached(
 
 								// Save to database with throttling to prevent high-frequency writes
 								if globalStderrThrottler.shouldLog(serviceConfigForInstance.ID, line) {
-									if err := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, logLevel, line); err != nil {
+									if err := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, logLevel, line); err != nil {
 										common.SysError(fmt.Sprintf("Failed to save MCP log for %s: %v", serviceConfigForInstance.Name, err))
 									}
 								}
@@ -923,7 +924,7 @@ func createActualMcpGoServerAndClientUncached(
 							errMsg := fmt.Sprintf("Error reading stderr from %s: %v", serviceConfigForInstance.Name, err)
 							common.SysError(errMsg)
 							// Also save scanner error to database
-							if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+							if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 								common.SysError(fmt.Sprintf("Failed to save MCP scanner error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 							}
 						}
@@ -938,7 +939,7 @@ func createActualMcpGoServerAndClientUncached(
 		if url == "" {
 			errMsg := fmt.Sprintf("URL (from Command field) is empty for SSE service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
 			// Save configuration error to database
-			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+			if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
 			return nil, nil, nil, fmt.Errorf("%s", errMsg)
@@ -962,7 +963,7 @@ func createActualMcpGoServerAndClientUncached(
 		if url == "" {
 			errMsg := fmt.Sprintf("URL (from Command field) is empty for StreamableHTTP service %s (ID: %d)", serviceConfigForInstance.Name, serviceConfigForInstance.ID)
 			// Save configuration error to database
-			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+			if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
 			return nil, nil, nil, fmt.Errorf("%s", errMsg)
@@ -997,7 +998,7 @@ func createActualMcpGoServerAndClientUncached(
 		common.SysError(errMsg)
 
 		// Save client creation failure to database
-		if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+		if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 			common.SysError(fmt.Sprintf("Failed to save MCP client creation error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
@@ -1010,7 +1011,7 @@ func createActualMcpGoServerAndClientUncached(
 		var startErr error
 		switch cl := mcpGoClient.(type) {
 		case interface{ Start(context.Context) error }:
-			startErr = cl.Start(ctx)
+			startErr = cl.Start(runtimeCtx)
 		default:
 			startErr = fmt.Errorf("client type %T does not have a Start method, but needManualStart was true", mcpGoClient)
 		}
@@ -1020,7 +1021,7 @@ func createActualMcpGoServerAndClientUncached(
 			common.SysError(errMsg)
 
 			// Save client start failure to database
-			if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+			if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP client start error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
 
@@ -1037,11 +1038,11 @@ func createActualMcpGoServerAndClientUncached(
 		PingLoop:
 			for {
 				select {
-				case <-ctx.Done():
+				case <-runtimeCtx.Done():
 					common.SysLog(fmt.Sprintf("Context done, stopping ping for %s", serviceConfigForInstance.Name))
 					break PingLoop
 				case <-ticker.C:
-					if err := mcpGoClient.Ping(ctx); err != nil {
+					if err := mcpGoClient.Ping(runtimeCtx); err != nil {
 						errMsg := fmt.Sprintf("Ping failed for %s: %v", serviceConfigForInstance.Name, err)
 						common.SysError(errMsg)
 						// Note: Ping failures are not logged to database to avoid high-frequency writes
@@ -1066,7 +1067,7 @@ func createActualMcpGoServerAndClientUncached(
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = clientInfo
 
-	_, err = mcpGoClient.Initialize(ctx, initRequest)
+	_, err = mcpGoClient.Initialize(handshakeCtx, initRequest)
 	if err != nil {
 		// Give stderr some time to output error details before we return
 		// This helps capture the actual error messages from the subprocess
@@ -1080,7 +1081,7 @@ func createActualMcpGoServerAndClientUncached(
 		common.SysError(errMsg)
 
 		// Save initialization failure to database
-		if saveErr := model.SaveMCPLog(ctx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
+		if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 			common.SysError(fmt.Sprintf("Failed to save MCP initialization error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
@@ -1088,16 +1089,16 @@ func createActualMcpGoServerAndClientUncached(
 	}
 
 	// Populate server with resources from client
-	if err := addClientToolsToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+	if err := addClientToolsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add tools for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	if err := addClientPromptsToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+	if err := addClientPromptsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add prompts for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	if err := addClientResourcesToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+	if err := addClientResourcesToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add resources for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
-	if err := addClientResourceTemplatesToMCPServer(ctx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+	if err := addClientResourceTemplatesToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add resource templates for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
 
@@ -1371,7 +1372,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		}
 	}()
 
-	srv, cli, spawnedCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, &serviceConfigForCreation, instanceNameDetail)
+	srv, cli, spawnedCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, &serviceConfigForCreation, instanceNameDetail)
 	close(handshakeDone)
 	if err != nil {
 		handshakeCancel()
