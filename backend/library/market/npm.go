@@ -556,6 +556,12 @@ type MCPConfig struct {
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 }
 
+// EnvVarInfo 表示环境变量信息，包括是否可选
+type EnvVarInfo struct {
+	Name     string
+	Optional bool
+}
+
 // ExtractMCPConfig 从npm包的package.json中提取MCP配置
 func ExtractMCPConfig(packageDetails *NPMPackageDetails, readme string) (*MCPConfig, error) {
 	// 首先尝试在readme中查找MCP配置
@@ -747,6 +753,52 @@ func GetEnvVarsFromMCPConfig(config *MCPConfig) []string {
 	result := make([]string, 0, len(envVars))
 	for envVar := range envVars {
 		result = append(result, envVar)
+	}
+
+	return result
+}
+
+// GetEnvVarsInfoFromMCPConfig 从MCP配置中提取环境变量信息（包括可选标识）
+// 通过检查环境变量的值来判断是否可选：
+// - 如果值以"<"开头并以">"结尾（如"<your-api-key>"），表示为可选
+// - 其他情况视为必需
+func GetEnvVarsInfoFromMCPConfig(config *MCPConfig) []EnvVarInfo {
+	if config == nil || len(config.MCPServers) == 0 {
+		return nil
+	}
+
+	envVarsInfo := make(map[string]EnvVarInfo)
+
+	// 遍历所有服务器配置
+	for _, serverConfig := range config.MCPServers {
+		// 提取 env 字段中的环境变量
+		for envVar, envValue := range serverConfig.Env {
+			// 检查环境变量值是否表示为可选
+			// 常见模式: "<your-api-key>", "{YOUR_API_KEY}", "${YOUR_API_KEY}", "optional", "none"等
+			isOptional := false
+			trimmedValue := strings.TrimSpace(envValue)
+			
+			// 检查占位符模式
+			if (strings.HasPrefix(trimmedValue, "<") && strings.HasSuffix(trimmedValue, ">")) ||
+				(strings.HasPrefix(trimmedValue, "{") && strings.HasSuffix(trimmedValue, "}")) ||
+				(strings.HasPrefix(trimmedValue, "${") && strings.HasSuffix(trimmedValue, "}")) ||
+				strings.EqualFold(trimmedValue, "optional") ||
+				strings.EqualFold(trimmedValue, "none") ||
+				trimmedValue == "" {
+				isOptional = true
+			}
+
+			envVarsInfo[envVar] = EnvVarInfo{
+				Name:     envVar,
+				Optional: isOptional,
+			}
+		}
+	}
+
+	// 转换为切片
+	result := make([]EnvVarInfo, 0, len(envVarsInfo))
+	for _, info := range envVarsInfo {
+		result = append(result, info)
 	}
 
 	return result

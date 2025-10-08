@@ -112,8 +112,14 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
         if (serviceData.type === 'stdio') {
             if (!serviceData.command?.trim()) {
                 newErrors.command = t('customServiceModal.form.commandPlaceholder');
-            } else if (!serviceData.command.startsWith('npx') && !serviceData.command.startsWith('uvx')) {
-                newErrors.command = t('customServiceModal.messages.commandMustStartWith');
+            } else {
+                // More flexible validation - allow any command that contains npx or uvx
+                const cmd = serviceData.command.trim();
+                const hasNpxOrUvx = cmd.startsWith('npx ') || cmd.startsWith('uvx ') || 
+                                   cmd === 'npx' || cmd === 'uvx';
+                if (!hasNpxOrUvx) {
+                    newErrors.command = t('customServiceModal.messages.commandMustStartWith');
+                }
             }
         } else if (serviceData.type === 'sse' || serviceData.type === 'streamableHttp') {
             if (!serviceData.url?.trim()) {

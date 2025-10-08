@@ -239,11 +239,21 @@ export function ServicesPage() {
                     const argLines = serviceData.arguments.trim().split('\n');
                     customArgs = argLines.map(line => line.trim()).filter(line => line.length > 0);
 
-                    // Find package name from arguments (first non-flag argument)
-                    const packageNameFromArgs = argLines.find(line => {
-                        const trimmedLine = line.trim();
-                        return trimmedLine && !trimmedLine.startsWith('-');
-                    })?.trim() || '';
+                    // Find package name from arguments
+                    // For git URLs: look for --from parameter followed by git+https://...
+                    // For regular packages: first non-flag argument
+                    let packageNameFromArgs = '';
+                    for (let i = 0; i < argLines.length; i++) {
+                        const trimmedLine = argLines[i].trim();
+                        if (trimmedLine === '--from' && i + 1 < argLines.length) {
+                            // Next line is the package source (could be git URL or package name)
+                            packageNameFromArgs = argLines[i + 1].trim();
+                            break;
+                        } else if (trimmedLine && !trimmedLine.startsWith('-')) {
+                            packageNameFromArgs = trimmedLine;
+                            break;
+                        }
+                    }
 
                     if (packageNameFromArgs && command === 'npx') {
                         packageManager = 'npm';
@@ -258,10 +268,21 @@ export function ServicesPage() {
                     if (commandParts && commandParts.length > 1) {
                         customArgs = commandParts.slice(1);
 
-                        // Find package name (first non-flag argument)
-                        const packageNameFromCommand = commandParts.slice(1).find(part =>
-                            part.trim() && !part.trim().startsWith('-')
-                        )?.trim() || '';
+                        // Find package name from command parts
+                        // For git URLs: look for --from parameter followed by git+https://...
+                        // For regular packages: first non-flag argument
+                        let packageNameFromCommand = '';
+                        for (let i = 1; i < commandParts.length; i++) {
+                            const part = commandParts[i].trim();
+                            if (part === '--from' && i + 1 < commandParts.length) {
+                                // Next part is the package source
+                                packageNameFromCommand = commandParts[i + 1].trim();
+                                break;
+                            } else if (part && !part.startsWith('-')) {
+                                packageNameFromCommand = part;
+                                break;
+                            }
+                        }
 
                         if (packageNameFromCommand && commandParts[0] === 'npx') {
                             packageManager = 'npm';

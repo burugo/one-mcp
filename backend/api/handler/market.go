@@ -625,8 +625,16 @@ func InstallOrAddService(c *gin.Context) {
 			readme, _ := market.GetNPMPackageReadme(c.Request.Context(), cleanPackageName)
 			mcpConfig, _ := market.ExtractMCPConfig(details, readme)
 			if mcpConfig != nil {
-				requiredEnvVars = market.GetEnvVarsFromMCPConfig(mcpConfig)
+				// Get env var info with optional flags
+				envVarsInfo := market.GetEnvVarsInfoFromMCPConfig(mcpConfig)
+				// Only collect non-optional env vars as required
+				for _, info := range envVarsInfo {
+					if !info.Optional {
+						requiredEnvVars = append(requiredEnvVars, info.Name)
+					}
+				}
 			}
+			// Fallback to legacy method if no env vars found
 			if len(requiredEnvVars) == 0 {
 				requiredEnvVars = market.GuessMCPEnvVarsFromReadme(readme)
 			}
