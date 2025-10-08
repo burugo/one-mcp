@@ -97,6 +97,7 @@ interface MarketState {
 
     // 安装任务
     installTasks: Record<string, InstallTask>;
+    installPollTimers: Record<string, ReturnType<typeof setTimeout>>;
     // 卸载任务状态
     uninstallTasks: Record<string, UninstallTask>;
 
@@ -113,6 +114,7 @@ interface MarketState {
     updateInstallProgress: (serviceId: string, log: string) => void;
     updateInstallStatus: (serviceId: string, status: InstallStatus, error?: string) => void;
     pollInstallationStatus: (serviceId: string, taskId: string) => void;
+    cancelInstallTask: (serviceId: string) => void;
     uninstallService: (serviceId: number) => Promise<void>;
     toggleService: (serviceId: string) => Promise<void>;
     checkServiceHealth: (serviceId: string) => Promise<void>;
@@ -129,6 +131,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     selectedService: null,
     isLoadingDetails: false,
     installTasks: {},
+    installPollTimers: {},
     uninstallTasks: {},
 
     // 操作方法
@@ -366,6 +369,8 @@ export const useMarketStore = create<MarketState>((set, get) => ({
     },
 
     installService: async (serviceId, envVars): Promise<any> => {
+        get().cancelInstallTask(serviceId);
+
         const { searchResults, installedServices } = get();
 
         // 直接从 searchResults 或 installedServices 查找 service 信息
@@ -484,7 +489,60 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         }));
     },
 
+    cancelInstallTask: (serviceId) => {
+        const existingTimer = get().installPollTimers[serviceId];
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+        set(state => {
+            const nextTimers = { ...state.installPollTimers };
+            delete nextTimers[serviceId];
+
+            const nextTasks = { ...state.installTasks };
+            const task = nextTasks[serviceId];
+            if (task) {
+                delete nextTasks[serviceId];
+            }
+
+            return {
+                installPollTimers: nextTimers,
+                installTasks: nextTasks,
+            };
+        });
+    },
+
     pollInstallationStatus: async (serviceId, taskId) => {
+        const clearExistingTimer = () => {
+            const existingTimer = get().installPollTimers[serviceId];
+            if (existingTimer) {
+                clearTimeout(existingTimer);
+                set(state => {
+                    const nextTimers = { ...state.installPollTimers };
+                    delete nextTimers[serviceId];
+                    return { installPollTimers: nextTimers };
+                });
+            }
+        };
+
+        const scheduleNextPoll = () => {
+            clearExistingTimer();
+            const timerId = setTimeout(() => {
+                get().pollInstallationStatus(serviceId, taskId);
+            }, 5000);
+            set(state => ({
+                installPollTimers: {
+                    ...state.installPollTimers,
+                    [serviceId]: timerId,
+                },
+            }));
+        };
+
+        const currentTask = get().installTasks[serviceId];
+        if (!currentTask || currentTask.status !== 'installing') {
+            clearExistingTimer();
+            return;
+        }
+
         const { searchResults, installedServices } = get();
         const service = [...searchResults, ...installedServices].find(s => s.id === serviceId);
         const serviceDisplayName = service?.name || serviceId;
@@ -494,7 +552,9 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             if (response.success && response.data) {
                 const { status, logs = [], error_message } = response.data;
                 logs.forEach((log: string) => get().updateInstallProgress(serviceId, log));
+
                 if (status === 'completed') {
+                    clearExistingTimer();
                     get().updateInstallStatus(serviceId, 'success');
                     toastEmitter.emit({
                         title: "Installation Complete",
@@ -502,6 +562,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     });
                     get().fetchInstalledServices();
                 } else if (status === 'failed') {
+                    clearExistingTimer();
                     get().updateInstallStatus(serviceId, 'error', error_message || 'Installation failed');
                     toastEmitter.emit({
                         variant: "destructive",
@@ -509,14 +570,12 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                         description: error_message || `Failed to install ${serviceDisplayName}.`
                     });
                 } else if (status === 'pending' || status === 'running' || status === 'installing') {
-                    // 继续轮询，不弹 toast
-                    setTimeout(() => get().pollInstallationStatus(serviceId, taskId), 5000);
+                    scheduleNextPoll();
                 } else {
-                    // 其他未知状态，继续轮询
-                    setTimeout(() => get().pollInstallationStatus(serviceId, taskId), 5000);
+                    scheduleNextPoll();
                 }
             } else {
-                // 只有在 response.success 为 false 或 data 缺失时才弹 toast
+                clearExistingTimer();
                 console.warn("Failed to poll installation status, or no data:", response.message);
                 get().updateInstallStatus(serviceId, 'error', 'Polling failed. Check server logs.');
                 toastEmitter.emit({
@@ -526,6 +585,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 });
             }
         } catch (error) {
+            clearExistingTimer();
             console.error('Polling error:', error);
             get().updateInstallStatus(serviceId, 'error', 'Failed to poll installation status.');
             toastEmitter.emit({

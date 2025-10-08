@@ -117,26 +117,21 @@ export function ServiceMarketplace({ onSelectService }: { onSelectService: (serv
     // 关闭安装对话框
     const closeInstallDialog = () => {
         const installTask = currentInstallingService ? installTasks[currentInstallingService.id] : undefined;
+        setShowInstallDialog(false);
 
+        // 如果安装成功，刷新已安装服务列表
+        if (installTask?.status === 'success') {
+            fetchInstalledServices();
+            toast({
+                title: "Installation Successful",
+                description: `${currentInstallingService?.name} has been installed and is ready to use.`
+            });
+        }
+
+        // 当安装仍在进行时，保持安装任务继续轮询，但允许用户关闭对话框
         if (installTask?.status !== 'installing') {
-            setShowInstallDialog(false);
             setCurrentInstallingService(null);
             setPendingServiceId(null);
-
-            // 如果安装成功，刷新已安装服务列表
-            if (installTask?.status === 'success') {
-                fetchInstalledServices();
-                toast({
-                    title: "Installation Successful",
-                    description: `${currentInstallingService?.name} has been installed and is ready to use.`
-                });
-            }
-        } else {
-            toast({
-                title: "Installation in Progress",
-                description: "Please wait for the installation to complete.",
-                variant: "destructive"
-            });
         }
     };
 

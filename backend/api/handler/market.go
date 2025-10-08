@@ -544,6 +544,15 @@ func InstallOrAddService(c *gin.Context) {
 	}
 
 	envVarsForTask := convertEnvVarsMap(requestBody.UserProvidedEnvVars)
+	for key, value := range envVarsForTask {
+		if strings.TrimSpace(value) == "" {
+			delete(envVarsForTask, key)
+		}
+	}
+	sanitizedEnvVarsForUser := make(map[string]interface{}, len(envVarsForTask))
+	for key, value := range envVarsForTask {
+		sanitizedEnvVarsForUser[key] = value
+	}
 
 	if requestBody.SourceType == "predefined" {
 		if requestBody.MCServiceID == 0 {
@@ -553,13 +562,14 @@ func InstallOrAddService(c *gin.Context) {
 		// For predefined, userID might be 0 if it's an admin setting up global defaults or if auth is handled differently.
 		// The addServiceInstanceForUser function should be robust enough or this path needs specific logic for userID=0.
 		// For now, we pass the userID obtained. If it's 0, addServiceInstanceForUser might need to handle it.
-		if err := addServiceInstanceForUser(c, userID, requestBody.MCServiceID, requestBody.UserProvidedEnvVars); err != nil {
+		if err := addServiceInstanceForUser(c, userID, requestBody.MCServiceID, sanitizedEnvVarsForUser); err != nil {
 			common.RespError(c, http.StatusInternalServerError, i18n.Translate("add_service_instance_failed", lang), err)
 			return
 		}
 		common.RespSuccessStr(c, i18n.Translate("service_added_successfully", lang))
 		return
-	} else if requestBody.SourceType == "marketplace" {
+	} else if requestBody.SourceType == "marketplace" || requestBody.SourceType == "custom" {
+		isCustomSource := requestBody.SourceType == "custom"
 		if requestBody.PackageName == "" || requestBody.PackageManager == "" {
 			common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("package_name_and_manager_required", lang))
 			return
@@ -588,7 +598,7 @@ func InstallOrAddService(c *gin.Context) {
 
 		if err == nil && len(existingServices) > 0 {
 			mcpServiceID := existingServices[0].ID
-			if err := addServiceInstanceForUser(c, userID, mcpServiceID, requestBody.UserProvidedEnvVars); err != nil {
+			if err := addServiceInstanceForUser(c, userID, mcpServiceID, sanitizedEnvVarsForUser); err != nil {
 				common.RespError(c, http.StatusInternalServerError, i18n.Translate("add_service_instance_failed", lang), err)
 				return
 			}
@@ -658,7 +668,7 @@ func InstallOrAddService(c *gin.Context) {
 				missingEnvVars = append(missingEnvVars, env)
 			}
 		}
-		if len(missingEnvVars) > 0 {
+		if len(missingEnvVars) > 0 && !isCustomSource {
 			// Use i18n for the error message
 			msg := i18n.Translate("missing_required_env_vars", lang, strings.Join(missingEnvVars, ", "))
 			c.JSON(http.StatusOK, common.APIResponse{ // use 200 OK, because this is not an error, but requires user input

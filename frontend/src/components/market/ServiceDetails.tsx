@@ -152,27 +152,17 @@ export function ServiceDetails({ onBack }: { onBack: () => void }) {
 
     // 关闭安装对话框
     const closeInstallDialog = async () => {
-        if (installTask?.status !== 'installing') {
-            setShowInstallDialog(false);
+        setShowInstallDialog(false);
 
-            // 如果安装成功，刷新当前页面状态而不是返回上一级
-            if (installTask?.status === 'success') {
-                toast({
-                    title: "Installation Successful",
-                    description: `${selectedService?.name} has been installed and is ready to use.`
-                });
-
-                // 刷新当前服务详情以更新安装状态
-                if (selectedService) {
-                    await fetchServiceDetails(selectedService.id, selectedService.name, selectedService.source);
-                }
-            }
-        } else {
+        // 如果安装成功，刷新当前页面状态而不是返回上一级
+        if (installTask?.status === 'success' && selectedService) {
             toast({
-                title: "Installation in Progress",
-                description: "Please wait for the installation to complete.",
-                variant: "destructive"
+                title: "Installation Successful",
+                description: `${selectedService.name} has been installed and is ready to use.`
             });
+
+            // 刷新当前服务详情以更新安装状态
+            await fetchServiceDetails(selectedService.id, selectedService.name, selectedService.source);
         }
     };
 

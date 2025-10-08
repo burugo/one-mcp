@@ -103,10 +103,16 @@ export function ServicesPage() {
 
     const parseEnvironments = (envStr?: string): Record<string, string> => {
         if (!envStr) return {};
-        return envStr.split('\\n').reduce((acc, line) => {
+        return envStr.split('\\n').reduce((acc, rawLine) => {
+            const line = rawLine.trim();
+            if (!line || !line.includes('=')) {
+                return acc;
+            }
             const [key, ...valueParts] = line.split('=');
-            if (key?.trim() && valueParts.length > 0) {
-                acc[key.trim()] = valueParts.join('=').trim();
+            const trimmedKey = key.trim();
+            const value = valueParts.join('=').trim();
+            if (trimmedKey && value) {
+                acc[trimmedKey] = value;
             }
             return acc;
         }, {} as Record<string, string>);
@@ -239,18 +245,57 @@ export function ServicesPage() {
                     const argLines = serviceData.arguments.trim().split('\n');
                     customArgs = argLines.map(line => line.trim()).filter(line => line.length > 0);
 
-                    // Find package name from arguments (first non-flag argument)
-                    const packageNameFromArgs = argLines.find(line => {
-                        const trimmedLine = line.trim();
-                        return trimmedLine && !trimmedLine.startsWith('-');
-                    })?.trim() || '';
+                    // Find package name, handling special cases like --from
+                    let packageNameFromArgs = '';
 
-                    if (packageNameFromArgs && command === 'npx') {
-                        packageManager = 'npm';
-                        packageName = packageNameFromArgs;
-                    } else if (packageNameFromArgs && command === 'uvx') {
-                        packageManager = 'uv';
-                        packageName = packageNameFromArgs;
+                    if (command === 'uvx') {
+                        // For uvx, handle flag-value pairs more generically
+                        let i = 0;
+                        while (i < customArgs.length) {
+                            const arg = customArgs[i];
+                            if (arg.startsWith('-')) {
+                                // This is a flag, check if next arg is its value
+                                if (i + 1 < customArgs.length && !customArgs[i + 1].startsWith('-')) {
+                                    // Skip both flag and its value
+                                    i += 2;
+                                } else {
+                                    // Flag without value, skip just the flag
+                                    i += 1;
+                                }
+                            } else {
+                                // Found non-flag argument, this is our package name
+                                packageNameFromArgs = arg;
+                                break;
+                            }
+                        }
+                        if (packageNameFromArgs) {
+                            packageManager = 'uv';
+                            packageName = packageNameFromArgs;
+                        }
+                    } else if (command === 'npx') {
+                        // For npx, handle flag-value pairs more generically
+                        let i = 0;
+                        while (i < customArgs.length) {
+                            const arg = customArgs[i];
+                            if (arg.startsWith('-')) {
+                                // This is a flag, check if next arg is its value
+                                if (i + 1 < customArgs.length && !customArgs[i + 1].startsWith('-')) {
+                                    // Skip both flag and its value
+                                    i += 2;
+                                } else {
+                                    // Flag without value, skip just the flag
+                                    i += 1;
+                                }
+                            } else {
+                                // Found non-flag argument, this is our package name
+                                packageNameFromArgs = arg;
+                                break;
+                            }
+                        }
+                        if (packageNameFromArgs) {
+                            packageManager = 'npm';
+                            packageName = packageNameFromArgs;
+                        }
                     }
                 } else {
                     // Parse arguments from the command field if no separate arguments
@@ -258,17 +303,56 @@ export function ServicesPage() {
                     if (commandParts && commandParts.length > 1) {
                         customArgs = commandParts.slice(1);
 
-                        // Find package name (first non-flag argument)
-                        const packageNameFromCommand = commandParts.slice(1).find(part =>
-                            part.trim() && !part.trim().startsWith('-')
-                        )?.trim() || '';
+                        let packageNameFromCommand = '';
 
-                        if (packageNameFromCommand && commandParts[0] === 'npx') {
-                            packageManager = 'npm';
-                            packageName = packageNameFromCommand;
-                        } else if (packageNameFromCommand && commandParts[0] === 'uvx') {
-                            packageManager = 'uv';
-                            packageName = packageNameFromCommand;
+                        if (commandParts[0] === 'uvx') {
+                            // For uvx, handle flag-value pairs more generically
+                            let i = 0;
+                            while (i < customArgs.length) {
+                                const part = customArgs[i];
+                                if (part.startsWith('-')) {
+                                    // This is a flag, check if next part is its value
+                                    if (i + 1 < customArgs.length && !customArgs[i + 1].startsWith('-')) {
+                                        // Skip both flag and its value
+                                        i += 2;
+                                    } else {
+                                        // Flag without value, skip just the flag
+                                        i += 1;
+                                    }
+                                } else {
+                                    // Found non-flag argument, this is our package name
+                                    packageNameFromCommand = part;
+                                    break;
+                                }
+                            }
+                            if (packageNameFromCommand) {
+                                packageManager = 'uv';
+                                packageName = packageNameFromCommand;
+                            }
+                        } else if (commandParts[0] === 'npx') {
+                            // For npx, handle flag-value pairs more generically
+                            let i = 0;
+                            while (i < customArgs.length) {
+                                const part = customArgs[i];
+                                if (part.startsWith('-')) {
+                                    // This is a flag, check if next part is its value
+                                    if (i + 1 < customArgs.length && !customArgs[i + 1].startsWith('-')) {
+                                        // Skip both flag and its value
+                                        i += 2;
+                                    } else {
+                                        // Flag without value, skip just the flag
+                                        i += 1;
+                                    }
+                                } else {
+                                    // Found non-flag argument, this is our package name
+                                    packageNameFromCommand = part;
+                                    break;
+                                }
+                            }
+                            if (packageNameFromCommand) {
+                                packageManager = 'npm';
+                                packageName = packageNameFromCommand;
+                            }
                         }
                     }
                 }
@@ -278,7 +362,7 @@ export function ServicesPage() {
                 }
 
                 const payload = {
-                    source_type: 'marketplace',
+                    source_type: 'custom',
                     package_name: packageName,
                     package_manager: packageManager,
                     display_name: serviceData.name,
