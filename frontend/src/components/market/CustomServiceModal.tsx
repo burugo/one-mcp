@@ -21,7 +21,6 @@ export interface CustomServiceData {
     name: string;
     type: 'stdio' | 'sse' | 'streamableHttp';
     command?: string;
-    arguments?: string;
     environments?: string;
     url?: string;
     headers?: string;
@@ -38,7 +37,6 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
         name: '',
         type: 'streamableHttp',
         command: '',
-        arguments: '',
         environments: '',
         url: '',
         headers: ''
@@ -82,7 +80,6 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                 name: '',
                 type: 'streamableHttp',
                 command: '',
-                arguments: '',
                 environments: '',
                 url: '',
                 headers: ''
@@ -114,11 +111,11 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                 newErrors.command = t('customServiceModal.form.commandPlaceholder');
             } else {
                 const trimmedCommand = serviceData.command.trim();
-                const isValidCommand = trimmedCommand.startsWith('npx ') || 
-                                     trimmedCommand.startsWith('uvx ') || 
-                                     trimmedCommand === 'npx' || 
-                                     trimmedCommand === 'uvx';
-                
+                const isValidCommand = trimmedCommand.startsWith('npx ') ||
+                    trimmedCommand.startsWith('uvx ') ||
+                    trimmedCommand === 'npx' ||
+                    trimmedCommand === 'uvx';
+
                 if (!isValidCommand) {
                     newErrors.command = t('customServiceModal.messages.commandMustStartWith');
                 }
@@ -194,7 +191,6 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
             name: '',
             type: 'streamableHttp',
             command: '',
-            arguments: '',
             environments: '',
             url: '',
             headers: ''
@@ -300,17 +296,6 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                                     className={errors.command ? 'border-red-500' : ''}
                                 />
                                 {errors.command && <p className="text-red-500 text-xs">{errors.command}</p>}
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="service-arguments">{t('customServiceModal.form.arguments')}</Label>
-                                <Textarea
-                                    id="service-arguments"
-                                    value={serviceData.arguments}
-                                    onChange={(e) => handleChange('arguments', e.target.value)}
-                                    placeholder={t('customServiceModal.form.argumentsPlaceholder')}
-                                    className="min-h-[80px]"
-                                />
                             </div>
 
                             <div className="space-y-2">
