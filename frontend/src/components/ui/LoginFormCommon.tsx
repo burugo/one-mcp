@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Input } from "./input";
 import { Button } from "./button";
 import { Eye, EyeOff } from "lucide-react";
@@ -75,8 +75,8 @@ export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProp
         window.location.href = googleAuthUrl;
     };
 
-    const handleSubmit = async (e?: React.FormEvent | React.MouseEvent) => {
-        if (e) e.preventDefault();
+    const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
         if (!username || !password) {
             toast({
                 variant: "destructive",
@@ -122,13 +122,17 @@ export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProp
     };
 
     return (
-        <div className={isDialogMode ? "p-6 pt-8 flex flex-col items-center" : "max-w-md mx-auto p-6 pt-8 flex flex-col items-center"}>
+        <form
+            onSubmit={handleSubmit}
+            className={isDialogMode ? "p-6 pt-8 flex flex-col items-center" : "max-w-md mx-auto p-6 pt-8 flex flex-col items-center"}
+        >
             <h2 className="text-2xl font-semibold text-center mb-2">Sign in to One MCP</h2>
             <p className="text-muted-foreground text-center mb-8">Welcome back! Please sign in to continue</p>
             {/* Social Login Options */}
             <div className="grid grid-cols-2 gap-4 w-full mb-8">
                 <Button
                     variant="outline"
+                    type="button"
                     className="flex items-center justify-center py-6 hover:bg-muted/50"
                     onClick={handleGitHubOAuth}
                     disabled={!oauthConfig.github_oauth || !oauthConfig.github_client_id}
@@ -141,6 +145,7 @@ export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProp
                 </Button>
                 <Button
                     variant="outline"
+                    type="button"
                     className="flex items-center justify-center py-6 hover:bg-muted/50"
                     onClick={handleGoogleOAuth}
                     disabled={!oauthConfig.google_oauth || !oauthConfig.google_client_id}
@@ -197,7 +202,7 @@ export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProp
             </div>
             <Button
                 className="w-full h-12 text-base font-medium rounded-md"
-                onClick={handleSubmit}
+                type="submit"
                 disabled={loading}
             >
                 {loading ? "登录中..." : "Continue"} <span className="ml-2">➔</span>
@@ -208,6 +213,6 @@ export function LoginFormCommon({ onSuccess, isDialogMode }: LoginFormCommonProp
                     Sign up
                 </a>
             </p> */}
-        </div>
+        </form>
     );
-} 
+}
