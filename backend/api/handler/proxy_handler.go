@@ -234,6 +234,7 @@ func ProxyHandler(c *gin.Context) {
 		return
 	}
 
+	var serviceManager *proxy.ServiceManager
 	var targetHandler http.Handler
 	var handlerErr error
 	var userID int64
@@ -271,9 +272,11 @@ func ProxyHandler(c *gin.Context) {
 
 	// Handle on-demand startup for stdio services
 	if mcpDBService.Type == model.ServiceTypeStdio {
+		if serviceManager == nil {
+			serviceManager = proxy.GetServiceManager()
+		}
 		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
 		if strategy == common.StrategyStartOnDemand {
-			serviceManager := proxy.GetServiceManager()
 			service, err := serviceManager.GetService(mcpDBService.ID)
 			if err != nil {
 				common.SysError(fmt.Sprintf("[ProxyHandler] Failed to get service %s: %v", serviceName, err))
@@ -296,10 +299,10 @@ func ProxyHandler(c *gin.Context) {
 						common.SysLog(fmt.Sprintf("[ProxyHandler] Force health check failed for %s after start: %v", svcName, err))
 					}
 				}(mcpDBService.ID, serviceName)
-			}
 
-			// Update access time for idle shutdown tracking
-			serviceManager.UpdateServiceAccessTime(mcpDBService.ID)
+				// Initialize last access time so idle shutdown can track this new session.
+				serviceManager.UpdateServiceAccessTime(mcpDBService.ID)
+			}
 		}
 	}
 
@@ -412,6 +415,14 @@ func ProxyHandler(c *gin.Context) {
 			if saveErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelInfo, msg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP access log for %s: %v", mcpDBService.Name, saveErr))
 			}
+		}
+
+		// Only count meaningful MCP calls towards idle tracking.
+		if shouldRecordStat && mcpDBService.Type == model.ServiceTypeStdio {
+			if serviceManager == nil {
+				serviceManager = proxy.GetServiceManager()
+			}
+			serviceManager.UpdateServiceAccessTime(mcpDBService.ID)
 		}
 
 	} else {

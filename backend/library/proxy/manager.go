@@ -353,7 +353,7 @@ func (m *ServiceManager) StartDaemon() {
 		// Perform initial health check
 		m.performHealthCheckAndManagement()
 
-		ticker := time.NewTicker(600 * time.Second)
+		ticker := time.NewTicker(300 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
@@ -389,6 +389,9 @@ func (m *ServiceManager) performHealthCheckAndManagement() {
 						} else {
 							log.Printf("Stopped idle stdio service: %s (ID: %d) after %v of inactivity",
 								service.Name(), service.ID(), time.Since(lastAccess))
+							if _, err := m.healthChecker.ForceCheckService(service.ID()); err != nil {
+								log.Printf("Failed to refresh health after stopping idle stdio service %s (ID: %d): %v", service.Name(), service.ID(), err)
+							}
 						}
 						continue // Skip auto-restart logic for this service
 					}
