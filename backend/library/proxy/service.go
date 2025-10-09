@@ -975,18 +975,13 @@ func createActualMcpGoServerAndClientUncached(
 			}
 		}
 		common.SysLog(fmt.Sprintf("StreamableHTTP config for %s: URL=%s, Headers (raw)=%v", serviceConfigForInstance.Name, url, headers))
+
+		var streamableOptions []transport.StreamableHTTPCOption
 		if len(headers) > 0 {
-			// TODO: Correctly apply HTTP headers.
-			// tdd.md and mcp-go patterns suggest `transport.WithHTTPHeaders(headers)`,
-			// which would require importing "github.com/mark3labs/mcp-go/client/transport".
-			// Due to current tool limitations on adding imports, this is omitted.
-			// mcpclient.WithHeaders is likely not the correct option for HTTP stream transport headers.
-			common.SysLog(fmt.Sprintf("WARNING: Custom headers for StreamableHTTP service %s are NOT being applied due to missing transport.WithHTTPHeaders option.", serviceConfigForInstance.Name))
-			// Call without header options as the correct option builder is unavailable without new imports.
-			mcpGoClient, err = mcpclient.NewStreamableHttpClient(url)
-		} else {
-			mcpGoClient, err = mcpclient.NewStreamableHttpClient(url)
+			streamableOptions = append(streamableOptions, transport.WithHTTPHeaders(headers))
 		}
+
+		mcpGoClient, err = mcpclient.NewStreamableHttpClient(url, streamableOptions...)
 		needManualStart = true
 
 	default:
