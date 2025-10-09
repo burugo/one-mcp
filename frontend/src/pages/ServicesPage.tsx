@@ -103,7 +103,7 @@ export function ServicesPage() {
 
     const parseEnvironments = (envStr?: string): Record<string, string> => {
         if (!envStr) return {};
-        return envStr.split('\\n').reduce((acc, rawLine) => {
+        return envStr.split(/\r?\n|\\n/).reduce((acc, rawLine) => {
             const line = rawLine.trim();
             if (!line || !line.includes('=')) {
                 return acc;
@@ -116,6 +116,103 @@ export function ServicesPage() {
             }
             return acc;
         }, {} as Record<string, string>);
+    };
+
+    const tokenizeCommand = (command?: string): string[] => {
+        if (!command) return [];
+        const tokens: string[] = [];
+        let current = '';
+        let quote: '"' | "'" | '`' | null = null;
+
+        for (let i = 0; i < command.length; i++) {
+            const char = command[i];
+
+            if (quote) {
+                if (char === quote) {
+                    quote = null;
+                } else if (char === '\\' && quote === '"' && i + 1 < command.length) {
+                    // Preserve escaped characters inside double quotes
+                    current += command[i + 1];
+                    i += 1;
+                } else {
+                    current += char;
+                }
+                continue;
+            }
+
+            if (char === '"' || char === "'" || char === '`') {
+                quote = char;
+                continue;
+            }
+
+            if (/\s/.test(char)) {
+                if (current) {
+                    tokens.push(current);
+                    current = '';
+                }
+                continue;
+            }
+
+            if (char === '\\' && i + 1 < command.length) {
+                current += command[i + 1];
+                i += 1;
+                continue;
+            }
+
+            current += char;
+        }
+
+        if (current) {
+            tokens.push(current);
+        }
+
+        return tokens;
+    };
+
+    const extractPackageInfo = (tokens: string[]): { packageManager: '' | 'npm' | 'uv'; packageName: string } => {
+        if (tokens.length === 0) {
+            return { packageManager: '', packageName: '' };
+        }
+
+        const [managerToken, ...args] = tokens;
+        if (managerToken !== 'npx' && managerToken !== 'uvx') {
+            return { packageManager: '', packageName: '' };
+        }
+
+        const booleanFlags =
+            managerToken === 'npx'
+                ? new Set(['-y', '--yes', '--no-install', '--prefer-offline', '--quiet'])
+                : new Set(['--quiet', '--preview', '--system', '--strict']);
+
+        let packageName = '';
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+
+            if (arg === '--') {
+                if (i + 1 < args.length) {
+                    packageName = args[i + 1];
+                }
+                break;
+            }
+
+            if (arg.startsWith('-')) {
+                const normalized = arg.includes('=') ? arg.split('=')[0] : arg;
+                if (booleanFlags.has(normalized) || arg.includes('=')) {
+                    continue;
+                }
+
+                if (i + 1 < args.length) {
+                    i += 1;
+                }
+                continue;
+            }
+
+            packageName = arg;
+            break;
+        }
+
+        const packageManager = managerToken === 'npx' ? 'npm' : 'uv';
+        return { packageManager, packageName };
     };
 
     const handleToggleService = async (serviceId: string) => {
@@ -234,70 +331,11 @@ export function ServicesPage() {
         try {
             let res;
             if (serviceData.type === 'stdio') {
-                let packageName = '';
-                let packageManager = '';
                 const command = serviceData.command?.trim();
 
-                // Parse arguments and extract package name and custom args
-                let customArgs: string[] = [];
-
-                // Parse arguments from the command field
-                const commandParts = command?.split(' ');
-                if (commandParts && commandParts.length > 1) {
-                    customArgs = commandParts.slice(1);
-
-                    let packageNameFromCommand = '';
-
-                    if (commandParts[0] === 'uvx') {
-                        // For uvx, handle flag-value pairs more generically
-                        let i = 0;
-                        while (i < customArgs.length) {
-                            const part = customArgs[i];
-                            if (part.startsWith('-')) {
-                                // This is a flag, check if next part is its value
-                                if (i + 1 < customArgs.length && !customArgs[i + 1].startsWith('-')) {
-                                    // Skip both flag and its value
-                                    i += 2;
-                                } else {
-                                    // Flag without value, skip just the flag
-                                    i += 1;
-                                }
-                            } else {
-                                // Found non-flag argument, this is our package name
-                                packageNameFromCommand = part;
-                                break;
-                            }
-                        }
-                        if (packageNameFromCommand) {
-                            packageManager = 'uv';
-                            packageName = packageNameFromCommand;
-                        }
-                    } else if (commandParts[0] === 'npx') {
-                        // For npx, handle flag-value pairs more generically
-                        let i = 0;
-                        while (i < customArgs.length) {
-                            const part = customArgs[i];
-                            if (part.startsWith('-')) {
-                                // This is a flag, check if next part is its value
-                                if (i + 1 < customArgs.length && !customArgs[i + 1].startsWith('-')) {
-                                    // Skip both flag and its value
-                                    i += 2;
-                                } else {
-                                    // Flag without value, skip just the flag
-                                    i += 1;
-                                }
-                            } else {
-                                // Found non-flag argument, this is our package name
-                                packageNameFromCommand = part;
-                                break;
-                            }
-                        }
-                        if (packageNameFromCommand) {
-                            packageManager = 'npm';
-                            packageName = packageNameFromCommand;
-                        }
-                    }
-                }
+                const commandTokens = tokenizeCommand(command);
+                const customArgs = commandTokens.length > 1 ? commandTokens.slice(1) : [];
+                const { packageManager, packageName } = extractPackageInfo(commandTokens);
 
                 if (!packageManager || !packageName) {
                     throw new Error(t('customServiceModal.messages.parseCommandFailed'));
