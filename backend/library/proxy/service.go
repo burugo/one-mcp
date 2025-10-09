@@ -1173,6 +1173,15 @@ func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
 		}
 
 		ctx := context.Background()
+		if mcpDBService.Type == model.ServiceTypeStdio {
+			strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+			if strategy == common.StrategyStartOnDemand {
+				common.SysLog(fmt.Sprintf("ServiceFactory: On-demand strategy active, deferring stdio instance creation for %s (ID: %d)", mcpDBService.Name, mcpDBService.ID))
+				monitoredService := NewMonitoredProxiedService(baseService, nil, mcpDBService)
+				monitoredService.UpdateHealth(StatusStopped, 0, "Service is configured for on-demand start")
+				return monitoredService, nil
+			}
+		}
 		// Use unified global cache key and standardized parameters
 		cacheKey := fmt.Sprintf("global-service-%d-shared", mcpDBService.ID)
 		instanceNameDetail := fmt.Sprintf("global-shared-svc-%d", mcpDBService.ID)

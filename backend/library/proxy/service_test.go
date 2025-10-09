@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,13 @@ func TestServiceFactory_SupportedTypes(t *testing.T) {
 	teardown := setupTestEnvironmentForProxy()
 	defer teardown()
 
+	// Ensure default strategy is start on boot for the generic supported types test
+	common.OptionMapRWMutex.Lock()
+	common.OptionMap = map[string]string{
+		common.OptionStdioServiceStartupStrategy: common.StrategyStartOnBoot,
+	}
+	common.OptionMapRWMutex.Unlock()
+
 	supportedTypes := []model.ServiceType{
 		model.ServiceTypeStdio,
 		model.ServiceTypeSSE,
@@ -208,6 +216,47 @@ func TestServiceFactory_SupportedTypes(t *testing.T) {
 			assert.NotEmpty(t, health.ErrorMessage, "Should have error message explaining why unhealthy")
 		})
 	}
+}
+
+func TestServiceFactory_OnDemandStdioDefersInstanceCreation(t *testing.T) {
+	teardown := setupTestEnvironmentForProxy()
+	defer teardown()
+
+	common.OptionMapRWMutex.Lock()
+	common.OptionMap = map[string]string{
+		common.OptionStdioServiceStartupStrategy: common.StrategyStartOnDemand,
+	}
+	common.OptionMapRWMutex.Unlock()
+
+	service := &model.MCPService{
+		Name:            "on-demand-stdio",
+		Type:            model.ServiceTypeStdio,
+		DefaultEnvsJSON: `{"TEST":"value"}`,
+		Enabled:         true,
+	}
+
+	err := model.CreateService(service)
+	assert.NoError(t, err)
+	defer model.DeleteService(service.ID)
+
+	result, err := ServiceFactory(service)
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+
+	monitoredService, ok := result.(*MonitoredProxiedService)
+	assert.True(t, ok, "Should return MonitoredProxiedService")
+	assert.Nil(t, monitoredService.sharedInstance, "On-demand stdio service should not create shared instance immediately")
+
+	cacheKey := fmt.Sprintf("global-service-%d-shared", service.ID)
+	sharedMCPServersMutex.RLock()
+	_, exists := sharedMCPServers[cacheKey]
+	sharedMCPServersMutex.RUnlock()
+	assert.False(t, exists, "Shared instance cache should remain empty for on-demand startup")
+
+	health := monitoredService.GetHealth()
+	assert.NotNil(t, health)
+	assert.Equal(t, StatusStopped, health.Status)
+	assert.Contains(t, strings.ToLower(health.ErrorMessage), "on-demand")
 }
 
 // TestServiceFactory_UnsupportedType tests ServiceFactory with unsupported type
