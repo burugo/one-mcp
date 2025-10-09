@@ -46,7 +46,7 @@ func GetServiceManager() *ServiceManager {
 			healthChecker:            NewHealthChecker(10 * time.Minute),
 			initialized:              false,
 			lastAccessed:             make(map[int64]time.Time),
-			stdioOnDemandIdleTimeout: 15 * time.Minute, // Default 15 minutes for idle timeout
+			stdioOnDemandIdleTimeout: 10 * time.Minute, // Default 10 minutes for idle timeout
 		}
 	})
 	return globalManager

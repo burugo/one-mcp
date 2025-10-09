@@ -289,6 +289,13 @@ func ProxyHandler(c *gin.Context) {
 					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Failed to start service"})
 					return
 				}
+
+				// Trigger an immediate health refresh so UI reflects the running state promptly.
+				go func(serviceID int64, svcName string) {
+					if _, err := serviceManager.ForceCheckServiceHealth(serviceID); err != nil {
+						common.SysLog(fmt.Sprintf("[ProxyHandler] Force health check failed for %s after start: %v", svcName, err))
+					}
+				}(mcpDBService.ID, serviceName)
 			}
 
 			// Update access time for idle shutdown tracking
