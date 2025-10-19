@@ -135,9 +135,115 @@ type SharedMcpInstance struct {
 	Server *mcpserver.MCPServer
 	Client mcpclient.MCPClient
 	// consider adding createdAt time.Time for future LRU cache policies
-	cancel    context.CancelFunc // cancels background goroutines like heartbeat
-	serviceID int64              // owning service ID for cleanup of user-specific instances
-	stdioCmd  *exec.Cmd          // tracks stdio-backed subprocess for forced termination
+	cancel        context.CancelFunc // cancels background goroutines like heartbeat
+	serviceID     int64              // owning service ID for cleanup of user-specific instances
+	serviceName   string
+	serviceType   model.ServiceType
+	cacheKey      string
+	instanceLabel string
+	cleanupOnce   sync.Once
+	stdioCmd      *exec.Cmd // tracks stdio-backed subprocess for forced termination
+}
+
+// startMaintenanceLoops wires up background tasks (ping + connection loss handling) for network-based transports.
+func (s *SharedMcpInstance) startMaintenanceLoops(runtimeCtx context.Context) {
+	if s == nil || s.Client == nil {
+		return
+	}
+
+	if s.serviceType != model.ServiceTypeSSE && s.serviceType != model.ServiceTypeStreamableHTTP {
+		return
+	}
+
+	// Register connection lost handler if supported by the underlying client implementation.
+	if clientWithConnectionLost, ok := s.Client.(interface {
+		OnConnectionLost(func(error))
+	}); ok {
+		clientWithConnectionLost.OnConnectionLost(func(connErr error) {
+			if connErr == nil {
+				connErr = fmt.Errorf("connection lost without additional context")
+			}
+			common.SysLog(fmt.Sprintf("Connection lost detected for %s (ID: %d, cache key: %s): %v", s.serviceName, s.serviceID, s.cacheKey, connErr))
+			s.handleTransportDisruption("connection lost", connErr)
+		})
+	}
+}
+
+// handleTransportDisruption performs one-time cleanup after we detect a fatal transport error.
+func (s *SharedMcpInstance) handleTransportDisruption(trigger string, cause error) {
+	if s == nil {
+		return
+	}
+
+	s.cleanupOnce.Do(func() {
+		common.SysError(fmt.Sprintf("Detected transport disruption for service %s (ID: %d, cache key: %s) triggered by %s: %v",
+			s.serviceName, s.serviceID, s.cacheKey, trigger, cause))
+
+		if s.cacheKey != "" {
+			sharedMCPServersMutex.Lock()
+			if existing, ok := sharedMCPServers[s.cacheKey]; ok && existing == s {
+				delete(sharedMCPServers, s.cacheKey)
+				common.SysLog(fmt.Sprintf("Removed shared MCP cache entry for %s (key: %s) after %s disruption.", s.serviceName, s.cacheKey, trigger))
+			}
+			sharedMCPServersMutex.Unlock()
+		}
+
+		if s.serviceType == model.ServiceTypeSSE || s.serviceType == model.ServiceTypeStreamableHTTP {
+			sseKey := fmt.Sprintf("service-%d-sseproxy", s.serviceID)
+			sseWrappersMutex.Lock()
+			if _, exists := initializedSSEProxyWrappers[sseKey]; exists {
+				delete(initializedSSEProxyWrappers, sseKey)
+				common.SysLog(fmt.Sprintf("Cleared SSE handler cache for %s due to %s disruption.", s.serviceName, trigger))
+			}
+			sseWrappersMutex.Unlock()
+
+			httpKey := fmt.Sprintf("service-%d-httpproxy", s.serviceID)
+			httpWrappersMutex.Lock()
+			if _, exists := initializedHTTPProxyWrappers[httpKey]; exists {
+				delete(initializedHTTPProxyWrappers, httpKey)
+				common.SysLog(fmt.Sprintf("Cleared HTTP handler cache for %s due to %s disruption.", s.serviceName, trigger))
+			}
+			httpWrappersMutex.Unlock()
+		}
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.Shutdown(shutdownCtx); err != nil {
+			common.SysError(fmt.Sprintf("Error shutting down shared instance for %s after %s disruption: %v", s.serviceName, trigger, err))
+		}
+	})
+}
+
+func isTransportClosedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if strings.Contains(strings.ToLower(current.Error()), "transport has been closed") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func handleTransportErrorForCache(cacheKey string, serviceID int64, serviceName string, serviceType model.ServiceType, trigger string, err error) {
+	if err == nil {
+		return
+	}
+
+	sharedMCPServersMutex.Lock()
+	instance, exists := sharedMCPServers[cacheKey]
+	sharedMCPServersMutex.Unlock()
+
+	if !exists || instance == nil {
+		common.SysError(fmt.Sprintf("Transport error for %s (ID: %d, type: %s, key: %s) triggered by %s but no cached instance found: %v",
+			serviceName, serviceID, serviceType, cacheKey, trigger, err))
+		return
+	}
+
+	instance.handleTransportDisruption(trigger, err)
 }
 
 // Shutdown gracefully stops the server and closes the client.
@@ -825,6 +931,7 @@ var (
 func createActualMcpGoServerAndClientUncached(
 	handshakeCtx context.Context,
 	runtimeCtx context.Context,
+	cacheKey string,
 	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
 ) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, error) {
@@ -1026,25 +1133,6 @@ func createActualMcpGoServerAndClientUncached(
 			return nil, nil, nil, errors.New(errMsg)
 		}
 
-		// Start ping task for SSE and HTTP clients
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-		PingLoop:
-			for {
-				select {
-				case <-runtimeCtx.Done():
-					common.SysLog(fmt.Sprintf("Context done, stopping ping for %s", serviceConfigForInstance.Name))
-					break PingLoop
-				case <-ticker.C:
-					if err := mcpGoClient.Ping(runtimeCtx); err != nil {
-						errMsg := fmt.Sprintf("Ping failed for %s: %v", serviceConfigForInstance.Name, err)
-						common.SysError(errMsg)
-						// Note: Ping failures are not logged to database to avoid high-frequency writes
-					}
-				}
-			}
-		}()
 	}
 
 	mcpGoServer := mcpserver.NewMCPServer(
@@ -1084,7 +1172,7 @@ func createActualMcpGoServerAndClientUncached(
 	}
 
 	// Populate server with resources from client
-	if err := addClientToolsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
+	if err := addClientToolsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name, cacheKey, serviceConfigForInstance.ID, serviceConfigForInstance.Type); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add tools for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
 	}
 	if err := addClientPromptsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
@@ -1201,7 +1289,15 @@ func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
 
 // --- Helper functions to add resources to mcp-go server (adapted from user's example) ---
 
-func addClientToolsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
+func addClientToolsToMCPServer(
+	ctx context.Context,
+	mcpGoClient mcpclient.MCPClient,
+	mcpGoServer *mcpserver.MCPServer,
+	mcpServerName string,
+	cacheKey string,
+	serviceID int64,
+	serviceType model.ServiceType,
+) error {
 	toolsRequest := mcp.ListToolsRequest{}
 	for {
 		tools, err := mcpGoClient.ListTools(ctx, toolsRequest)
@@ -1216,7 +1312,15 @@ func addClientToolsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPCli
 		common.SysLog(fmt.Sprintf("Listed %d tools for %s", len(tools.Tools), mcpServerName))
 		for _, tool := range tools.Tools {
 			common.SysLog(fmt.Sprintf("Adding tool %s to %s", tool.Name, mcpServerName))
-			mcpGoServer.AddTool(tool, mcpGoClient.CallTool)
+			toolName := tool.Name
+			mcpGoServer.AddTool(tool, func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				result, callErr := mcpGoClient.CallTool(callCtx, request)
+				if callErr != nil && isTransportClosedError(callErr) {
+					trigger := fmt.Sprintf("tool call (%s)", toolName)
+					handleTransportErrorForCache(cacheKey, serviceID, mcpServerName, serviceType, trigger, callErr)
+				}
+				return result, callErr
+			})
 		}
 		if tools.NextCursor == "" {
 			break
@@ -1376,7 +1480,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		}
 	}()
 
-	srv, cli, spawnedCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, &serviceConfigForCreation, instanceNameDetail)
+	srv, cli, spawnedCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfigForCreation, instanceNameDetail)
 	close(handshakeDone)
 	if err != nil {
 		handshakeCancel()
@@ -1387,16 +1491,23 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 
 	// Create shared instance
 	instance := &SharedMcpInstance{
-		Server:    srv,
-		Client:    cli,
-		cancel:    cancel,
-		serviceID: originalDbService.ID,
-		stdioCmd:  spawnedCmd,
+		Server:        srv,
+		Client:        cli,
+		cancel:        cancel,
+		serviceID:     originalDbService.ID,
+		serviceName:   originalDbService.Name,
+		serviceType:   serviceConfigForCreation.Type,
+		cacheKey:      cacheKey,
+		instanceLabel: instanceNameDetail,
+		stdioCmd:      spawnedCmd,
 	}
 
 	// Store in cache
 	sharedMCPServers[cacheKey] = instance
-	common.SysLog(fmt.Sprintf("Created new SharedMcpInstance for %s", originalDbService.Name))
+	common.SysLog(fmt.Sprintf("Created new SharedMcpInstance for %s (key: %s, type: %s)", originalDbService.Name, cacheKey, serviceConfigForCreation.Type))
+
+	// Start background maintenance loops (ping + connection lost handling) for network transports.
+	instance.startMaintenanceLoops(bgCtx)
 
 	return instance, nil
 }
