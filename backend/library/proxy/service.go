@@ -246,6 +246,68 @@ func handleTransportErrorForCache(cacheKey string, serviceID int64, serviceName 
 	instance.handleTransportDisruption(trigger, err)
 }
 
+const stdioPrewarmTimeout = 5 * time.Minute
+
+// prewarmStdioService proactively starts and shuts down a stdio MCP service to install dependencies.
+func prewarmStdioService(ctx context.Context, svc *model.MCPService) error {
+	if svc == nil {
+		return errors.New("prewarmStdioService: service is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	common.SysLog(fmt.Sprintf("Prewarm: starting stdio service %s (ID: %d)", svc.Name, svc.ID))
+
+	serviceConfig := *svc // shallow copy to avoid mutating caller
+
+	bgCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	handshakeCtx, handshakeCancel := context.WithTimeout(bgCtx, stdioPrewarmTimeout)
+	defer handshakeCancel()
+
+	// Allow external cancellation
+	handshakeDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			handshakeCancel()
+		case <-handshakeDone:
+		}
+	}()
+
+	cacheKey := fmt.Sprintf("prewarm-service-%d-%d", svc.ID, time.Now().UnixNano())
+	instanceLabel := fmt.Sprintf("prewarm-%d", svc.ID)
+
+	srv, cli, stdioCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfig, instanceLabel)
+	close(handshakeDone)
+	if err != nil {
+		return fmt.Errorf("prewarm: failed to initialize stdio service %s (ID: %d): %w", svc.Name, svc.ID, err)
+	}
+
+	shared := &SharedMcpInstance{
+		Server:      srv,
+		Client:      cli,
+		cancel:      cancel,
+		serviceID:   svc.ID,
+		serviceName: svc.Name,
+		serviceType: svc.Type,
+		cacheKey:    cacheKey,
+		stdioCmd:    stdioCmd,
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := shared.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("prewarm: failed to shutdown stdio service %s (ID: %d): %w", svc.Name, svc.ID, err)
+	}
+
+	common.SysLog(fmt.Sprintf("Prewarm: completed stdio service %s (ID: %d)", svc.Name, svc.ID))
+	return nil
+}
+
 // Shutdown gracefully stops the server and closes the client.
 func (s *SharedMcpInstance) Shutdown(ctx context.Context) error {
 	common.SysLog(fmt.Sprintf("Shutting down SharedMcpInstance (Server: %p, Client: %p)", s.Server, s.Client))

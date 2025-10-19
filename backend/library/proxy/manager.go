@@ -160,6 +160,19 @@ func (m *ServiceManager) RegisterService(ctx context.Context, mcpService *model.
 		}
 	}
 
+	// Prewarm stdio services configured for on-demand startup to avoid first-request installation delays.
+	if mcpService.Type == model.ServiceTypeStdio && mcpService.Enabled {
+		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+		if strategy == common.StrategyStartOnDemand {
+			serviceCopy := *mcpService
+			go func(svc model.MCPService) {
+				if err := prewarmStdioService(context.Background(), &svc); err != nil {
+					common.SysError(fmt.Sprintf("Prewarm failed for stdio service %s (ID: %d): %v", svc.Name, svc.ID, err))
+				}
+			}(serviceCopy)
+		}
+	}
+
 	return nil
 }
 
