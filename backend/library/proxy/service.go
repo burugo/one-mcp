@@ -124,7 +124,8 @@ func isBenignStderrLine(line string) bool {
 	if strings.Contains(lower, "file already closed") ||
 		strings.Contains(lower, "use of closed file") ||
 		strings.Contains(lower, "closed pipe") ||
-		strings.Contains(lower, "broken pipe") {
+		strings.Contains(lower, "broken pipe") ||
+		strings.Contains(lower, "running on stdio") {
 		return true
 	}
 	return false
