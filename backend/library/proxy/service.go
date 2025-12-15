@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -168,6 +170,46 @@ func (s *SharedMcpInstance) startMaintenanceLoops(runtimeCtx context.Context) {
 			s.handleTransportDisruption("connection lost", connErr)
 		})
 	}
+
+	// Heartbeat ping loop: proactively detects stale/broken upstream connections.
+	go func() {
+		jitter := networkHeartbeatJitter()
+		if jitter > 0 {
+			r := rand.New(rand.NewSource(time.Now().UnixNano() + s.serviceID))
+			delay := time.Duration(r.Int63n(int64(jitter)))
+			t := time.NewTimer(delay)
+			select {
+			case <-runtimeCtx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+			}
+		}
+
+		// First ping immediately after initial jitter to speed up detection.
+		if err := quickPingWithTimeout(s.Client, networkHeartbeatTimeout()); err != nil {
+			s.handleTransportDisruption("heartbeat ping", err)
+			return
+		}
+
+		interval := networkHeartbeatInterval()
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runtimeCtx.Done():
+				return
+			case <-ticker.C:
+				if err := quickPingWithTimeout(s.Client, networkHeartbeatTimeout()); err != nil {
+					s.handleTransportDisruption("heartbeat ping", err)
+					return
+				}
+			}
+		}
+	}()
 }
 
 // handleTransportDisruption performs one-time cleanup after we detect a fatal transport error.
@@ -245,6 +287,83 @@ func handleTransportErrorForCache(cacheKey string, serviceID int64, serviceName 
 	}
 
 	instance.handleTransportDisruption(trigger, err)
+}
+
+func parseDurationOption(key string, defaultValue time.Duration) time.Duration {
+	raw := strings.TrimSpace(common.OptionMap[key])
+	if raw == "" {
+		return defaultValue
+	}
+	if d, err := time.ParseDuration(raw); err == nil {
+		if d < 0 {
+			return defaultValue
+		}
+		return d
+	}
+	// Backward-compatible: treat as seconds if not a valid duration string.
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		if seconds < 0 {
+			return defaultValue
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	return defaultValue
+}
+
+func networkHeartbeatInterval() time.Duration {
+	return parseDurationOption(common.OptionNetworkMcpHeartbeatInterval, 30*time.Second)
+}
+
+func networkHeartbeatTimeout() time.Duration {
+	return parseDurationOption(common.OptionNetworkMcpHeartbeatTimeout, 5*time.Second)
+}
+
+func networkHeartbeatJitter() time.Duration {
+	return parseDurationOption(common.OptionNetworkMcpHeartbeatJitter, 5*time.Second)
+}
+
+type pingableMcpClient interface {
+	Ping(context.Context) error
+}
+
+func quickPingWithTimeout(cli pingableMcpClient, timeout time.Duration) error {
+	if cli == nil {
+		return errors.New("mcp client is nil")
+	}
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return cli.Ping(ctx)
+}
+
+func shouldInvalidateInstanceAfterCallError(cli pingableMcpClient, err error) bool {
+	if err == nil {
+		return false
+	}
+	if isTransportClosedError(err) {
+		return true
+	}
+
+	lower := strings.ToLower(err.Error())
+	// Errors that strongly suggest the underlying transport is unusable.
+	if strings.Contains(lower, "failed to send request") ||
+		strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "connection reset") ||
+		strings.Contains(lower, "broken pipe") {
+		return true
+	}
+
+	// For timeouts/cancellations, only invalidate if a quick ping also fails.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(lower, "request timed out") || strings.Contains(lower, "timed out") || strings.Contains(lower, "timeout") {
+		if pingErr := quickPingWithTimeout(cli, networkHeartbeatTimeout()); pingErr != nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 const stdioPrewarmTimeout = 5 * time.Minute
@@ -1120,7 +1239,11 @@ func createActualMcpGoServerAndClientUncached(
 				common.SysError(fmt.Sprintf("Failed to unmarshal HeadersJSON for SSE service %s (ID: %d): %v. Proceeding without custom headers.", serviceConfigForInstance.Name, serviceConfigForInstance.ID, errJson))
 			}
 		}
-		common.SysLog(fmt.Sprintf("SSE config for %s: URL=%s, Headers=%v", serviceConfigForInstance.Name, url, headers))
+		headerKeys := make([]string, 0, len(headers))
+		for k := range headers {
+			headerKeys = append(headerKeys, k)
+		}
+		common.SysLog(fmt.Sprintf("SSE config for %s: URL=%s, HeaderKeys=%v", serviceConfigForInstance.Name, url, headerKeys))
 		if len(headers) > 0 {
 			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, mcpclient.WithHeaders(headers))
 		} else {
@@ -1144,7 +1267,11 @@ func createActualMcpGoServerAndClientUncached(
 				common.SysError(fmt.Sprintf("Failed to unmarshal HeadersJSON for StreamableHTTP service %s (ID: %d): %v. Proceeding without custom headers.", serviceConfigForInstance.Name, serviceConfigForInstance.ID, errJson))
 			}
 		}
-		common.SysLog(fmt.Sprintf("StreamableHTTP config for %s: URL=%s, Headers (raw)=%v", serviceConfigForInstance.Name, url, headers))
+		headerKeys := make([]string, 0, len(headers))
+		for k := range headers {
+			headerKeys = append(headerKeys, k)
+		}
+		common.SysLog(fmt.Sprintf("StreamableHTTP config for %s: URL=%s, HeaderKeys=%v", serviceConfigForInstance.Name, url, headerKeys))
 
 		var streamableOptions []transport.StreamableHTTPCOption
 		if len(headers) > 0 {
@@ -1377,10 +1504,19 @@ func addClientToolsToMCPServer(
 			common.SysLog(fmt.Sprintf("Adding tool %s to %s", tool.Name, mcpServerName))
 			toolName := tool.Name
 			mcpGoServer.AddTool(tool, func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				start := time.Now()
 				result, callErr := mcpGoClient.CallTool(callCtx, request)
-				if callErr != nil && isTransportClosedError(callErr) {
+				duration := time.Since(start)
+				if callErr != nil {
 					trigger := fmt.Sprintf("tool call (%s)", toolName)
-					handleTransportErrorForCache(cacheKey, serviceID, mcpServerName, serviceType, trigger, callErr)
+					errMsg := fmt.Sprintf("MCP tool call failed | service=%s | tool=%s | duration=%dms | err=%v", mcpServerName, toolName, duration.Milliseconds(), callErr)
+					common.SysError(errMsg)
+					if globalStderrThrottler.shouldLog(serviceID, errMsg) {
+						_ = model.SaveMCPLog(context.Background(), serviceID, mcpServerName, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg)
+					}
+					if shouldInvalidateInstanceAfterCallError(mcpGoClient, callErr) {
+						handleTransportErrorForCache(cacheKey, serviceID, mcpServerName, serviceType, trigger, callErr)
+					}
 				}
 				return result, callErr
 			})

@@ -87,3 +87,11 @@ const (
 	StrategyStartOnBoot               = "boot"
 	StrategyStartOnDemand             = "demand"
 )
+
+// Network MCP heartbeat (for SSE/StreamableHTTP upstream clients)
+// Values are parsed as time.Duration first (e.g. "30s", "500ms"), then as seconds if duration parsing fails.
+const (
+	OptionNetworkMcpHeartbeatInterval = "NetworkMcpHeartbeatInterval"
+	OptionNetworkMcpHeartbeatTimeout  = "NetworkMcpHeartbeatTimeout"
+	OptionNetworkMcpHeartbeatJitter   = "NetworkMcpHeartbeatJitter"
+)
