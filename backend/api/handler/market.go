@@ -1305,6 +1305,17 @@ func ListInstalledMCPServices(c *gin.Context) {
 		_ = json.Unmarshal(b, &svcMap)
 		svcMap["env_vars"] = finalEnvVars // 使用合并后的环境变量
 
+		// 获取工具数量 (如果服务正在运行)
+		toolCount := 0
+		runningService, err := proxy.GetServiceManager().GetService(svc.ID)
+		if err == nil && runningService != nil && runningService.IsRunning() {
+			tools := runningService.GetTools()
+			if tools != nil {
+				toolCount = len(tools)
+			}
+		}
+		svcMap["tool_count"] = toolCount
+
 		// 添加用户今日请求统计
 		if svc.RPDLimit > 0 && userID > 0 {
 			// 获取用户今日请求数

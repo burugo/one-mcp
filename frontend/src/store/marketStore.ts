@@ -34,6 +34,7 @@ export interface ServiceType {
     type?: 'stdio' | 'sse' | 'streamableHttp';
     args_json?: string;
     default_envs_json?: string;
+    tool_count?: number; // 工具数量
 }
 
 // 详细服务类型定义

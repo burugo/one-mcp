@@ -92,6 +92,7 @@ func SetApiRouter(route *gin.Engine) {
 			mcpServiceRoute.Use(middleware.JWTAuth())
 			{
 				mcpServiceRoute.POST("/:id/health/check", handler.CheckMCPServiceHealth)
+				mcpServiceRoute.GET("/:id/tools", handler.GetMCPServiceTools)
 			}
 
 			// Admin-only endpoints (write operations)

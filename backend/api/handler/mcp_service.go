@@ -329,6 +329,41 @@ func CheckMCPServiceHealth(c *gin.Context) {
 	common.RespSuccess(c, healthData)
 }
 
+// GetMCPServiceTools godoc
+// @Summary 获取MCP服务工具列表
+// @Description 获取指定MCP服务的工具列表（仅限运行时）
+// @Tags MCP Services
+// @Accept json
+// @Produce json
+// @Param id path int true "服务ID"
+// @Security ApiKeyAuth
+// @Success 200 {object} common.APIResponse
+// @Failure 400 {object} common.APIResponse
+// @Failure 404 {object} common.APIResponse
+// @Failure 500 {object} common.APIResponse
+// @Router /api/mcp_services/{id}/tools [get]
+func GetMCPServiceTools(c *gin.Context) {
+	lang := c.GetString("lang")
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		common.RespError(c, http.StatusBadRequest, i18n.Translate("invalid_service_id", lang), err)
+		return
+	}
+
+	serviceManager := proxy.GetServiceManager()
+	service, err := serviceManager.GetService(id)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found_or_not_running", lang), err)
+		return
+	}
+
+	tools := service.GetTools()
+	common.RespSuccess(c, map[string]interface{}{
+		"tools": tools,
+	})
+}
+
 // 辅助函数：验证服务类型
 func isValidServiceType(sType model.ServiceType) bool {
 	return sType == model.ServiceTypeStdio ||

@@ -7,6 +7,7 @@ import { Search, PlusCircle, Trash2, Plus, RotateCcw, Grid, List, Upload, Pencil
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
+import ServiceToolsModal from '@/components/market/ServiceToolsModal';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
 import CustomServiceModal, { CustomServiceData } from '@/components/market/CustomServiceModal';
 import EditServiceModal, { EditServiceData } from '@/components/market/EditServiceModal';
@@ -34,13 +35,22 @@ export function ServicesPage() {
     const [customServiceModalOpen, setCustomServiceModalOpen] = useState(false);
     const [batchImportModalOpen, setBatchImportModalOpen] = useState(false);
     const [editModalOpen, setEditModalOpen] = useState(false);
+    const [toolsModalOpen, setToolsModalOpen] = useState(false);
     const [selectedService, setSelectedService] = useState<ServiceType | null>(null);
     const [serviceToEdit, setServiceToEdit] = useState<ServiceType | null>(null);
+    const [serviceForTools, setServiceForTools] = useState<ServiceType | null>(null);
     const [uninstallDialogOpen, setUninstallDialogOpen] = useState(false);
     const [pendingUninstallId, setPendingUninstallId] = useState<string | null>(null);
     const [togglingServices, setTogglingServices] = useState<Set<string>>(new Set());
     const [checkingHealthServices, setCheckingHealthServices] = useState<Set<string>>(new Set());
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+        const savedMode = localStorage.getItem('services_view_mode');
+        return (savedMode === 'list' || savedMode === 'grid') ? savedMode : 'grid';
+    });
+    
+    useEffect(() => {
+        localStorage.setItem('services_view_mode', viewMode);
+    }, [viewMode]);
     const [autoFillEnv, setAutoFillEnv] = useState('');
 
     const hasFetched = useRef(false);
@@ -536,6 +546,7 @@ export function ServicesPage() {
                         <TableHead>{t('services.serviceName')}</TableHead>
                         <TableHead>{t('services.description')}</TableHead>
                         <TableHead>{t('services.version')}</TableHead>
+                        <TableHead>Tools</TableHead>
                         <TableHead>{t('services.healthStatus')}</TableHead>
                         <TableHead>{t('services.enabledStatus')}</TableHead>
                         <TableHead>{t('services.operations')}</TableHead>
@@ -571,6 +582,22 @@ export function ServicesPage() {
                             </TableCell>
                             <TableCell>
                                 <Badge variant="outline">{service.version || 'unknown'}</Badge>
+                            </TableCell>
+                            <TableCell>
+                                {(service.tool_count || 0) > 0 && (service.health_status === "healthy" || service.health_status === "Healthy") ? (
+                                    <Badge 
+                                        variant="secondary" 
+                                        className="cursor-pointer hover:bg-secondary/80"
+                                        onClick={() => {
+                                            setServiceForTools(service);
+                                            setToolsModalOpen(true);
+                                        }}
+                                    >
+                                        {service.tool_count} tools
+                                    </Badge>
+                                ) : (
+                                    <span className="text-muted-foreground text-sm">-</span>
+                                )}
                             </TableCell>
                             <TableCell>
                                 <Badge variant={service.health_status === "healthy" || service.health_status === "Healthy" ? "default" : "secondary"}>
@@ -654,6 +681,19 @@ export function ServicesPage() {
                                     </button>
                                 </div>
                                 <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
+                                {(service.tool_count || 0) > 0 && (service.health_status === "healthy" || service.health_status === "Healthy") && (
+                                    <Badge 
+                                        variant="secondary" 
+                                        className="cursor-pointer hover:bg-secondary/80 ml-2"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setServiceForTools(service);
+                                            setToolsModalOpen(true);
+                                        }}
+                                    >
+                                        {service.tool_count} tools
+                                    </Badge>
+                                )}
                             </div>
                         </div>
                         {isAdmin && (
@@ -819,6 +859,18 @@ export function ServicesPage() {
                     )}
                 </TabsContent>
             </Tabs>
+
+            {serviceForTools && (
+                <ServiceToolsModal
+                    serviceId={serviceForTools.id}
+                    serviceName={serviceForTools.display_name || serviceForTools.name}
+                    isOpen={toolsModalOpen}
+                    onClose={() => {
+                        setToolsModalOpen(false);
+                        setServiceForTools(null);
+                    }}
+                />
+            )}
 
             {selectedService && (
                 <ServiceConfigModal

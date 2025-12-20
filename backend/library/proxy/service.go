@@ -137,7 +137,7 @@ func isBenignStderrLine(line string) bool {
 type SharedMcpInstance struct {
 	Server *mcpserver.MCPServer
 	Client mcpclient.MCPClient
-	// consider adding createdAt time.Time for future LRU cache policies
+	Tools         []mcp.Tool         // Cached tools list
 	cancel        context.CancelFunc // cancels background goroutines like heartbeat
 	serviceID     int64              // owning service ID for cleanup of user-specific instances
 	serviceName   string
@@ -400,7 +400,7 @@ func prewarmStdioService(ctx context.Context, svc *model.MCPService) error {
 	cacheKey := fmt.Sprintf("prewarm-service-%d-%d", svc.ID, time.Now().UnixNano())
 	instanceLabel := fmt.Sprintf("prewarm-%d", svc.ID)
 
-	srv, cli, stdioCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfig, instanceLabel)
+	srv, cli, stdioCmd, _, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfig, instanceLabel)
 	close(handshakeDone)
 	if err != nil {
 		return fmt.Errorf("prewarm: failed to initialize stdio service %s (ID: %d): %w", svc.Name, svc.ID, err)
@@ -576,6 +576,9 @@ type Service interface {
 	// HealthCheckTimeout 返回此服务进行健康检查时建议的超时时间。
 	// 如果返回 0 或负值，HealthChecker 将使用其默认超时。
 	HealthCheckTimeout() time.Duration
+
+	// GetTools 返回服务提供的工具列表
+	GetTools() []mcp.Tool
 }
 
 // BaseService 是一个基本的服务实现，可以被具体服务类型继承
@@ -685,6 +688,11 @@ func (s *BaseService) UpdateConfig(config map[string]interface{}) error {
 	return nil
 }
 
+// GetTools 实现Service接口 (BaseService 默认返回空)
+func (s *BaseService) GetTools() []mcp.Tool {
+	return []mcp.Tool{}
+}
+
 // Start 是一个基本实现，具体服务类型应重写此方法
 func (s *BaseService) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -756,6 +764,17 @@ func (s *BaseService) CheckHealth(ctx context.Context) (*ServiceHealth, error) {
 	// 返回健康状态的副本
 	healthCopy := s.health
 	return &healthCopy, nil
+}
+
+// GetTools 实现 Service 接口，返回共享实例中的工具
+func (s *MonitoredProxiedService) GetTools() []mcp.Tool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.sharedInstance != nil && s.sharedInstance.Tools != nil {
+		return s.sharedInstance.Tools
+	}
+	return []mcp.Tool{}
 }
 
 // MonitoredProxiedService extends BaseService with a SharedMcpInstance for health checking.
@@ -1116,7 +1135,7 @@ func createActualMcpGoServerAndClientUncached(
 	cacheKey string,
 	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
-) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, error) {
+) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, []mcp.Tool, error) {
 
 	var mcpGoClient mcpclient.MCPClient
 	var err error
@@ -1128,7 +1147,7 @@ func createActualMcpGoServerAndClientUncached(
 		var stdioConf model.StdioConfig
 		stdioConf.Command = serviceConfigForInstance.Command
 		if stdioConf.Command == "" {
-			return nil, nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
+			return nil, nil, nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
 				"This usually indicates the service was not properly configured during installation. "+
 				"Expected Command field to contain the executable name (e.g., 'npx' for npm packages). "+
 				"PackageManager: %s, SourcePackageName: %s, InstanceDetail: %s",
@@ -1231,7 +1250,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, nil, fmt.Errorf("%s", errMsg)
+			return nil, nil, nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -1259,7 +1278,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, nil, fmt.Errorf("%s", errMsg)
+			return nil, nil, nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -1282,7 +1301,7 @@ func createActualMcpGoServerAndClientUncached(
 		needManualStart = true
 
 	default:
-		return nil, nil, nil, fmt.Errorf("unsupported service type %s in createActualMcpGoServerAndClientUncached", serviceConfigForInstance.Type)
+		return nil, nil, nil, nil, fmt.Errorf("unsupported service type %s in createActualMcpGoServerAndClientUncached", serviceConfigForInstance.Type)
 	}
 
 	if err != nil { // Consolidated error check after switch
@@ -1294,7 +1313,7 @@ func createActualMcpGoServerAndClientUncached(
 			common.SysError(fmt.Sprintf("Failed to save MCP client creation error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
-		return nil, nil, nil, errors.New(errMsg)
+		return nil, nil, nil, nil, errors.New(errMsg)
 	}
 
 	// Call client.Start() if needed
@@ -1320,7 +1339,7 @@ func createActualMcpGoServerAndClientUncached(
 			if closeErr := mcpGoClient.Close(); closeErr != nil {
 				common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after Start() error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 			}
-			return nil, nil, nil, errors.New(errMsg)
+			return nil, nil, nil, nil, errors.New(errMsg)
 		}
 
 	}
@@ -1358,12 +1377,15 @@ func createActualMcpGoServerAndClientUncached(
 			common.SysError(fmt.Sprintf("Failed to save MCP initialization error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
-		return nil, nil, nil, errors.New(errMsg)
+		return nil, nil, nil, nil, errors.New(errMsg)
 	}
 
 	// Populate server with resources from client
-	if err := addClientToolsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name, cacheKey, serviceConfigForInstance.ID, serviceConfigForInstance.Type); err != nil {
+	tools, err := addClientToolsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name, cacheKey, serviceConfigForInstance.ID, serviceConfigForInstance.Type)
+	if err != nil {
 		common.SysError(fmt.Sprintf("Failed to add tools for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
+	} else {
+		// Note: We don't store tools in the server object, but return them to be stored in SharedMcpInstance
 	}
 	if err := addClientPromptsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name); err != nil {
 		common.SysError(fmt.Sprintf("Failed to add prompts for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, err))
@@ -1377,7 +1399,7 @@ func createActualMcpGoServerAndClientUncached(
 
 	// Note: Success initialization logs are not saved to avoid log spam
 
-	return mcpGoServer, mcpGoClient, stdioCmd, nil
+	return mcpGoServer, mcpGoClient, stdioCmd, tools, nil
 }
 
 // createSSEHttpHandler creates an SSE http.Handler from an mcpserver.MCPServer.
@@ -1487,19 +1509,21 @@ func addClientToolsToMCPServer(
 	cacheKey string,
 	serviceID int64,
 	serviceType model.ServiceType,
-) error {
+) ([]mcp.Tool, error) {
+	var allTools []mcp.Tool
 	toolsRequest := mcp.ListToolsRequest{}
 	for {
 		tools, err := mcpGoClient.ListTools(ctx, toolsRequest)
 		if err != nil {
 			common.SysError(fmt.Sprintf("ListTools failed for %s: %v", mcpServerName, err))
-			return err
+			return nil, err
 		}
 		if tools == nil {
 			common.SysLog(fmt.Sprintf("ListTools returned nil tools for %s. No tools to add.", mcpServerName))
 			break
 		}
 		common.SysLog(fmt.Sprintf("Listed %d tools for %s", len(tools.Tools), mcpServerName))
+		allTools = append(allTools, tools.Tools...)
 		for _, tool := range tools.Tools {
 			common.SysLog(fmt.Sprintf("Adding tool %s to %s", tool.Name, mcpServerName))
 			toolName := tool.Name
@@ -1526,7 +1550,7 @@ func addClientToolsToMCPServer(
 		}
 		toolsRequest.PaginatedRequest.Params.Cursor = tools.NextCursor
 	}
-	return nil
+	return allTools, nil
 }
 
 func addClientPromptsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
@@ -1679,7 +1703,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		}
 	}()
 
-	srv, cli, spawnedCmd, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfigForCreation, instanceNameDetail)
+	srv, cli, spawnedCmd, tools, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfigForCreation, instanceNameDetail)
 	close(handshakeDone)
 	if err != nil {
 		handshakeCancel()
@@ -1692,6 +1716,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 	instance := &SharedMcpInstance{
 		Server:        srv,
 		Client:        cli,
+		Tools:         tools,
 		cancel:        cancel,
 		serviceID:     originalDbService.ID,
 		serviceName:   originalDbService.Name,
