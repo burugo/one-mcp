@@ -44,9 +44,9 @@ func (s *fakeHealthyService) GetConfig() map[string]interface{} {
 	return map[string]interface{}{}
 }
 func (s *fakeHealthyService) UpdateConfig(config map[string]interface{}) error { return nil }
-func (s *fakeHealthyService) HealthCheckTimeout() time.Duration   { return 0 }
-func (s *fakeHealthyService) GetTools() []mcp.Tool                { return s.tools }
-func (s *fakeHealthyService) GetServerInfo() *mcp.Implementation  { return nil }
+func (s *fakeHealthyService) HealthCheckTimeout() time.Duration                { return 0 }
+func (s *fakeHealthyService) GetTools() []mcp.Tool                             { return s.tools }
+func (s *fakeHealthyService) GetServerInfo() *mcp.Implementation               { return nil }
 
 func TestToolsCache_EmptyListIsHit(t *testing.T) {
 	serviceID := int64(991001)
