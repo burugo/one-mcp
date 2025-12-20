@@ -344,6 +344,15 @@ func (m *ServiceManager) UpdateMCPServiceHealth(serviceID int64) error {
 		return err
 	}
 
+	// Attach tool summary from tools cache
+	if entry, found := GetToolsCacheManager().GetServiceTools(serviceID); found {
+		health.ToolCount = len(entry.Tools)
+		health.ToolsFetched = true
+	} else {
+		health.ToolCount = 0
+		health.ToolsFetched = false
+	}
+
 	// 获取全局健康状态缓存管理器
 	cacheManager := GetHealthCacheManager()
 

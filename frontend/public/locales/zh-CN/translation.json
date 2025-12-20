@@ -146,6 +146,12 @@
         "edit": "编辑",
         "editService": "编辑服务"
     },
+    "serviceTools": {
+        "toolsList": "工具",
+        "availableToolsDescription": "该服务可用的工具列表",
+        "noToolsAvailable": "暂无可用工具",
+        "description": "描述"
+    },
     "market": {
         "title": "服务市场",
         "description": "发现并安装来自各种来源的 MCP 服务",

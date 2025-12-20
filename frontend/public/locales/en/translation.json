@@ -146,6 +146,12 @@
         "edit": "Edit",
         "editService": "Edit Service"
     },
+    "serviceTools": {
+        "toolsList": "Tools",
+        "availableToolsDescription": "Available tools for this service",
+        "noToolsAvailable": "No tools available",
+        "description": "Description"
+    },
     "market": {
         "title": "Service Marketplace",
         "description": "Discover and install MCP services from various sources",

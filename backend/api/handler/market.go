@@ -1305,16 +1305,8 @@ func ListInstalledMCPServices(c *gin.Context) {
 		_ = json.Unmarshal(b, &svcMap)
 		svcMap["env_vars"] = finalEnvVars // 使用合并后的环境变量
 
-		// 获取工具数量 (如果服务正在运行)
-		toolCount := 0
-		runningService, err := proxy.GetServiceManager().GetService(svc.ID)
-		if err == nil && runningService != nil && runningService.IsRunning() {
-			tools := runningService.GetTools()
-			if tools != nil {
-				toolCount = len(tools)
-			}
-		}
-		svcMap["tool_count"] = toolCount
+		// tool_count 从健康缓存读取，默认为 0
+		svcMap["tool_count"] = 0
 
 		// 添加用户今日请求统计
 		if svc.RPDLimit > 0 && userID > 0 {
@@ -1358,6 +1350,9 @@ func ListInstalledMCPServices(c *gin.Context) {
 				svcMap["last_health_check"] = nil
 			}
 
+			// 使用缓存的 tool_count
+			svcMap["tool_count"] = cachedHealth.ToolCount
+
 			// 构造 health_details JSON
 			healthDetailsMap := map[string]interface{}{
 				"status":           string(cachedHealth.Status),
@@ -1368,6 +1363,7 @@ func ListInstalledMCPServices(c *gin.Context) {
 				"start_time":       cachedHealth.StartTime,
 				"up_time":          cachedHealth.UpTime,
 				"warning_level":    cachedHealth.WarningLevel,
+				"tool_count":       cachedHealth.ToolCount,
 			}
 			if !cachedHealth.LastChecked.IsZero() {
 				healthDetailsMap["last_checked"] = cachedHealth.LastChecked.Format(time.RFC3339)

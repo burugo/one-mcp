@@ -256,6 +256,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     health_details: info.HealthDetails || info.health_details || '',
                     enabled: typeof info.Enabled === 'boolean' ? info.Enabled : undefined,
                     installed_service_id: info.installed_service_id,
+                    tool_count: info.tool_count || 0,
                 }));
 
                 set({
@@ -777,6 +778,13 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 // 直接使用返回值更新对应服务的健康状态，而不是重新拉取整个列表
                 const { health_status, health_details, last_checked } = response.data;
 
+
+				const updatedToolCount = typeof health_details?.tool_count === 'number'
+					? health_details.tool_count
+					: Array.isArray(health_details?.tools)
+						? health_details.tools.length
+						: undefined;
+
                 set(state => ({
                     installedServices: state.installedServices.map(service =>
                         service.id === serviceId || service.id === numericServiceId.toString()
@@ -784,7 +792,8 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                                 ...service,
                                 health_status,
                                 health_details: typeof health_details === 'object' ? JSON.stringify(health_details) : health_details,
-                                last_health_check: last_checked
+                                last_health_check: last_checked,
+                                ...(updatedToolCount !== undefined && { tool_count: updatedToolCount }),
                             }
                             : service
                     )

@@ -131,6 +131,26 @@ func (hc *HealthChecker) checkService(service Service) {
 			LastChecked:  time.Now(),
 			ErrorMessage: err.Error(),
 		}
+	} else if health != nil && health.Status == StatusHealthy {
+		// Populate tools cache when healthy (snapshot only; no remote calls here)
+		toolsCache := GetToolsCacheManager()
+		if _, found := toolsCache.GetServiceTools(service.ID()); !found {
+			tools := service.GetTools()
+			toolsCache.SetServiceTools(service.ID(), &ToolsCacheEntry{
+				Tools:     tools,
+				FetchedAt: time.Now(),
+			})
+		}
+	}
+
+	if health != nil {
+		if entry, found := GetToolsCacheManager().GetServiceTools(service.ID()); found {
+			health.ToolCount = len(entry.Tools)
+			health.ToolsFetched = true
+		} else {
+			health.ToolCount = 0
+			health.ToolsFetched = false
+		}
 	}
 
 	// 更新缓存中的健康状态
@@ -200,6 +220,13 @@ func (hc *HealthChecker) ForceCheckService(serviceID int64) (*ServiceHealth, err
 		// Note: Fields like SuccessCount, FailureCount are expected to be handled by the service.CheckHealth() impl.
 
 		// Directly update the cache and the HealthChecker's last update time for this service
+		if entry, found := GetToolsCacheManager().GetServiceTools(serviceID); found {
+			healthForCache.ToolCount = len(entry.Tools)
+			healthForCache.ToolsFetched = true
+		} else {
+			healthForCache.ToolCount = 0
+			healthForCache.ToolsFetched = false
+		}
 		cacheManagerAfterError := GetHealthCacheManager()
 		cacheManagerAfterError.SetServiceHealth(serviceID, healthForCache)
 		hc.servicesMu.Lock()
@@ -218,6 +245,24 @@ func (hc *HealthChecker) ForceCheckService(serviceID int64) (*ServiceHealth, err
 	// service.CheckHealth() provides the status (Healthy/Unhealthy) and other details like ResponseTime.
 	if returnedHealthFromService != nil { // Guard against nil if service.CheckHealth() could return (nil, nil)
 		returnedHealthFromService.LastChecked = time.Now()
+		if returnedHealthFromService.Status == StatusHealthy {
+			toolsCache := GetToolsCacheManager()
+			if _, found := toolsCache.GetServiceTools(serviceID); !found {
+				tools := service.GetTools()
+				toolsCache.SetServiceTools(serviceID, &ToolsCacheEntry{
+					Tools:     tools,
+					FetchedAt: time.Now(),
+				})
+			}
+		}
+
+		if entry, found := GetToolsCacheManager().GetServiceTools(serviceID); found {
+			returnedHealthFromService.ToolCount = len(entry.Tools)
+			returnedHealthFromService.ToolsFetched = true
+		} else {
+			returnedHealthFromService.ToolCount = 0
+			returnedHealthFromService.ToolsFetched = false
+		}
 	} else {
 		// This case should ideally not happen if CheckHealth guarantees non-nil health on nil error.
 		// However, defensively create a basic healthy status if it does.
@@ -225,6 +270,13 @@ func (hc *HealthChecker) ForceCheckService(serviceID int64) (*ServiceHealth, err
 		returnedHealthFromService = &ServiceHealth{
 			Status:      StatusHealthy,
 			LastChecked: time.Now(),
+		}
+		if entry, found := GetToolsCacheManager().GetServiceTools(serviceID); found {
+			returnedHealthFromService.ToolCount = len(entry.Tools)
+			returnedHealthFromService.ToolsFetched = true
+		} else {
+			returnedHealthFromService.ToolCount = 0
+			returnedHealthFromService.ToolsFetched = false
 		}
 	}
 

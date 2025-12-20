@@ -105,31 +105,22 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
                             <Accordion type="single" collapsible className="w-full">
                                 {tools.map((tool, index) => (
                                     <AccordionItem key={index} value={`tool-${index}`}>
-                                        <AccordionTrigger className="hover:no-underline hover:bg-muted/50 px-2 rounded-md">
+                                        <AccordionTrigger className="hover:no-underline hover:bg-muted/50 px-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
                                             <div className="flex flex-col items-start text-left">
                                                 <span className="font-mono font-bold text-primary">{tool.name}</span>
                                                 {tool.description && (
-                                                    <span className="text-xs text-muted-foreground line-clamp-1 mt-1 font-normal">
+                                                    <span className="text-xs text-muted-foreground line-clamp-2 mt-1 font-normal">
                                                         {tool.description}
                                                     </span>
                                                 )}
                                             </div>
                                         </AccordionTrigger>
                                         <AccordionContent className="px-4 py-2 bg-muted/30 rounded-b-md">
-                                            <div className="space-y-4">
+                                            <div className="space-y-2">
                                                 {tool.description && (
-                                                    <div>
+                                                    <div className="max-h-40 overflow-y-auto pr-1">
                                                         <h4 className="text-xs font-semibold mb-1 text-muted-foreground uppercase">{t('serviceTools.description')}</h4>
-                                                        <p className="text-sm">{tool.description}</p>
-                                                    </div>
-                                                )}
-                                                
-                                                {tool.inputSchema && (
-                                                    <div>
-                                                        <h4 className="text-xs font-semibold mb-1 text-muted-foreground uppercase">{t('serviceTools.schema')}</h4>
-                                                        <pre className="bg-muted p-2 rounded-md text-xs overflow-x-auto">
-                                                            {JSON.stringify(tool.inputSchema, null, 2)}
-                                                        </pre>
+                                                        <p className="text-sm whitespace-pre-wrap break-words">{tool.description}</p>
                                                     </div>
                                                 )}
                                             </div>

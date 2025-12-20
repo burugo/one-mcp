@@ -16,6 +16,12 @@ type HealthCacheManager struct {
 	cacheClient thing.CacheClient
 	expireTime  time.Duration
 	mutex       sync.RWMutex // 用于保护并发访问
+	local       map[string]healthLocalCacheItem
+}
+
+type healthLocalCacheItem struct {
+	value     string
+	expiresAt time.Time
 }
 
 // NewHealthCacheManager 创建新的健康状态缓存管理器
@@ -27,6 +33,7 @@ func NewHealthCacheManager(expireTime time.Duration) *HealthCacheManager {
 	return &HealthCacheManager{
 		cacheClient: thing.Cache(), // 使用 Thing ORM v0.1.17 的全局缓存
 		expireTime:  expireTime,
+		local:       make(map[string]healthLocalCacheItem),
 	}
 }
 
@@ -57,6 +64,14 @@ func (hcm *HealthCacheManager) SetServiceHealth(serviceID int64, health *Service
 		return
 	}
 
+	if hcm.cacheClient == nil {
+		hcm.local[cacheKey] = healthLocalCacheItem{
+			value:     string(healthJSON),
+			expiresAt: time.Now().Add(hcm.expireTime),
+		}
+		return
+	}
+
 	// 使用 Thing ORM 缓存设置值
 	err = hcm.cacheClient.Set(ctx, cacheKey, string(healthJSON), hcm.expireTime)
 	if err != nil {
@@ -75,17 +90,30 @@ func (hcm *HealthCacheManager) GetServiceHealth(serviceID int64) (*ServiceHealth
 	ctx := context.Background()
 	cacheKey := hcm.generateCacheKey(serviceID)
 
-	// 从 Thing ORM 缓存获取值
-	healthJSON, err := hcm.cacheClient.Get(ctx, cacheKey)
-	if err != nil {
-		// 缓存中不存在或其他错误
-		return nil, false
+	var healthJSON string
+	if hcm.cacheClient == nil {
+		item, ok := hcm.local[cacheKey]
+		if !ok {
+			return nil, false
+		}
+		if !item.expiresAt.IsZero() && time.Now().After(item.expiresAt) {
+			delete(hcm.local, cacheKey)
+			return nil, false
+		}
+		healthJSON = item.value
+	} else {
+		// 从 Thing ORM 缓存获取值
+		v, err := hcm.cacheClient.Get(ctx, cacheKey)
+		if err != nil {
+			// 缓存中不存在或其他错误
+			return nil, false
+		}
+		healthJSON = v
 	}
 
 	// 反序列化 JSON 为 ServiceHealth 结构
 	var health ServiceHealth
-	err = json.Unmarshal([]byte(healthJSON), &health)
-	if err != nil {
+	if err := json.Unmarshal([]byte(healthJSON), &health); err != nil {
 		log.Printf("Error unmarshaling health status for service %d: %v", serviceID, err)
 		// 如果反序列化失败，删除无效的缓存条目
 		go hcm.DeleteServiceHealth(serviceID)
@@ -103,6 +131,11 @@ func (hcm *HealthCacheManager) DeleteServiceHealth(serviceID int64) {
 
 	ctx := context.Background()
 	cacheKey := hcm.generateCacheKey(serviceID)
+
+	if hcm.cacheClient == nil {
+		delete(hcm.local, cacheKey)
+		return
+	}
 
 	err := hcm.cacheClient.Delete(ctx, cacheKey)
 	if err != nil {
@@ -129,6 +162,10 @@ func (hcm *HealthCacheManager) GetCacheStats() map[string]interface{} {
 		stats := hcm.cacheClient.GetCacheStats(ctx)
 		thingCacheStats = map[string]interface{}{
 			"thing_cache_counters": stats.Counters,
+		}
+	} else {
+		thingCacheStats = map[string]interface{}{
+			"local_cache_entries": len(hcm.local),
 		}
 	}
 

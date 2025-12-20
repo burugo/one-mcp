@@ -135,8 +135,8 @@ func isBenignStderrLine(line string) bool {
 
 // SharedMcpInstance encapsulates a shared MCPServer and its MCPClient.
 type SharedMcpInstance struct {
-	Server *mcpserver.MCPServer
-	Client mcpclient.MCPClient
+	Server        *mcpserver.MCPServer
+	Client        mcpclient.MCPClient
 	Tools         []mcp.Tool         // Cached tools list
 	cancel        context.CancelFunc // cancels background goroutines like heartbeat
 	serviceID     int64              // owning service ID for cleanup of user-specific instances
@@ -539,6 +539,8 @@ type ServiceHealth struct {
 	UpTime        int64         `json:"up_time_seconds,omitempty"` // 秒
 	WarningLevel  int           `json:"warning_level,omitempty"`   // 0-无警告，1-轻微，2-中等，3-严重
 	InstanceCount int           `json:"instance_count,omitempty"`  // 实例数量（如有多实例）
+	ToolCount     int           `json:"tool_count,omitempty"`
+	ToolsFetched  bool          `json:"tools_fetched,omitempty"`
 }
 
 // Service 接口定义了所有MCP服务必须实现的方法

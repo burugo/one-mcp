@@ -251,6 +251,16 @@ func ToggleMCPService(c *gin.Context) {
 			common.RespError(c, http.StatusInternalServerError, i18n.Translate("toggle_service_status_failed", lang), err)
 			return
 		}
+
+		// On-demand stdio services: start once on manual enable
+		if updatedService.Type == model.ServiceTypeStdio {
+			strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+			if strategy == common.StrategyStartOnDemand {
+				if err := serviceManager.StartService(ctx, id); err != nil {
+					common.SysError(fmt.Sprintf("failed to start on-demand stdio service %d after enable: %v", id, err))
+				}
+			}
+		}
 	}
 
 	status := i18n.Translate("disabled", lang)
@@ -304,6 +314,16 @@ func CheckMCPServiceHealth(c *gin.Context) {
 		}
 	}
 
+	// On-demand stdio services: start once on manual health check
+	if service.Type == model.ServiceTypeStdio {
+		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
+		if strategy == common.StrategyStartOnDemand {
+			if err := serviceManager.StartService(c.Request.Context(), id); err != nil {
+				common.SysError(fmt.Sprintf("failed to start on-demand stdio service %d during health check: %v", id, err))
+			}
+		}
+	}
+
 	// 强制检查健康状态
 	health, err := serviceManager.ForceCheckServiceHealth(id)
 	if err != nil {
@@ -351,14 +371,44 @@ func GetMCPServiceTools(c *gin.Context) {
 		return
 	}
 
+	// Only enabled services can expose tools.
+	mcpService, loadErr := model.GetServiceByID(id)
+	if loadErr != nil {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found_or_not_running", lang), loadErr)
+		return
+	}
+	if !mcpService.Enabled {
+		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found_or_not_running", lang), errors.New("service is disabled"))
+		return
+	}
+
+	// Prefer tools cache regardless of running state to keep UI consistent with tool_count.
+	// This does not trigger any service startup.
+	toolsCache := proxy.GetToolsCacheManager()
+	if entry, found := toolsCache.GetServiceTools(id); found {
+		common.RespSuccess(c, map[string]interface{}{
+			"tools": entry.Tools,
+		})
+		return
+	}
+
 	serviceManager := proxy.GetServiceManager()
 	service, err := serviceManager.GetService(id)
-	if err != nil {
-		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found_or_not_running", lang), err)
+	if err != nil || service == nil || !service.IsRunning() {
+		common.RespSuccess(c, map[string]interface{}{
+			"tools": []interface{}{},
+		})
 		return
 	}
 
 	tools := service.GetTools()
+	toolsCache.SetServiceTools(id, &proxy.ToolsCacheEntry{
+		Tools:     tools,
+		FetchedAt: time.Now(),
+	})
+	if err := serviceManager.UpdateMCPServiceHealth(id); err != nil {
+		common.SysError(fmt.Sprintf("failed to update service %d health after tools cache refresh: %v", id, err))
+	}
 	common.RespSuccess(c, map[string]interface{}{
 		"tools": tools,
 	})
