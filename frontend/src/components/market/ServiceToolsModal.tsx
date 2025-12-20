@@ -12,7 +12,6 @@ import {
     AccordionItem,
     AccordionTrigger,
 } from "@/components/ui/accordion";
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Loader2 } from 'lucide-react';
 import api, { APIResponse } from '@/utils/api';
@@ -106,7 +105,7 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-hidden min-h-[200px]">
+                <div className="flex-1 min-h-[200px] max-h-[60vh] overflow-y-auto">
                     {loading ? (
                         <div className="flex justify-center items-center h-full text-muted-foreground">
                             <Loader2 className="h-8 w-8 animate-spin mr-2" />
@@ -121,7 +120,7 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
                             <p>{t('serviceTools.noToolsAvailable')}</p>
                         </div>
                     ) : (
-                        <ScrollArea className="h-full pr-4">
+                        <div className="pr-4">
                             <Accordion type="single" collapsible className="w-full">
                                 {tools.map((tool, index) => (
                                     <AccordionItem key={index} value={`tool-${index}`}>
@@ -180,7 +179,7 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
                                     </AccordionItem>
                                 ))}
                             </Accordion>
-                        </ScrollArea>
+                        </div>
                     )}
                 </div>
             </DialogContent>
