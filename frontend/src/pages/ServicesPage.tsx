@@ -864,6 +864,7 @@ export function ServicesPage() {
                 <ServiceToolsModal
                     serviceId={serviceForTools.id}
                     serviceName={serviceForTools.display_name || serviceForTools.name}
+                    serviceVersion={serviceForTools.version}
                     isOpen={toolsModalOpen}
                     onClose={() => {
                         setToolsModalOpen(false);

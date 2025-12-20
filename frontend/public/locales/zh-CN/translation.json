@@ -150,7 +150,11 @@
         "toolsList": "工具",
         "availableToolsDescription": "该服务可用的工具列表",
         "noToolsAvailable": "暂无可用工具",
-        "description": "描述"
+        "description": "描述",
+        "parameters": "参数",
+        "parameterName": "参数名",
+        "parameterType": "类型",
+        "parameterDescription": "描述"
     },
     "market": {
         "title": "服务市场",

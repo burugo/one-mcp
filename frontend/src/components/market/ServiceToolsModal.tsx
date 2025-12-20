@@ -18,15 +18,29 @@ import { Loader2 } from 'lucide-react';
 import api, { APIResponse } from '@/utils/api';
 import { useTranslation } from 'react-i18next';
 
+interface ToolProperty {
+    type?: string;
+    description?: string;
+    enum?: string[];
+    default?: unknown;
+}
+
+interface ToolInputSchema {
+    type?: string;
+    properties?: Record<string, ToolProperty>;
+    required?: string[];
+}
+
 interface Tool {
     name: string;
     description?: string;
-    inputSchema?: any;
+    inputSchema?: ToolInputSchema;
 }
 
 interface ServiceToolsModalProps {
     serviceId: string;
     serviceName: string;
+    serviceVersion?: string;
     isOpen: boolean;
     onClose: () => void;
 }
@@ -34,6 +48,7 @@ interface ServiceToolsModalProps {
 const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
     serviceId,
     serviceName,
+    serviceVersion,
     isOpen,
     onClose,
 }) => {
@@ -73,8 +88,13 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
                 <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
+                    <DialogTitle className="flex items-center gap-2 flex-wrap">
                         {serviceName} - {t('serviceTools.toolsList')}
+                        {serviceVersion && (
+                            <Badge variant="outline" className="ml-1 font-normal">
+                                {serviceVersion}
+                            </Badge>
+                        )}
                         {!loading && !error && (
                             <Badge variant="secondary" className="ml-2">
                                 {tools.length}
@@ -116,11 +136,43 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
                                             </div>
                                         </AccordionTrigger>
                                         <AccordionContent className="px-4 py-2 bg-muted/30 rounded-b-md">
-                                            <div className="space-y-2">
+                                            <div className="space-y-3 max-h-[300px] overflow-y-auto">
                                                 {tool.description && (
                                                     <div className="max-h-40 overflow-y-auto pr-1">
                                                         <h4 className="text-xs font-semibold mb-1 text-muted-foreground uppercase">{t('serviceTools.description')}</h4>
                                                         <p className="text-sm whitespace-pre-wrap break-words">{tool.description}</p>
+                                                    </div>
+                                                )}
+                                                {tool.inputSchema?.properties && Object.keys(tool.inputSchema.properties).length > 0 && (
+                                                    <div>
+                                                        <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase">{t('serviceTools.parameters')}</h4>
+                                                        <table className="w-full text-sm border-collapse">
+                                                            <thead>
+                                                                <tr className="border-b border-border">
+                                                                    <th className="text-left py-1.5 pr-2 font-medium text-muted-foreground">{t('serviceTools.parameterName')}</th>
+                                                                    <th className="text-left py-1.5 pr-2 font-medium text-muted-foreground">{t('serviceTools.parameterType')}</th>
+                                                                    <th className="text-left py-1.5 font-medium text-muted-foreground">{t('serviceTools.parameterDescription')}</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {Object.entries(tool.inputSchema.properties).map(([name, prop]) => (
+                                                                    <tr key={name} className="border-b border-muted last:border-0">
+                                                                        <td className="py-1.5 pr-2 font-mono text-primary">
+                                                                            {name}
+                                                                            {tool.inputSchema?.required?.includes(name) && (
+                                                                                <span className="text-destructive ml-0.5">*</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="py-1.5 pr-2 text-muted-foreground">
+                                                                            {prop.type || '-'}
+                                                                        </td>
+                                                                        <td className="py-1.5 text-foreground/80">
+                                                                            {prop.description || '-'}
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
                                                     </div>
                                                 )}
                                             </div>

@@ -137,9 +137,10 @@ func isBenignStderrLine(line string) bool {
 type SharedMcpInstance struct {
 	Server        *mcpserver.MCPServer
 	Client        mcpclient.MCPClient
-	Tools         []mcp.Tool         // Cached tools list
-	cancel        context.CancelFunc // cancels background goroutines like heartbeat
-	serviceID     int64              // owning service ID for cleanup of user-specific instances
+	Tools         []mcp.Tool          // Cached tools list
+	ServerInfo    *mcp.Implementation // Server info from Initialize (name, version)
+	cancel        context.CancelFunc  // cancels background goroutines like heartbeat
+	serviceID     int64               // owning service ID for cleanup of user-specific instances
 	serviceName   string
 	serviceType   model.ServiceType
 	cacheKey      string
@@ -400,7 +401,7 @@ func prewarmStdioService(ctx context.Context, svc *model.MCPService) error {
 	cacheKey := fmt.Sprintf("prewarm-service-%d-%d", svc.ID, time.Now().UnixNano())
 	instanceLabel := fmt.Sprintf("prewarm-%d", svc.ID)
 
-	srv, cli, stdioCmd, _, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfig, instanceLabel)
+	srv, cli, stdioCmd, _, serverInfo, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfig, instanceLabel)
 	close(handshakeDone)
 	if err != nil {
 		return fmt.Errorf("prewarm: failed to initialize stdio service %s (ID: %d): %w", svc.Name, svc.ID, err)
@@ -409,6 +410,7 @@ func prewarmStdioService(ctx context.Context, svc *model.MCPService) error {
 	shared := &SharedMcpInstance{
 		Server:      srv,
 		Client:      cli,
+		ServerInfo:  serverInfo,
 		cancel:      cancel,
 		serviceID:   svc.ID,
 		serviceName: svc.Name,
@@ -581,6 +583,9 @@ type Service interface {
 
 	// GetTools 返回服务提供的工具列表
 	GetTools() []mcp.Tool
+
+	// GetServerInfo 返回服务端的 Implementation 信息（名称、版本）
+	GetServerInfo() *mcp.Implementation
 }
 
 // BaseService 是一个基本的服务实现，可以被具体服务类型继承
@@ -695,6 +700,11 @@ func (s *BaseService) GetTools() []mcp.Tool {
 	return []mcp.Tool{}
 }
 
+// GetServerInfo 实现Service接口 (BaseService 默认返回nil)
+func (s *BaseService) GetServerInfo() *mcp.Implementation {
+	return nil
+}
+
 // Start 是一个基本实现，具体服务类型应重写此方法
 func (s *BaseService) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -777,6 +787,17 @@ func (s *MonitoredProxiedService) GetTools() []mcp.Tool {
 		return s.sharedInstance.Tools
 	}
 	return []mcp.Tool{}
+}
+
+// GetServerInfo 实现 Service 接口，返回服务端的 Implementation 信息
+func (s *MonitoredProxiedService) GetServerInfo() *mcp.Implementation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.sharedInstance != nil {
+		return s.sharedInstance.ServerInfo
+	}
+	return nil
 }
 
 // MonitoredProxiedService extends BaseService with a SharedMcpInstance for health checking.
@@ -1130,14 +1151,14 @@ var (
 
 // createActualMcpGoServerAndClientUncached creates and initializes an mcp-go client and server instance.
 // For Stdio clients, client.Start() is not called.
-// It returns the mcp-go server, the mcp-go client, any spawned stdio command, and an error.
+// It returns the mcp-go server, the mcp-go client, any spawned stdio command, tools, server info, and an error.
 func createActualMcpGoServerAndClientUncached(
 	handshakeCtx context.Context,
 	runtimeCtx context.Context,
 	cacheKey string,
 	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
-) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, []mcp.Tool, error) {
+) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, []mcp.Tool, *mcp.Implementation, error) {
 
 	var mcpGoClient mcpclient.MCPClient
 	var err error
@@ -1149,7 +1170,7 @@ func createActualMcpGoServerAndClientUncached(
 		var stdioConf model.StdioConfig
 		stdioConf.Command = serviceConfigForInstance.Command
 		if stdioConf.Command == "" {
-			return nil, nil, nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
+			return nil, nil, nil, nil, nil, fmt.Errorf("StdioConfig for service %s (ID: %d) has an empty command. "+
 				"This usually indicates the service was not properly configured during installation. "+
 				"Expected Command field to contain the executable name (e.g., 'npx' for npm packages). "+
 				"PackageManager: %s, SourcePackageName: %s, InstanceDetail: %s",
@@ -1252,7 +1273,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, nil, nil, fmt.Errorf("%s", errMsg)
+			return nil, nil, nil, nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -1280,7 +1301,7 @@ func createActualMcpGoServerAndClientUncached(
 			if saveErr := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg); saveErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save MCP config error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 			}
-			return nil, nil, nil, nil, fmt.Errorf("%s", errMsg)
+			return nil, nil, nil, nil, nil, fmt.Errorf("%s", errMsg)
 		}
 		var headers map[string]string
 		if serviceConfigForInstance.HeadersJSON != "" && serviceConfigForInstance.HeadersJSON != "{}" {
@@ -1303,7 +1324,7 @@ func createActualMcpGoServerAndClientUncached(
 		needManualStart = true
 
 	default:
-		return nil, nil, nil, nil, fmt.Errorf("unsupported service type %s in createActualMcpGoServerAndClientUncached", serviceConfigForInstance.Type)
+		return nil, nil, nil, nil, nil, fmt.Errorf("unsupported service type %s in createActualMcpGoServerAndClientUncached", serviceConfigForInstance.Type)
 	}
 
 	if err != nil { // Consolidated error check after switch
@@ -1315,7 +1336,7 @@ func createActualMcpGoServerAndClientUncached(
 			common.SysError(fmt.Sprintf("Failed to save MCP client creation error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
-		return nil, nil, nil, nil, errors.New(errMsg)
+		return nil, nil, nil, nil, nil, errors.New(errMsg)
 	}
 
 	// Call client.Start() if needed
@@ -1341,17 +1362,12 @@ func createActualMcpGoServerAndClientUncached(
 			if closeErr := mcpGoClient.Close(); closeErr != nil {
 				common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after Start() error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 			}
-			return nil, nil, nil, nil, errors.New(errMsg)
+			return nil, nil, nil, nil, nil, errors.New(errMsg)
 		}
 
 	}
 
-	mcpGoServer := mcpserver.NewMCPServer(
-		serviceConfigForInstance.Name,
-		serviceConfigForInstance.InstalledVersion,
-		mcpserver.WithResourceCapabilities(true, true),
-	)
-
+	// Initialize client first to get ServerInfo (including version)
 	clientInfo := mcp.Implementation{
 		Name:    fmt.Sprintf("one-mcp-proxy-for-%s-%s", serviceConfigForInstance.Name, instanceNameDetail),
 		Version: common.Version,
@@ -1361,7 +1377,7 @@ func createActualMcpGoServerAndClientUncached(
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = clientInfo
 
-	_, err = mcpGoClient.Initialize(handshakeCtx, initRequest)
+	initResult, err := mcpGoClient.Initialize(handshakeCtx, initRequest)
 	if err != nil {
 		// Give stderr some time to output error details before we return
 		// This helps capture the actual error messages from the subprocess
@@ -1379,8 +1395,35 @@ func createActualMcpGoServerAndClientUncached(
 			common.SysError(fmt.Sprintf("Failed to save MCP initialization error log for %s: %v", serviceConfigForInstance.Name, saveErr))
 		}
 
-		return nil, nil, nil, nil, errors.New(errMsg)
+		return nil, nil, nil, nil, nil, errors.New(errMsg)
 	}
+
+	// Extract server info from initialization result
+	var serverInfo *mcp.Implementation
+	if initResult != nil {
+		serverInfo = &initResult.ServerInfo
+	}
+
+	// Determine version for MCPServer: prefer ServerInfo.Version, fallback to InstalledVersion
+	serverVersion := serviceConfigForInstance.InstalledVersion
+	if serverInfo != nil && serverInfo.Version != "" {
+		serverVersion = serverInfo.Version
+		// Update InstalledVersion in database if different from ServerInfo
+		if serviceConfigForInstance.InstalledVersion != serverInfo.Version {
+			serviceConfigForInstance.InstalledVersion = serverInfo.Version
+			if updateErr := model.UpdateService(serviceConfigForInstance); updateErr != nil {
+				common.SysError(fmt.Sprintf("Failed to update InstalledVersion for %s (ID: %d): %v", serviceConfigForInstance.Name, serviceConfigForInstance.ID, updateErr))
+			} else {
+				common.SysLog(fmt.Sprintf("Updated InstalledVersion for %s (ID: %d) to %s", serviceConfigForInstance.Name, serviceConfigForInstance.ID, serverInfo.Version))
+			}
+		}
+	}
+
+	mcpGoServer := mcpserver.NewMCPServer(
+		serviceConfigForInstance.Name,
+		serverVersion,
+		mcpserver.WithResourceCapabilities(true, true),
+	)
 
 	// Populate server with resources from client
 	tools, err := addClientToolsToMCPServer(handshakeCtx, mcpGoClient, mcpGoServer, serviceConfigForInstance.Name, cacheKey, serviceConfigForInstance.ID, serviceConfigForInstance.Type)
@@ -1401,7 +1444,7 @@ func createActualMcpGoServerAndClientUncached(
 
 	// Note: Success initialization logs are not saved to avoid log spam
 
-	return mcpGoServer, mcpGoClient, stdioCmd, tools, nil
+	return mcpGoServer, mcpGoClient, stdioCmd, tools, serverInfo, nil
 }
 
 // createSSEHttpHandler creates an SSE http.Handler from an mcpserver.MCPServer.
@@ -1705,7 +1748,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		}
 	}()
 
-	srv, cli, spawnedCmd, tools, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfigForCreation, instanceNameDetail)
+	srv, cli, spawnedCmd, tools, serverInfo, err := createActualMcpGoServerAndClientUncached(handshakeCtx, bgCtx, cacheKey, &serviceConfigForCreation, instanceNameDetail)
 	close(handshakeDone)
 	if err != nil {
 		handshakeCancel()
@@ -1719,6 +1762,7 @@ func getOrCreateSharedMcpInstanceWithKeyInternal(ctx context.Context, originalDb
 		Server:        srv,
 		Client:        cli,
 		Tools:         tools,
+		ServerInfo:    serverInfo,
 		cancel:        cancel,
 		serviceID:     originalDbService.ID,
 		serviceName:   originalDbService.Name,

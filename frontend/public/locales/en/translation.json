@@ -150,7 +150,11 @@
         "toolsList": "Tools",
         "availableToolsDescription": "Available tools for this service",
         "noToolsAvailable": "No tools available",
-        "description": "Description"
+        "description": "Description",
+        "parameters": "Parameters",
+        "parameterName": "Name",
+        "parameterType": "Type",
+        "parameterDescription": "Description"
     },
     "market": {
         "title": "Service Marketplace",
