@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -24,6 +26,59 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
+
+// gzipDecompressTransport wraps an http.RoundTripper to automatically decompress gzip responses.
+// Go's http.Transport only auto-decompresses when the request does NOT have Accept-Encoding set.
+// When downstream clients set Accept-Encoding, we need to decompress ourselves for mcp-go to parse JSON.
+type gzipDecompressTransport struct {
+	base        http.RoundTripper
+	serviceName string
+}
+
+func (t *gzipDecompressTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+
+	// Handle gzip decompression manually when Content-Encoding: gzip is set
+	contentEncoding := resp.Header.Get("Content-Encoding")
+	if resp.Body != nil && strings.EqualFold(contentEncoding, "gzip") {
+		gzReader, gzErr := gzip.NewReader(resp.Body)
+		if gzErr != nil {
+			common.SysError(fmt.Sprintf("[gzipTransport] %s: Failed to create gzip reader: %v", t.serviceName, gzErr))
+			return resp, nil // Return original response, let caller handle the error
+		}
+		// Wrap the gzip reader to ensure proper cleanup
+		resp.Body = &gzipReadCloser{gzReader: gzReader, underlying: resp.Body}
+		// Clear Content-Encoding since we've decompressed
+		resp.Header.Del("Content-Encoding")
+		// Clear Content-Length since it's no longer accurate after decompression
+		resp.Header.Del("Content-Length")
+		resp.ContentLength = -1
+	}
+
+	return resp, nil
+}
+
+// gzipReadCloser wraps a gzip.Reader to properly close both the gzip reader and underlying body
+type gzipReadCloser struct {
+	gzReader   *gzip.Reader
+	underlying io.ReadCloser
+}
+
+func (g *gzipReadCloser) Read(p []byte) (n int, err error) {
+	return g.gzReader.Read(p)
+}
+
+func (g *gzipReadCloser) Close() error {
+	gzErr := g.gzReader.Close()
+	underlyingErr := g.underlying.Close()
+	if gzErr != nil {
+		return gzErr
+	}
+	return underlyingErr
+}
 
 // stderrLogThrottler provides a simple throttling mechanism for stderr logs
 type stderrLogThrottler struct {
@@ -1286,10 +1341,17 @@ func createActualMcpGoServerAndClientUncached(
 			headerKeys = append(headerKeys, k)
 		}
 		common.SysLog(fmt.Sprintf("SSE config for %s: URL=%s, HeaderKeys=%v", serviceConfigForInstance.Name, url, headerKeys))
+		// Use debug HTTP client to log response headers and detect gzip issues
+		debugHTTPClient := &http.Client{
+			Transport: &gzipDecompressTransport{
+				base:        http.DefaultTransport,
+				serviceName: serviceConfigForInstance.Name,
+			},
+		}
 		if len(headers) > 0 {
-			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, mcpclient.WithHeaders(headers))
+			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, mcpclient.WithHeaders(headers), mcpclient.WithHTTPClient(debugHTTPClient))
 		} else {
-			mcpGoClient, err = mcpclient.NewSSEMCPClient(url)
+			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, mcpclient.WithHTTPClient(debugHTTPClient))
 		}
 		needManualStart = true
 
@@ -1315,7 +1377,15 @@ func createActualMcpGoServerAndClientUncached(
 		}
 		common.SysLog(fmt.Sprintf("StreamableHTTP config for %s: URL=%s, HeaderKeys=%v", serviceConfigForInstance.Name, url, headerKeys))
 
+		// Use debug HTTP client to log response headers and detect gzip issues
+		debugHTTPClient := &http.Client{
+			Transport: &gzipDecompressTransport{
+				base:        http.DefaultTransport,
+				serviceName: serviceConfigForInstance.Name,
+			},
+		}
 		var streamableOptions []transport.StreamableHTTPCOption
+		streamableOptions = append(streamableOptions, transport.WithHTTPBasicClient(debugHTTPClient))
 		if len(headers) > 0 {
 			streamableOptions = append(streamableOptions, transport.WithHTTPHeaders(headers))
 		}
