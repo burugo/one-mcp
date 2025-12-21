@@ -36,6 +36,9 @@ type gzipDecompressTransport struct {
 }
 
 func (t *gzipDecompressTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Always request gzip from upstream to avoid unsupported encodings (br/zstd).
+	req.Header.Set("Accept-Encoding", "gzip")
+
 	resp, err := t.base.RoundTrip(req)
 	if err != nil {
 		return resp, err
@@ -47,7 +50,8 @@ func (t *gzipDecompressTransport) RoundTrip(req *http.Request) (*http.Response, 
 		gzReader, gzErr := gzip.NewReader(resp.Body)
 		if gzErr != nil {
 			common.SysError(fmt.Sprintf("[gzipTransport] %s: Failed to create gzip reader: %v", t.serviceName, gzErr))
-			return resp, nil // Return original response, let caller handle the error
+			resp.Body.Close()
+			return nil, fmt.Errorf("gzip transport: failed to create gzip reader: %w", gzErr)
 		}
 		// Wrap the gzip reader to ensure proper cleanup
 		resp.Body = &gzipReadCloser{gzReader: gzReader, underlying: resp.Body}
