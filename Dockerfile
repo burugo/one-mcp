@@ -63,7 +63,7 @@ FROM astral/uv:python3.13-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Node.js 20.x (LTS) for better compatibility on multi-arch builds
+# Install Node.js 22.x for better npm compatibility (npm 10.8.x has bin resolution bugs)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -71,7 +71,7 @@ RUN apt-get update \
     tzdata \
     python3 \
     git \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
