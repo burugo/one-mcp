@@ -208,44 +208,15 @@ jobs:
         mkdir -p release-assets
         find artifacts -name "one-mcp-*" -type f -exec cp {} release-assets/ \;
         ls -la release-assets/
-        
-        # Create a zip file with all binaries
-        cd release-assets
-        zip -r "../one-mcp-binaries-${{ steps.get_version.outputs.version }}.zip" .
-        cd ..
 
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.get_version.outputs.version }}
-        release_name: Release ${{ steps.get_version.outputs.version }}
+        name: Release ${{ steps.get_version.outputs.version }}
+        files: release-assets/*
         draft: false
         prerelease: false
-
-    - name: Upload Release Assets
-      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./one-mcp-binaries-${{ steps.get_version.outputs.version }}.zip
-        asset_name: one-mcp-binaries-${{ steps.get_version.outputs.version }}.zip
-        asset_content_type: application/zip
-
-    - name: Upload individual binaries
-      run: |
-        for file in release-assets/*; do
-          if [ -f "$file" ]; then
-            filename=$(basename "$file")
-            echo "Uploading $filename..."
-            curl -L \
-              -X POST \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Content-Type: application/octet-stream" \
-              "${{ steps.create_release.outputs.upload_url }}?name=$filename" \
-              --data-binary "@$file"
-          fi
-        done 
