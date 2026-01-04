@@ -199,16 +199,14 @@ export const GroupPage = () => {
         try {
             const [groupsResp, servicesResp] = await Promise.all([
                 GroupService.getAll(),
-                api.get<MCPService[]>('/mcp_market/installed')
+                api.get<MCPService[]>('/mcp_market/installed?enabled=true')
             ]);
             
             if (groupsResp.success) {
                 setGroups(groupsResp.data || []);
             }
             if (servicesResp.success) {
-                // Only show enabled services
-                const allServices = servicesResp.data || [];
-                setServices(allServices.filter(svc => svc.enabled !== false));
+                setServices(servicesResp.data || []);
             }
         } catch (error) {
             console.error('Failed to fetch data', error);

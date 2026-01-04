@@ -1255,8 +1255,19 @@ func SearchMCPMarket(c *gin.Context) {
 // @Failure 500 {object} common.APIResponse
 // @Router /api/mcp_market/installed [get]
 func ListInstalledMCPServices(c *gin.Context) {
-	// 获取所有已安装服务（不论启用状态）
-	services, err := model.GetInstalledServices()
+	// 检查是否需要过滤只返回启用的服务
+	enabledOnly := c.Query("enabled") == "true"
+
+	var services []*model.MCPService
+	var err error
+
+	if enabledOnly {
+		services, err = model.GetEnabledServices()
+	} else {
+		// 获取所有已安装服务（不论启用状态）
+		services, err = model.GetInstalledServices()
+	}
+
 	if err != nil {
 		common.RespError(c, 500, "list_installed_failed", err)
 		return
