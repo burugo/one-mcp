@@ -6,6 +6,7 @@
     "nav": {
         "dashboard": "Dashboard",
         "services": "Services",
+        "groups": "Service Groups",
         "market": "Service Market",
         "analytics": "Analytics",
         "users": "Users",
@@ -42,6 +43,27 @@
         "unknown": "Unknown",
         "refresh": "Refresh",
         "uninstall": "Uninstall"
+    },
+    "groups": {
+        "title": "Service Groups",
+        "description": "Manage and combine your MCP services into unified endpoints",
+        "create": "Create Group",
+        "edit": "Edit Group",
+        "delete": "Delete Group",
+        "name": "Group ID",
+        "displayName": "Display Name",
+        "desc": "Description",
+        "services": "Included Services",
+        "enabled": "Enabled",
+        "endpoint": "Endpoint URL",
+        "copyEndpoint": "Copy URL",
+        "noServices": "No services selected",
+        "deleteConfirmTitle": "Confirm Delete",
+        "deleteConfirmDesc": "Are you sure you want to delete group \"{{name}}\"? This action cannot be undone.",
+        "validation": {
+            "nameRequired": "Group ID is required",
+            "displayNameRequired": "Display Name is required"
+        }
     },
     "batchImport": {
         "title": "Batch Import Services",

@@ -5,11 +5,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
-import { Settings, User, Home, BarChart, Globe, Package, Users, FileText } from 'lucide-react'
+import { Settings, User, Home, BarChart, Globe, Package, Users, FileText, Layers } from 'lucide-react'
 import { LoginDialog } from './components/ui/login-dialog'
 import { ThemeToggle } from './components/ui/theme-toggle'
 import { MarketPage } from './pages/MarketPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { GroupPage } from './pages/GroupPage'
 import { ServicesPage } from './pages/ServicesPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -107,6 +108,10 @@ const AppLayout = () => {
             <NavLink to="/services">
               <Globe className={`h-4 w-4 ${location.pathname.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`} />
               <span className={`${location.pathname.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.services')}</span>
+            </NavLink>
+            <NavLink to="/groups">
+              <Layers className={`h-4 w-4 ${location.pathname.startsWith('/groups') ? 'text-primary' : 'text-muted-foreground'}`} />
+              <span className={`${location.pathname.startsWith('/groups') ? 'text-primary' : 'text-muted-foreground'}`}>{t('nav.groups')}</span>
             </NavLink>
             {currentUser && currentUser.role && currentUser.role >= 10 && (
               <NavLink to="/market">
@@ -221,6 +226,7 @@ const AppContent = () => {
         <Route index element={<DashboardPage />} />
         <Route path="dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
         <Route path="services" element={<PrivateRoute><ServicesPage /></PrivateRoute>} />
+        <Route path="groups" element={<PrivateRoute><GroupPage /></PrivateRoute>} />
         <Route path="market" element={<PrivateRoute><MarketPage /></PrivateRoute>} />
         <Route path="analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
         <Route path="users" element={<PrivateRoute><UsersPage /></PrivateRoute>} />
