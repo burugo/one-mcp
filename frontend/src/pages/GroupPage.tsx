@@ -6,18 +6,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Edit2, Trash2, Copy, Layers, ExternalLink } from 'lucide-react';
+import { Plus, Edit2, Trash2, Copy, Layers } from 'lucide-react';
 import api, { GroupService } from '@/utils/api';
 import { useServerAddress } from '@/hooks/useServerAddress';
-import { writeToClipboard } from '@/utils/clipboard';
+import { copyToClipboard } from '@/utils/clipboard';
 
 interface MCPService {
-    ID: number;
+    id: number;
     name: string;
     display_name: string;
+    description?: string;
+    enabled?: boolean;
 }
 
 interface Group {
@@ -42,7 +43,6 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
     const [formData, setFormData] = useState({
         name: '',
         display_name: '',
-        description: '',
         service_ids: [] as number[],
         enabled: true
     });
@@ -59,7 +59,6 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
             setFormData({
                 name: group.name,
                 display_name: group.display_name,
-                description: group.description,
                 service_ids: ids,
                 enabled: group.enabled
             });
@@ -67,12 +66,23 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
             setFormData({
                 name: '',
                 display_name: '',
-                description: '',
                 service_ids: [],
                 enabled: true
             });
         }
     }, [group, isOpen]);
+
+    // Generate description automatically based on selected services
+    const generateDescription = (): string => {
+        const selectedServices = services.filter(svc => formData.service_ids.includes(svc.id));
+        if (selectedServices.length === 0) return '';
+        
+        const lines = selectedServices.map(svc => {
+            const desc = svc.description || svc.display_name || svc.name;
+            return `- ${svc.name}: ${desc}`;
+        });
+        return `This group contains the following MCP services:\n${lines.join('\n')}`;
+    };
 
     const handleSubmit = async () => {
         if (!formData.name || !formData.display_name) {
@@ -80,8 +90,10 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
         }
         setLoading(true);
         try {
+            const description = generateDescription();
             await onSave({
                 ...formData,
+                description,
                 service_ids_json: JSON.stringify(formData.service_ids)
             });
             onClose();
@@ -133,17 +145,6 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
                         />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="description" className="text-right">
-                            {t('groups.desc')}
-                        </Label>
-                        <Textarea
-                            id="description"
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            className="col-span-3"
-                        />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
                         <Label className="text-right">{t('groups.enabled')}</Label>
                         <Switch
                             checked={formData.enabled}
@@ -152,17 +153,24 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
                     </div>
                     <div className="grid grid-cols-4 gap-4">
                         <Label className="text-right pt-2">{t('groups.services')}</Label>
-                        <div className="col-span-3 border rounded-md p-4 max-h-60 overflow-y-auto space-y-2">
+                        <div className="col-span-3 border rounded-md p-4 max-h-60 overflow-y-auto space-y-3">
                             {services.length === 0 ? (
                                 <div className="text-muted-foreground text-sm">{t('groups.noServices')}</div>
                             ) : (
                                 services.map(svc => (
-                                    <div key={svc.ID} className="flex items-center space-x-2">
+                                    <div key={svc.id} className="flex items-center space-x-3 py-1">
                                         <Switch
-                                            checked={formData.service_ids.includes(svc.ID)}
-                                            onCheckedChange={() => toggleService(svc.ID)}
+                                            id={`svc-${svc.id}`}
+                                            checked={formData.service_ids.includes(svc.id)}
+                                            onCheckedChange={() => toggleService(svc.id)}
                                         />
-                                        <span>{svc.display_name || svc.name}</span>
+                                        <label 
+                                            htmlFor={`svc-${svc.id}`}
+                                            className="text-sm font-medium leading-none cursor-pointer"
+                                        >
+                                            {svc.display_name || svc.name}
+                                            <span className="text-muted-foreground ml-2 font-normal">({svc.name})</span>
+                                        </label>
                                     </div>
                                 ))
                             )}
@@ -191,14 +199,16 @@ export const GroupPage = () => {
         try {
             const [groupsResp, servicesResp] = await Promise.all([
                 GroupService.getAll(),
-                api.get('/mcp_services/installed') // Assuming this endpoint exists based on backend files
+                api.get<MCPService[]>('/mcp_market/installed')
             ]);
             
             if (groupsResp.success) {
                 setGroups(groupsResp.data || []);
             }
             if (servicesResp.success) {
-                setServices(servicesResp.data || []);
+                // Only show enabled services
+                const allServices = servicesResp.data || [];
+                setServices(allServices.filter(svc => svc.enabled !== false));
             }
         } catch (error) {
             console.error('Failed to fetch data', error);
@@ -264,9 +274,9 @@ export const GroupPage = () => {
         return `${baseUrl}/group/${name}/mcp?key=<YOUR_TOKEN>`;
     };
 
-    const copyToClipboard = async (text: string) => {
-        const success = await writeToClipboard(text);
-        if (success) {
+    const handleCopyToClipboard = async (text: string) => {
+        const result = await copyToClipboard(text);
+        if (result.success) {
             toast({
                 title: t('common.success'),
                 description: t('services.copiedToClipboard'),
@@ -334,7 +344,7 @@ export const GroupPage = () => {
                                             variant="ghost" 
                                             size="icon" 
                                             className="h-8 w-8 shrink-0"
-                                            onClick={() => copyToClipboard(url)}
+                                        onClick={() => handleCopyToClipboard(url)}
                                         >
                                             <Copy className="h-4 w-4" />
                                         </Button>

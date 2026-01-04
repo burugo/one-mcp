@@ -161,14 +161,17 @@ apiInstance.interceptors.response.use(
     }
 );
 
+// Cast the instance to our custom AppAPIClient interface.
+// This tells TypeScript that when we call api.get(), etc., it will adhere to AppAPIClient's method signatures.
+const api = apiInstance as unknown as AppAPIClient;
+
 // Group Service API
 export const GroupService = {
-    getAll: () => apiInstance.get<any[]>('/groups'),
-    create: (data: any) => apiInstance.post<any>('/groups', data),
-    update: (id: number, data: any) => apiInstance.put<any>(`/groups/${id}`, data),
-    delete: (id: number) => apiInstance.delete<any>(`/groups/${id}`),
+    getAll: () => api.get<any[]>('/groups'),
+    create: (data: any) => api.post<any>('/groups', data),
+    update: (id: number, data: any) => api.put<any>(`/groups/${id}`, data),
+    delete: (id: number) => api.delete<any>(`/groups/${id}`),
 };
 
-// Export the instance, cast to our custom AppAPIClient interface.
-// This tells TypeScript that when we call api.get(), etc., it will adhere to AppAPIClient's method signatures.
-export default apiInstance as AppAPIClient; 
+// Export the instance
+export default api; 
