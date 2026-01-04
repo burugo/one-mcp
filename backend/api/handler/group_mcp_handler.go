@@ -33,8 +33,6 @@ type MCPResponse struct {
 
 type groupSearchArgs struct {
 	MCPName string
-	ToolKey string
-	Limit   int
 }
 
 type executeArgs struct {
@@ -144,10 +142,6 @@ func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
 							"enum":        serviceNames,
 							"description": "MCP service name",
 						},
-						"tool_name": map[string]any{
-							"type":        "string",
-							"description": "Optional keywords to filter tools",
-						},
 					},
 					"required": []string{"mcp_name"},
 				},
@@ -203,15 +197,8 @@ func parseGroupSearchArgs(args map[string]any) (*groupSearchArgs, error) {
 	if strings.TrimSpace(mcpName) == "" {
 		return nil, fmt.Errorf("mcp_name is required")
 	}
-	toolKey, _ := args["tool_name"].(string)
-	limit := 10
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
-	}
 	return &groupSearchArgs{
 		MCPName: strings.TrimSpace(mcpName),
-		ToolKey: strings.TrimSpace(toolKey),
-		Limit:   limit,
 	}, nil
 }
 
@@ -289,11 +276,11 @@ func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *g
 			return nil, fmt.Errorf("failed to fetch tools from %s: %v", svc.Name, fetchErr)
 		}
 		// Return fetched tools directly
-		matched := filterTools(tools, svc.Name, args.ToolKey, args.Limit)
+		matched := convertTools(tools, svc.Name)
 		return map[string]any{"tools": matched}, nil
 	}
 
-	matched := filterTools(entry.Tools, svc.Name, args.ToolKey, args.Limit)
+	matched := convertTools(entry.Tools, svc.Name)
 	return map[string]any{"tools": matched}, nil
 }
 
@@ -314,23 +301,17 @@ func fetchToolsFromService(ctx context.Context, svc *model.MCPService) ([]mcp_pr
 	return result.Tools, nil
 }
 
-func filterTools(tools []mcp_protocol.Tool, mcpName string, toolKey string, limit int) []map[string]any {
-	keywords := splitKeywords(toolKey)
-	matched := make([]map[string]any, 0, len(tools))
+func convertTools(tools []mcp_protocol.Tool, mcpName string) []map[string]any {
+	result := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
-		if matchesTool(tool.Name, tool.Description, keywords) {
-			matched = append(matched, map[string]any{
-				"mcp_name":    mcpName,
-				"name":        tool.Name,
-				"description": tool.Description,
-				"inputSchema": tool.InputSchema,
-			})
-		}
-		if limit > 0 && len(matched) >= limit {
-			break
-		}
+		result = append(result, map[string]any{
+			"mcp_name":    mcpName,
+			"tool_name":   tool.Name,
+			"description": tool.Description,
+			"inputSchema": tool.InputSchema,
+		})
 	}
-	return matched
+	return result
 }
 
 func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *executeArgs) (any, error) {
@@ -354,34 +335,6 @@ func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *e
 	}
 
 	return result, nil
-}
-
-func splitKeywords(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	parts := strings.Fields(strings.ReplaceAll(raw, ",", " "))
-	keywords := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			keywords = append(keywords, strings.ToLower(trimmed))
-		}
-	}
-	return keywords
-}
-
-func matchesTool(name string, desc string, keywords []string) bool {
-	if len(keywords) == 0 {
-		return true
-	}
-	combined := strings.ToLower(name + " " + desc)
-	for _, kw := range keywords {
-		if !strings.Contains(combined, kw) {
-			return false
-		}
-	}
-	return true
 }
 
 func sharedCacheKey(serviceID int64) string {
