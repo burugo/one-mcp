@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"one-mcp/backend/common"
 	"one-mcp/backend/common/i18n"
@@ -42,12 +43,16 @@ func CreateGroup(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
+
+	// Filter out disabled services
+	filteredServiceIDsJSON := filterEnabledServiceIDs(payload.ServiceIDsJSON)
+
 	group := &model.MCPServiceGroup{
 		UserID:         userID,
 		Name:           strings.TrimSpace(payload.Name),
 		DisplayName:    strings.TrimSpace(payload.DisplayName),
 		Description:    strings.TrimSpace(payload.Description),
-		ServiceIDsJSON: strings.TrimSpace(payload.ServiceIDsJSON),
+		ServiceIDsJSON: filteredServiceIDsJSON,
 		Enabled:        true,
 	}
 	if payload.Enabled != nil {
@@ -92,7 +97,8 @@ func UpdateGroup(c *gin.Context) {
 		group.Description = strings.TrimSpace(payload.Description)
 	}
 	if payload.ServiceIDsJSON != "" {
-		group.ServiceIDsJSON = strings.TrimSpace(payload.ServiceIDsJSON)
+		// Filter out disabled services
+		group.ServiceIDsJSON = filterEnabledServiceIDs(payload.ServiceIDsJSON)
 	}
 	if payload.Enabled != nil {
 		group.Enabled = *payload.Enabled
@@ -126,4 +132,27 @@ func DeleteGroup(c *gin.Context) {
 	}
 
 	common.RespSuccess(c, nil)
+}
+
+// filterEnabledServiceIDs removes disabled service IDs from the JSON array
+func filterEnabledServiceIDs(serviceIDsJSON string) string {
+	if serviceIDsJSON == "" {
+		return "[]"
+	}
+
+	var ids []int64
+	if err := json.Unmarshal([]byte(serviceIDsJSON), &ids); err != nil {
+		return "[]"
+	}
+
+	enabledIDs := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		svc, err := model.GetServiceByID(id)
+		if err == nil && svc.Enabled {
+			enabledIDs = append(enabledIDs, id)
+		}
+	}
+
+	result, _ := json.Marshal(enabledIDs)
+	return string(result)
 }
