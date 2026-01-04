@@ -163,7 +163,7 @@ func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
 						},
 						"arguments": map[string]any{
 							"type":        "object",
-							"description": "Tool arguments per inputSchema. e.g. {\"query\": \"...\"} not {\"arguments\": {...}}",
+							"description": "Tool arguments. Example: {\"message\": \"hello\"} for a tool with message param",
 						},
 					},
 					"required": []string{"mcp_name", "tool_name", "arguments"},
@@ -213,7 +213,7 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 	// Also supports "parameters" field name for client compatibility
 	arguments, fieldFound := parseArgumentsValue(args)
 	if !fieldFound {
-		return nil, fmt.Errorf("arguments is required")
+		return nil, fmt.Errorf("arguments is required. Example: {\"mcp_name\": \"x\", \"tool_name\": \"y\", \"arguments\": {\"param1\": \"value1\"}}")
 	}
 	if arguments == nil {
 		arguments = map[string]any{}
@@ -230,13 +230,10 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 // Supports field names: "arguments" or "parameters"
 // Returns (parsed map, field was found)
 func parseArgumentsValue(args map[string]any) (map[string]any, bool) {
-	// Try "arguments" first (preferred)
-	if v, ok := args["arguments"]; ok && v != nil {
-		return parseAnyToMap(v), true
-	}
-	// Fallback to "parameters" for client compatibility
-	if v, ok := args["parameters"]; ok && v != nil {
-		return parseAnyToMap(v), true
+	for _, fieldName := range []string{"arguments", "parameters"} {
+		if v, ok := args[fieldName]; ok && v != nil {
+			return parseAnyToMap(v), true
+		}
 	}
 	return nil, false
 }
