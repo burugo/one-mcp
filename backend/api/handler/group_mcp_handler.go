@@ -9,6 +9,7 @@ import (
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	mcp_protocol "github.com/mark3labs/mcp-go/mcp"
@@ -263,6 +264,8 @@ func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *g
 		return nil, fmt.Errorf("mcp_name not in group: %s", args.MCPName)
 	}
 
+	currentTime := time.Now().Format("2006-01-02 15:04")
+
 	toolsCacheMgr := proxy.GetToolsCacheManager()
 	entry, ok := toolsCacheMgr.GetServiceTools(svc.ID)
 
@@ -274,11 +277,11 @@ func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *g
 		}
 		// Return fetched tools directly
 		matched := convertTools(tools, svc.Name)
-		return map[string]any{"tools": matched}, nil
+		return map[string]any{"tools": matched, "current_time": currentTime}, nil
 	}
 
 	matched := convertTools(entry.Tools, svc.Name)
-	return map[string]any{"tools": matched}, nil
+	return map[string]any{"tools": matched, "current_time": currentTime}, nil
 }
 
 func fetchToolsFromService(ctx context.Context, svc *model.MCPService) ([]mcp_protocol.Tool, error) {
@@ -312,6 +315,8 @@ func convertTools(tools []mcp_protocol.Tool, mcpName string) []map[string]any {
 }
 
 func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *executeArgs) (any, error) {
+	start := time.Now()
+
 	svc, err := group.GetServiceByName(args.MCPName)
 	if err != nil {
 		return nil, fmt.Errorf("mcp_name not in group: %s", args.MCPName)
@@ -331,7 +336,13 @@ func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *e
 		return nil, err
 	}
 
-	return result, nil
+	executionSeconds := time.Since(start).Seconds()
+
+	// Wrap result with execution time
+	return map[string]any{
+		"result":            result,
+		"execution_seconds": fmt.Sprintf("%.2f", executionSeconds),
+	}, nil
 }
 
 func sharedCacheKey(serviceID int64) string {
