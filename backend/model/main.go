@@ -61,7 +61,7 @@ func InitDB() (err error) {
 
 	// 1. AutoMigrate all models first
 	thing.AllowDropColumn = true
-	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{}, &ProxyRequestStat{}, &MCPLog{})
+	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{}, &ProxyRequestStat{}, &MCPLog{}, &MCPServiceGroup{})
 	if err != nil {
 		return err
 	}
@@ -77,6 +77,9 @@ func InitDB() (err error) {
 		return err
 	}
 	if err := MCPServiceInit(); err != nil {
+		return err
+	}
+	if err := MCPServiceGroupInit(); err != nil {
 		return err
 	}
 	if err := ConfigServiceInit(); err != nil {

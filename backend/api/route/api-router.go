@@ -113,6 +113,16 @@ func SetApiRouter(route *gin.Engine) {
 			mcpLogsRoute.GET("", handler.GetMCPLogs)
 		}
 
+		// MCP Group routes
+		groupRoute := apiRouter.Group("/groups")
+		groupRoute.Use(middleware.JWTAuth())
+		{
+			groupRoute.GET("", handler.GetGroups)
+			groupRoute.POST("", handler.CreateGroup)
+			groupRoute.PUT("/:id", handler.UpdateGroup)
+			groupRoute.DELETE("/:id", handler.DeleteGroup)
+		}
+
 		// Market API routes
 		marketRoute := apiRouter.Group("/mcp_market")
 		marketRoute.Use(middleware.JWTAuth())
@@ -185,5 +195,14 @@ func SetApiRouter(route *gin.Engine) {
 
 		// Legacy route removed to fix routing conflict with specific routes above
 		proxyRouter.Any("/:serviceName/*action", handler.ProxyHandler)
+	}
+
+	// Group MCP routes (token auth, outside /api)
+	groupMcpRoute := route.Group("/group")
+	groupMcpRoute.Use(middleware.LangMiddleware())
+	groupMcpRoute.Use(middleware.GlobalAPIRateLimit())
+	groupMcpRoute.Use(middleware.TokenAuth())
+	{
+		groupMcpRoute.POST("/:name/mcp", handler.GroupMCPHandler)
 	}
 }
