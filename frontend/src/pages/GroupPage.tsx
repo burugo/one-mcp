@@ -12,6 +12,7 @@ import { Plus, Edit2, Trash2, Copy, Layers, Download } from 'lucide-react';
 import api, { GroupService } from '@/utils/api';
 import { useServerAddress } from '@/hooks/useServerAddress';
 import { copyToClipboard } from '@/utils/clipboard';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface MCPService {
     id: number;
@@ -190,10 +191,53 @@ export const GroupPage = () => {
     const { t } = useTranslation();
     const { toast } = useToast();
     const serverAddress = useServerAddress();
+    const { currentUser, updateUserInfo } = useAuth();
     const [groups, setGroups] = useState<Group[]>([]);
     const [services, setServices] = useState<MCPService[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingGroup, setEditingGroup] = useState<Group | null>(null);
+    const [userToken, setUserToken] = useState<string>('');
+
+    // Fetch user token
+    useEffect(() => {
+        const fetchUserToken = async () => {
+            try {
+                // First check if currentUser already has token
+                if (currentUser?.token) {
+                    setUserToken(currentUser.token);
+                    return;
+                }
+
+                // If not, fetch from API
+                const response = await fetch('/api/user/self', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.data?.token) {
+                        setUserToken(data.data.token);
+                        // Update AuthContext
+                        if (currentUser) {
+                            updateUserInfo({
+                                ...currentUser,
+                                token: data.data.token
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to fetch user token:', error);
+            }
+        };
+
+        if (currentUser) {
+            fetchUserToken();
+        }
+    }, [currentUser, updateUserInfo]);
 
     const fetchData = async () => {
         try {
@@ -269,7 +313,7 @@ export const GroupPage = () => {
 
     const getGroupUrl = (name: string) => {
         const baseUrl = serverAddress.endsWith('/') ? serverAddress.slice(0, -1) : serverAddress;
-        return `${baseUrl}/group/${name}/mcp?key=<YOUR_TOKEN>`;
+        return `${baseUrl}/group/${name}/mcp?key=${userToken || '<YOUR_TOKEN>'}`;
     };
 
     const handleCopyToClipboard = async (text: string) => {
