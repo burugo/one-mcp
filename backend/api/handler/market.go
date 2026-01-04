@@ -1598,38 +1598,8 @@ func CreateCustomService(c *gin.Context) {
 		return
 	}
 
-	// 生成服务描述
-	var description string
-	serviceTypeForDisplay := strings.ToLower(requestBody.Type) // Use the raw string from request
-
-	switch requestBody.Type { // Compare with raw string type from request
-	case "stdio":
-		cmdDisplay := requestBody.Command
-		if len(cmdDisplay) > 50 {
-			cmdDisplay = cmdDisplay[:47] + "..."
-		}
-		argsDisplay := requestBody.Arguments // This is a string
-		if argsDisplay == "" {
-			argsDisplay = "no args"
-		} else if len(argsDisplay) > 30 {
-			argsDisplay = argsDisplay[:27] + "..."
-		}
-		description = fmt.Sprintf("%s/%s (%s)", cmdDisplay, argsDisplay, serviceTypeForDisplay)
-	case "sse", "streamableHttp":
-		if requestBody.URL == "" {
-			description = fmt.Sprintf("Custom proxy service - URL not set (%s)", serviceTypeForDisplay)
-		} else {
-			// Use sanitized URL to remove sensitive query parameters
-			cleanURL := sanitizeURLForDisplay(requestBody.URL)
-			if len(cleanURL) > 80 {
-				cleanURL = cleanURL[:77] + "..."
-			}
-			description = fmt.Sprintf("Custom proxy service to %s (%s)", cleanURL, serviceTypeForDisplay)
-		}
-	default:
-		// This case should ideally not be reached due to prior validation of requestBody.Type
-		description = fmt.Sprintf("Custom service (%s)", serviceTypeForDisplay)
-	}
+	// 描述留空，等待初始化填充
+	description := ""
 
 	// 创建新服务
 	newService := model.MCPService{
@@ -2004,11 +1974,8 @@ func createSingleServiceFromBatch(ctx context.Context, serviceName string, servi
 		}
 	}
 
-	// Use retrieved package info or fallbacks
+	// Use retrieved package info or leave empty
 	description := packageDescription
-	if description == "" {
-		description = "Imported via batch import"
-	}
 
 	installedVersion := packageVersion
 	if installedVersion == "" {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	mcp_protocol "github.com/mark3labs/mcp-go/mcp"
+	"gopkg.in/yaml.v3"
 )
 
 type MCPRequest struct {
@@ -117,13 +118,17 @@ func handleGroupInitialize(group *model.MCPServiceGroup) map[string]any {
 	serviceNames := getGroupServiceNames(group)
 	return map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
-		"serverInfo": map[string]any{
-			"name":        fmt.Sprintf("one-mcp-group-%s", group.Name),
-			"version":     "1.0.0",
-			"description": group.Description,
-			"services":    serviceNames,
+		"capabilities": map[string]any{
+			"tools": map[string]any{
+				"listChanged": false,
+			},
 		},
+		"serverInfo": map[string]any{
+			"name":     fmt.Sprintf("one-mcp-group-%s", group.Name),
+			"version":  "1.0.0",
+			"services": serviceNames,
+		},
+		"instructions": group.Description,
 	}
 }
 
@@ -214,7 +219,8 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 	// Also supports "parameters" field name for client compatibility
 	arguments, fieldFound := parseArgumentsValue(args)
 	if !fieldFound {
-		return nil, fmt.Errorf("arguments is required. Example: {\"mcp_name\": \"x\", \"tool_name\": \"y\", \"arguments\": {\"param1\": \"value1\"}}")
+		// Fallback: collect all other fields as arguments (for dumb LLMs)
+		arguments = extractRemainingAsArguments(args)
 	}
 	if arguments == nil {
 		arguments = map[string]any{}
@@ -225,6 +231,19 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 		ToolName:  strings.TrimSpace(toolName),
 		Arguments: arguments,
 	}, nil
+}
+
+// extractRemainingAsArguments collects all fields except mcp_name/tool_name as arguments
+// This handles cases where LLM puts tool params at top level instead of in arguments
+func extractRemainingAsArguments(args map[string]any) map[string]any {
+	reserved := map[string]bool{"mcp_name": true, "tool_name": true, "arguments": true, "parameters": true}
+	result := make(map[string]any)
+	for k, v := range args {
+		if !reserved[k] {
+			result[k] = v
+		}
+	}
+	return result
 }
 
 // parseArgumentsValue parses arguments that could be either a map or a JSON string
@@ -269,19 +288,38 @@ func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *g
 	toolsCacheMgr := proxy.GetToolsCacheManager()
 	entry, ok := toolsCacheMgr.GetServiceTools(svc.ID)
 
+	var tools []mcp_protocol.Tool
 	// If cache is empty, fetch tools by connecting to the service
 	if !ok || len(entry.Tools) == 0 {
-		tools, fetchErr := fetchToolsFromService(ctx, svc)
+		fetchedTools, fetchErr := fetchToolsFromService(ctx, svc)
 		if fetchErr != nil {
 			return nil, fmt.Errorf("failed to fetch tools from %s: %v", svc.Name, fetchErr)
 		}
-		// Return fetched tools directly
-		matched := convertTools(tools, svc.Name)
-		return map[string]any{"tools": matched, "current_time": currentTime}, nil
+		tools = fetchedTools
+	} else {
+		tools = entry.Tools
 	}
 
-	matched := convertTools(entry.Tools, svc.Name)
-	return map[string]any{"tools": matched, "current_time": currentTime}, nil
+	// Convert to YAML for compact response
+	yamlTools := convertToolsToYAML(tools, svc.Name)
+	yamlBytes, err := yaml.Marshal(yamlTools)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize tools: %v", err)
+	}
+
+	toolsSummary := string(yamlBytes)
+
+	return map[string]any{
+		"tools_yaml":   toolsSummary,
+		"current_time": currentTime,
+		"tool_count":   len(tools),
+		"content": []map[string]any{
+			{
+				"type": "text",
+				"text": toolsSummary,
+			},
+		},
+	}, nil
 }
 
 func fetchToolsFromService(ctx context.Context, svc *model.MCPService) ([]mcp_protocol.Tool, error) {
@@ -314,6 +352,29 @@ func convertTools(tools []mcp_protocol.Tool, mcpName string) []map[string]any {
 	return result
 }
 
+// yamlTool is a compact YAML-friendly tool representation
+type yamlTool struct {
+	Name   string         `yaml:"name"`
+	Desc   string         `yaml:"desc,omitempty"`
+	Params map[string]any `yaml:"params,omitempty"`
+}
+
+func convertToolsToYAML(tools []mcp_protocol.Tool, mcpName string) []yamlTool {
+	result := make([]yamlTool, 0, len(tools))
+	for _, tool := range tools {
+		yt := yamlTool{
+			Name: tool.Name,
+			Desc: tool.Description,
+		}
+		// Extract just the properties from inputSchema for compactness
+		if len(tool.InputSchema.Properties) > 0 {
+			yt.Params = tool.InputSchema.Properties
+		}
+		result = append(result, yt)
+	}
+	return result
+}
+
 func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *executeArgs) (any, error) {
 	start := time.Now()
 
@@ -338,10 +399,22 @@ func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *e
 
 	executionSeconds := time.Since(start).Seconds()
 
+	var content any = result
+	if result != nil && len(result.Content) > 0 {
+		content = result.Content
+	} else if result != nil {
+		content = []map[string]any{
+			{
+				"type": "text",
+				"text": fmt.Sprintf("%v", result),
+			},
+		}
+	}
+
 	// Wrap result with execution time
 	return map[string]any{
-		"result":            result,
 		"execution_seconds": fmt.Sprintf("%.2f", executionSeconds),
+		"content":           content,
 	}, nil
 }
 

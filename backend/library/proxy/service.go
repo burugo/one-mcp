@@ -1208,6 +1208,101 @@ var (
 	httpWrappersMutex            = &sync.Mutex{}
 )
 
+func updateServiceDescriptionFromInitResult(service *model.MCPService, initResult *mcp.InitializeResult, serverInfo *mcp.Implementation) {
+	if service == nil {
+		return
+	}
+	if strings.TrimSpace(service.Description) != "" {
+		return
+	}
+	if initResult == nil {
+		return
+	}
+
+	var description string
+	description = strings.TrimSpace(initResult.Instructions)
+	if description == "" {
+		description = strings.TrimSpace(getInitResultServerInfoDescription(initResult))
+	}
+	if description == "" && serverInfo != nil {
+		description = strings.TrimSpace(serverInfo.Title)
+		if description == "" {
+			description = strings.TrimSpace(serverInfo.Name)
+		}
+	}
+	if description == "" {
+		return
+	}
+	serverInfoName := strings.TrimSpace(getInitResultServerInfoName(initResult))
+	if serverInfoName == "" && serverInfo != nil {
+		serverInfoName = strings.TrimSpace(serverInfo.Name)
+	}
+	if serverInfoName != "" && service.Name != serverInfoName {
+		return
+	}
+	if service.Description == description {
+		return
+	}
+	service.Description = description
+	if updateErr := model.UpdateService(service); updateErr != nil {
+		common.SysError(fmt.Sprintf("Failed to update description for %s (ID: %d): %v", service.Name, service.ID, updateErr))
+	}
+}
+
+func getInitResultServerInfoDescription(initResult *mcp.InitializeResult) string {
+	if initResult == nil {
+		return ""
+	}
+	raw, err := json.Marshal(initResult)
+	if err != nil {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	serverInfo, ok := payload["serverInfo"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	value, ok := serverInfo["description"]
+	if !ok {
+		return ""
+	}
+	description, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return description
+}
+
+func getInitResultServerInfoName(initResult *mcp.InitializeResult) string {
+	if initResult == nil {
+		return ""
+	}
+	raw, err := json.Marshal(initResult)
+	if err != nil {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	serverInfo, ok := payload["serverInfo"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	value, ok := serverInfo["name"]
+	if !ok {
+		return ""
+	}
+	name, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return name
+}
+
 // createActualMcpGoServerAndClientUncached creates and initializes an mcp-go client and server instance.
 // For Stdio clients, client.Start() is not called.
 // It returns the mcp-go server, the mcp-go client, any spawned stdio command, tools, server info, and an error.
@@ -1478,8 +1573,11 @@ func createActualMcpGoServerAndClientUncached(
 		serverInfo = &initResult.ServerInfo
 	}
 
+	updateServiceDescriptionFromInitResult(serviceConfigForInstance, initResult, serverInfo)
+
 	// Determine version for MCPServer: prefer ServerInfo.Version, fallback to InstalledVersion
 	serverVersion := serviceConfigForInstance.InstalledVersion
+
 	if serverInfo != nil && serverInfo.Version != "" {
 		serverVersion = serverInfo.Version
 		// Update InstalledVersion in database if different from ServerInfo
@@ -1493,10 +1591,16 @@ func createActualMcpGoServerAndClientUncached(
 		}
 	}
 
+	serverOptions := []mcpserver.ServerOption{
+		mcpserver.WithResourceCapabilities(true, true),
+	}
+	if strings.TrimSpace(serviceConfigForInstance.Description) != "" {
+		serverOptions = append(serverOptions, mcpserver.WithInstructions(serviceConfigForInstance.Description))
+	}
 	mcpGoServer := mcpserver.NewMCPServer(
 		serviceConfigForInstance.Name,
 		serverVersion,
-		mcpserver.WithResourceCapabilities(true, true),
+		serverOptions...,
 	)
 
 	// Populate server with resources from client
