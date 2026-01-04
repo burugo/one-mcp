@@ -75,16 +75,9 @@ func GroupMCPHandler(c *gin.Context) {
 
 	switch req.Method {
 	case "initialize":
-		resp.Result = map[string]any{
-			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]any{},
-			"serverInfo": map[string]string{
-				"name":    "one-mcp-group",
-				"version": "1.0.0",
-			},
-		}
+		resp.Result = handleGroupInitialize(group)
 	case "tools/list":
-		resp.Result = handleGroupToolsList()
+		resp.Result = handleGroupToolsList(group)
 	case "tools/call":
 		toolName := req.Params.Name
 		args := req.Params.Arguments
@@ -107,7 +100,35 @@ func GroupMCPHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func handleGroupToolsList() map[string]any {
+// getGroupServiceNames returns a list of service names in the group
+func getGroupServiceNames(group *model.MCPServiceGroup) []string {
+	ids := group.GetServiceIDs()
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		svc, err := model.GetServiceByID(id)
+		if err == nil {
+			names = append(names, svc.Name)
+		}
+	}
+	return names
+}
+
+func handleGroupInitialize(group *model.MCPServiceGroup) map[string]any {
+	serviceNames := getGroupServiceNames(group)
+	return map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{},
+		"serverInfo": map[string]any{
+			"name":        fmt.Sprintf("one-mcp-group-%s", group.Name),
+			"version":     "1.0.0",
+			"description": group.Description,
+			"services":    serviceNames,
+		},
+	}
+}
+
+func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
+	serviceNames := getGroupServiceNames(group)
 	return map[string]any{
 		"tools": []map[string]any{
 			{
@@ -118,7 +139,8 @@ func handleGroupToolsList() map[string]any {
 					"properties": map[string]any{
 						"mcp_name": map[string]any{
 							"type":        "string",
-							"description": "Required MCP service name (must be one of the group's services)",
+							"enum":        serviceNames,
+							"description": "MCP service name",
 						},
 						"tool_name": map[string]any{
 							"type":        "string",
@@ -141,7 +163,8 @@ func handleGroupToolsList() map[string]any {
 					"properties": map[string]any{
 						"mcp_name": map[string]any{
 							"type":        "string",
-							"description": "The MCP service name",
+							"enum":        serviceNames,
+							"description": "MCP service name",
 						},
 						"tool_name": map[string]any{
 							"type":        "string",
