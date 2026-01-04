@@ -223,7 +223,11 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 	}
 
 	// Parse arguments - support both object and JSON string
-	arguments := parseArgumentsValue(args["arguments"])
+	// Also supports "parameters" field name for client compatibility
+	arguments, fieldFound := parseArgumentsValue(args)
+	if !fieldFound {
+		return nil, fmt.Errorf("arguments is required")
+	}
 	if arguments == nil {
 		arguments = map[string]any{}
 	}
@@ -236,7 +240,22 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 }
 
 // parseArgumentsValue parses arguments that could be either a map or a JSON string
-func parseArgumentsValue(v any) map[string]any {
+// Supports field names: "arguments" or "parameters"
+// Returns (parsed map, field was found)
+func parseArgumentsValue(args map[string]any) (map[string]any, bool) {
+	// Try "arguments" first (preferred)
+	if v, ok := args["arguments"]; ok && v != nil {
+		return parseAnyToMap(v), true
+	}
+	// Fallback to "parameters" for client compatibility
+	if v, ok := args["parameters"]; ok && v != nil {
+		return parseAnyToMap(v), true
+	}
+	return nil, false
+}
+
+// parseAnyToMap converts a value to map[string]any, supporting both object and JSON string
+func parseAnyToMap(v any) map[string]any {
 	if v == nil {
 		return nil
 	}
