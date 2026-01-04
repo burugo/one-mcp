@@ -189,7 +189,7 @@ func handleGroupToolCall(ctx context.Context, group *model.MCPServiceGroup, tool
 		if err != nil {
 			return nil, err
 		}
-		return searchGroupTools(group, parsed)
+		return searchGroupTools(ctx, group, parsed)
 	case "execute_tool":
 		parsed, err := parseExecuteArgs(args)
 		if err != nil {
@@ -237,34 +237,64 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 	}, nil
 }
 
-func searchGroupTools(group *model.MCPServiceGroup, args *groupSearchArgs) (any, error) {
+func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *groupSearchArgs) (any, error) {
 	svc, err := group.GetServiceByName(args.MCPName)
 	if err != nil {
 		return nil, fmt.Errorf("mcp_name not in group: %s", args.MCPName)
 	}
 
-	entry, ok := proxy.GetToolsCacheManager().GetServiceTools(svc.ID)
-	if !ok {
-		return map[string]any{"tools": []map[string]any{}}, nil
+	toolsCacheMgr := proxy.GetToolsCacheManager()
+	entry, ok := toolsCacheMgr.GetServiceTools(svc.ID)
+
+	// If cache is empty, fetch tools by connecting to the service
+	if !ok || len(entry.Tools) == 0 {
+		tools, fetchErr := fetchToolsFromService(ctx, svc)
+		if fetchErr != nil {
+			return nil, fmt.Errorf("failed to fetch tools from %s: %v", svc.Name, fetchErr)
+		}
+		// Return fetched tools directly
+		matched := filterTools(tools, svc.Name, args.ToolKey, args.Limit)
+		return map[string]any{"tools": matched}, nil
 	}
 
-	keywords := splitKeywords(args.ToolKey)
-	matched := make([]map[string]any, 0, len(entry.Tools))
-	for _, tool := range entry.Tools {
+	matched := filterTools(entry.Tools, svc.Name, args.ToolKey, args.Limit)
+	return map[string]any{"tools": matched}, nil
+}
+
+func fetchToolsFromService(ctx context.Context, svc *model.MCPService) ([]mcp_protocol.Tool, error) {
+	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, svc, sharedCacheKey(svc.ID), sharedInstanceName(svc.ID), svc.DefaultEnvsJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	toolsReq := mcp_protocol.ListToolsRequest{}
+	result, err := sharedInst.Client.ListTools(ctx, toolsReq)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return []mcp_protocol.Tool{}, nil
+	}
+	return result.Tools, nil
+}
+
+func filterTools(tools []mcp_protocol.Tool, mcpName string, toolKey string, limit int) []map[string]any {
+	keywords := splitKeywords(toolKey)
+	matched := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
 		if matchesTool(tool.Name, tool.Description, keywords) {
 			matched = append(matched, map[string]any{
-				"mcp_name":    svc.Name,
+				"mcp_name":    mcpName,
 				"name":        tool.Name,
 				"description": tool.Description,
 				"inputSchema": tool.InputSchema,
 			})
 		}
-		if args.Limit > 0 && len(matched) >= args.Limit {
+		if limit > 0 && len(matched) >= limit {
 			break
 		}
 	}
-
-	return map[string]any{"tools": matched}, nil
+	return matched
 }
 
 func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *executeArgs) (any, error) {
