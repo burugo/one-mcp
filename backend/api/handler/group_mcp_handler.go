@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"one-mcp/backend/common"
@@ -37,9 +38,9 @@ type groupSearchArgs struct {
 }
 
 type executeArgs struct {
-	MCPName  string
-	ToolName string
-	Params   map[string]any
+	MCPName   string
+	ToolName  string
+	Arguments map[string]any
 }
 
 func GroupMCPHandler(c *gin.Context) {
@@ -170,12 +171,12 @@ func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
 							"type":        "string",
 							"description": "The tool name to execute",
 						},
-						"params": map[string]any{
+						"arguments": map[string]any{
 							"type":        "object",
-							"description": "Tool parameters as returned by search_tools",
+							"description": "Tool arguments as returned by search_tools inputSchema",
 						},
 					},
-					"required": []string{"mcp_name", "tool_name", "params"},
+					"required": []string{"mcp_name", "tool_name", "arguments"},
 				},
 			},
 		},
@@ -225,16 +226,36 @@ func parseExecuteArgs(args map[string]any) (*executeArgs, error) {
 		return nil, fmt.Errorf("mcp_name and tool_name are required")
 	}
 
-	params, _ := args["params"].(map[string]any)
-	if params == nil {
-		params = map[string]any{}
+	// Parse arguments - support both object and JSON string
+	arguments := parseArgumentsValue(args["arguments"])
+	if arguments == nil {
+		arguments = map[string]any{}
 	}
 
 	return &executeArgs{
-		MCPName:  strings.TrimSpace(mcpName),
-		ToolName: strings.TrimSpace(toolName),
-		Params:   params,
+		MCPName:   strings.TrimSpace(mcpName),
+		ToolName:  strings.TrimSpace(toolName),
+		Arguments: arguments,
 	}, nil
+}
+
+// parseArgumentsValue parses arguments that could be either a map or a JSON string
+func parseArgumentsValue(v any) map[string]any {
+	if v == nil {
+		return nil
+	}
+	// Try as map first
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	// Try as JSON string
+	if s, ok := v.(string); ok && s != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(s), &m); err == nil {
+			return m
+		}
+	}
+	return nil
 }
 
 func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *groupSearchArgs) (any, error) {
@@ -310,7 +331,7 @@ func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *e
 
 	callReq := mcp_protocol.CallToolRequest{}
 	callReq.Params.Name = args.ToolName
-	callReq.Params.Arguments = args.Params
+	callReq.Params.Arguments = args.Arguments
 
 	result, err := sharedInst.Client.CallTool(ctx, callReq)
 	if err != nil {
