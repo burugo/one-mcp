@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Edit2, Trash2, Copy, Layers } from 'lucide-react';
+import { Plus, Edit2, Trash2, Copy, Layers, Download } from 'lucide-react';
 import api, { GroupService } from '@/utils/api';
 import { useServerAddress } from '@/hooks/useServerAddress';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -290,6 +290,43 @@ export const GroupPage = () => {
         }
     };
 
+    const handleExportSkill = async (group: Group) => {
+        try {
+            const response = await fetch(`/api/groups/${group.id}/export`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                },
+            });
+            
+            if (!response.ok) {
+                throw new Error('Export failed');
+            }
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `one-mcp-skill-${group.name}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            toast({
+                title: t('common.success'),
+                description: t('groups.exportSuccess'),
+            });
+        } catch (error) {
+            console.error('Export failed', error);
+            toast({
+                variant: "destructive",
+                title: t('common.error'),
+                description: t('groups.exportFailed'),
+            });
+        }
+    };
+
     return (
         <div className="container mx-auto p-6 space-y-6">
             <div className="flex justify-between items-center">
@@ -352,6 +389,10 @@ export const GroupPage = () => {
                                 </div>
                             </CardContent>
                             <div className="p-6 pt-0 mt-auto flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => handleExportSkill(group)}>
+                                    <Download className="mr-2 h-3 w-3" />
+                                    {t('groups.exportSkill')}
+                                </Button>
                                 <Button variant="outline" size="sm" onClick={() => handleEdit(group)}>
                                     <Edit2 className="mr-2 h-3 w-3" />
                                     {t('common.edit')}

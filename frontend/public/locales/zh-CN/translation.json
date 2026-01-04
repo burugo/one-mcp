@@ -60,6 +60,9 @@
         "noServices": "暂未选择服务",
         "deleteConfirmTitle": "确认删除",
         "deleteConfirmDesc": "确定要删除分组 \"{{name}}\" 吗？此操作无法撤销。",
+        "exportSkill": "导出 Skill",
+        "exportSuccess": "Skill 包导出成功",
+        "exportFailed": "Skill 包导出失败",
         "validation": {
             "nameRequired": "请输入分组标识",
             "displayNameRequired": "请输入显示名称"

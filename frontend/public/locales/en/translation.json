@@ -60,6 +60,9 @@
         "noServices": "No services selected",
         "deleteConfirmTitle": "Confirm Delete",
         "deleteConfirmDesc": "Are you sure you want to delete group \"{{name}}\"? This action cannot be undone.",
+        "exportSkill": "Export Skill",
+        "exportSuccess": "Skill package exported successfully",
+        "exportFailed": "Failed to export skill package",
         "validation": {
             "nameRequired": "Group ID is required",
             "displayNameRequired": "Display Name is required"
