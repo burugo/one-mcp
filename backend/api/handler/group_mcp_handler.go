@@ -130,11 +130,12 @@ func handleGroupInitialize(group *model.MCPServiceGroup) map[string]any {
 
 func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
 	serviceNames := getGroupServiceNames(group)
+
 	return map[string]any{
 		"tools": []map[string]any{
 			{
 				"name":        "search_tools",
-				"description": "Search tools within a specific MCP service in this group",
+				"description": "STEP 1: Discover available tools in a service. You MUST call this first before execute_tool.",
 				"inputSchema": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -145,12 +146,7 @@ func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
 						},
 						"tool_name": map[string]any{
 							"type":        "string",
-							"description": "Optional tool name keywords; comma or space separated",
-						},
-						"limit": map[string]any{
-							"type":        "integer",
-							"description": "Maximum number of tools to return (default 10)",
-							"default":     10,
+							"description": "Optional keywords to filter tools",
 						},
 					},
 					"required": []string{"mcp_name"},
@@ -158,7 +154,7 @@ func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
 			},
 			{
 				"name":        "execute_tool",
-				"description": "Execute a tool from a specific MCP service",
+				"description": "STEP 2: Execute a tool found via search_tools. Pass arguments directly, do NOT nest.",
 				"inputSchema": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -169,11 +165,11 @@ func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
 						},
 						"tool_name": map[string]any{
 							"type":        "string",
-							"description": "The tool name to execute",
+							"description": "Tool name from search_tools",
 						},
 						"arguments": map[string]any{
 							"type":        "object",
-							"description": "Tool arguments as returned by search_tools inputSchema",
+							"description": "Tool arguments per inputSchema. e.g. {\"query\": \"...\"} not {\"arguments\": {...}}",
 						},
 					},
 					"required": []string{"mcp_name", "tool_name", "arguments"},
