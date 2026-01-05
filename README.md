@@ -48,6 +48,12 @@ One MCP is a comprehensive management platform for Model Context Protocol (MCP) 
 - **Environment Management**: Secure handling of service environment variables and configurations
 - **Health Monitoring**: Real-time service health checks and status monitoring
 
+### 🔗 **Service Groups (Combo)**
+- **Combine Services**: Group multiple MCP services into a single unified endpoint
+- **Skill Export**: Export groups as Anthropic Skills for Claude Code and Droid
+- **Flexible Configuration**: Custom group naming and service selection
+- **SSE/HTTP Support**: Access grouped services via SSE or streamable HTTP protocols
+
 ### 🛒 **Service Marketplace**
 - **Discover Services**: Browse and search MCP services from various repositories
 - **One-Click Installation**: Simple installation process with automatic dependency resolution
@@ -76,6 +82,12 @@ One MCP is a comprehensive management platform for Model Context Protocol (MCP) 
 
 ![Screenshot](./images/services.png)
 ![Screenshot](./images/copy_config.png)
+
+### Service Groups
+
+Create service groups to combine multiple MCP services and export as Skills:
+
+![Screenshot](./images/group.png)
 
 ## Quick Start
 
