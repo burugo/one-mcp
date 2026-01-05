@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Toaster } from '@/components/ui/toaster'
 import { useToast } from '@/hooks/use-toast'
-import { Settings, User, Home, BarChart, Globe, Package, Users, FileText, Layers } from 'lucide-react'
+import { Settings, User, Home, BarChart, Globe, Package, Users, FileText, Layers, Github } from 'lucide-react'
 import { LoginDialog } from './components/ui/login-dialog'
 import { ThemeToggle } from './components/ui/theme-toggle'
 import { MarketPage } from './pages/MarketPage'
@@ -77,7 +77,7 @@ const AppLayout = () => {
           <div className="flex items-center ml-auto gap-6">
             <nav className="hidden md:flex items-center gap-6">
               <NavLink to="/" isTopNav>{t('nav.dashboard')}</NavLink>
-              <NavLink to="/docs" isTopNav>{t('nav.docs')}</NavLink>
+              <a href="https://github.com/burugo/one-mcp" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground transition-colors duration-200"><Github className="h-5 w-5" /></a>
             </nav>
             <LanguageSwitcher />
             <ThemeToggle />
