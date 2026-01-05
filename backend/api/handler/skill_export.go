@@ -210,12 +210,14 @@ func generateSkillMD(group *model.MCPServiceGroup, services []skillServiceWithTo
 
 	// Use YAML library for proper escaping of frontmatter
 	frontmatter := map[string]interface{}{
-		"name":         skillName,
-		"display_name": group.DisplayName,
-		"description":  descLine,
-		"mcp_count":    len(services),
-		"tool_count":   totalTools,
-		"services":     serviceNames,
+		"name": skillName,
+
+		"description": descLine,
+		"version":     "1.0.1",
+		"author":      "https://github.com/burugo/one-mcp",
+		"mcp_count":   len(services),
+		"tool_count":  totalTools,
+		"services":    serviceNames,
 	}
 	frontmatterBytes, _ := yaml.Marshal(frontmatter)
 	sb.WriteString("---\n")
