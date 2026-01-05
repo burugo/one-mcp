@@ -341,7 +341,7 @@ export const GroupPage = () => {
             const response = await fetch(`/api/groups/${group.id}/export`, {
                 method: 'GET',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
                 },
             });
             
@@ -349,11 +349,21 @@ export const GroupPage = () => {
                 throw new Error('Export failed');
             }
             
+            // Get filename from Content-Disposition header or use default
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = `one-mcp-${group.name.replace(/_/g, '-')}.zip`;
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename=(.+)/);
+                if (match) {
+                    filename = match[1];
+                }
+            }
+            
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `one-mcp-skill-${group.name}.zip`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);

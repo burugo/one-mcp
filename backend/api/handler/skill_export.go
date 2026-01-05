@@ -3,6 +3,7 @@ package handler
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,11 +11,13 @@ import (
 	"one-mcp/backend/common/i18n"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
+	"one-mcp/backend/templates"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/mcp"
+	"gopkg.in/yaml.v3"
 )
 
 // ExportGroupSkill exports a group as an Anthropic Skill zip package
@@ -53,21 +56,28 @@ func ExportGroupSkill(c *gin.Context) {
 	}
 
 	// Build the skill zip
-	zipBuffer, err := buildSkillZip(group, user, serverAddress)
+	zipBuffer, err := buildSkillZip(c.Request.Context(), group, user, serverAddress)
 	if err != nil {
 		common.RespError(c, http.StatusInternalServerError, "failed to generate skill zip", err)
 		return
 	}
 
 	// Set response headers for file download
-	filename := fmt.Sprintf("one-mcp-skill-%s.zip", group.Name)
+	// Normalize name: replace underscores with hyphens, add one-mcp prefix
+	skillName := "one-mcp-" + normalizeSkillName(group.Name)
+	filename := fmt.Sprintf("%s.zip", skillName)
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	c.Header("Content-Type", "application/zip")
 	c.Header("Content-Length", strconv.Itoa(zipBuffer.Len()))
 	c.Data(http.StatusOK, "application/zip", zipBuffer.Bytes())
 }
 
-func buildSkillZip(group *model.MCPServiceGroup, user *model.User, serverAddress string) (*bytes.Buffer, error) {
+// normalizeSkillName replaces underscores with hyphens for consistent naming
+func normalizeSkillName(name string) string {
+	return strings.ReplaceAll(name, "_", "-")
+}
+
+func buildSkillZip(ctx context.Context, group *model.MCPServiceGroup, user *model.User, serverAddress string) (*bytes.Buffer, error) {
 	buf := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(buf)
 	defer zipWriter.Close()
@@ -87,8 +97,16 @@ func buildSkillZip(group *model.MCPServiceGroup, user *model.User, serverAddress
 		services = append(services, svc)
 
 		var tools []mcp.Tool
-		if entry, ok := toolsCache.GetServiceTools(svcID); ok {
+		// Try cache first
+		if entry, ok := toolsCache.GetServiceTools(svcID); ok && len(entry.Tools) > 0 {
 			tools = entry.Tools
+		} else {
+			// Fetch tools from service if cache is empty
+			fetchedTools, fetchErr := fetchToolsFromService(ctx, svc)
+			if fetchErr == nil {
+				tools = fetchedTools
+			}
+			// If fetch fails, tools remains empty - continue anyway
 		}
 		servicesWithTools = append(servicesWithTools, skillServiceWithTools{service: svc, tools: tools})
 	}
@@ -114,18 +132,26 @@ func buildSkillZip(group *model.MCPServiceGroup, user *model.User, serverAddress
 		return nil, err
 	}
 
-	// 4. Generate executor.py
-	if err := addFileToZip(zipWriter, "executor.py", executorPy); err != nil {
+	// 4. Copy executor.py from embedded templates
+	executorPy, err := templates.SkillTemplates.ReadFile("skill/executor.py")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read executor.py template: %w", err)
+	}
+	if err := addFileToZip(zipWriter, "executor.py", string(executorPy)); err != nil {
 		return nil, err
 	}
 
-	// 5. Generate refresh_tool_docs.py
-	if err := addFileToZip(zipWriter, "refresh_tool_docs.py", refreshToolDocsPy); err != nil {
+	// 5. Copy refresh_tool_docs.py from embedded templates
+	refreshToolDocsPy, err := templates.SkillTemplates.ReadFile("skill/refresh_tool_docs.py")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read refresh_tool_docs.py template: %w", err)
+	}
+	if err := addFileToZip(zipWriter, "refresh_tool_docs.py", string(refreshToolDocsPy)); err != nil {
 		return nil, err
 	}
 
-	// 6. Generate requirements.txt
-	if err := addFileToZip(zipWriter, "requirements.txt", "requests>=2.28.0\n"); err != nil {
+	// 6. Generate requirements.txt (pyyaml is optional, for YAML output in refresh_tool_docs.py)
+	if err := addFileToZip(zipWriter, "requirements.txt", "# Optional: for YAML output in refresh_tool_docs.py\n# pyyaml>=6.0\n"); err != nil {
 		return nil, err
 	}
 
@@ -141,6 +167,15 @@ func addFileToZip(zipWriter *zip.Writer, filename string, content string) error 
 	return err
 }
 
+// truncateString truncates a string to maxRunes characters, handling UTF-8 properly
+func truncateString(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes-3]) + "..."
+}
+
 type skillServiceWithTools struct {
 	service *model.MCPService
 	tools   []mcp.Tool
@@ -149,25 +184,68 @@ type skillServiceWithTools struct {
 func generateSkillMD(group *model.MCPServiceGroup, services []skillServiceWithTools) string {
 	var sb strings.Builder
 
-	// YAML frontmatter
-	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("name: %s\n", group.Name))
-
+	// Collect stats and build service summaries for description
 	totalTools := 0
 	serviceNames := make([]string, 0, len(services))
+	serviceSummaries := make([]string, 0, len(services))
 	for _, swt := range services {
 		totalTools += len(swt.tools)
 		serviceNames = append(serviceNames, swt.service.Name)
+		// Build summary: "name (short desc)"
+		shortDesc := swt.service.Description
+		if shortDesc == "" {
+			shortDesc = swt.service.DisplayName
+		}
+		shortDesc = truncateString(shortDesc, 80)
+		serviceSummaries = append(serviceSummaries, fmt.Sprintf("%s (%s)", swt.service.Name, shortDesc))
 	}
-	sb.WriteString(fmt.Sprintf("description: Access %d tools from %d MCP services. Services: %s\n",
-		totalTools, len(services), strings.Join(serviceNames, ", ")))
+
+	// YAML frontmatter with enhanced metadata
+	// Use normalized name with one-mcp prefix (underscores -> hyphens) for consistency with zip filename
+	skillName := "one-mcp-" + normalizeSkillName(group.Name)
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("name: %s\n", skillName))
+	sb.WriteString(fmt.Sprintf("display_name: %s\n", group.DisplayName))
+	// Generate description from service summaries, max 500 chars total
+	descLine := "External tools: " + strings.Join(serviceSummaries, ", ")
+	descLine = truncateString(descLine, 500)
+	sb.WriteString(fmt.Sprintf("description: \"%s\"\n", descLine))
+	sb.WriteString(fmt.Sprintf("mcp_count: %d\n", len(services)))
+	sb.WriteString(fmt.Sprintf("tool_count: %d\n", totalTools))
+	sb.WriteString(fmt.Sprintf("services: [%s]\n", strings.Join(serviceNames, ", ")))
 	sb.WriteString("---\n\n")
 
-	// Title and description
+	// Title
 	sb.WriteString(fmt.Sprintf("# %s\n\n", group.DisplayName))
-	sb.WriteString("This skill provides access to the following MCP services through one-mcp:\n\n")
 
-	// Available Services
+	// Quick Reference - tool lookup table
+	sb.WriteString("## Quick Reference\n\n")
+	sb.WriteString("| Service | Tool | Description |\n")
+	sb.WriteString("|---------|------|-------------|\n")
+	toolsInTable := 0
+	for _, swt := range services {
+		count := 0
+		for _, tool := range swt.tools {
+			if count >= 5 {
+				break // Max 5 tools per service in Quick Reference
+			}
+			// Truncate description for table (use runes to handle UTF-8)
+			desc := truncateString(tool.Description, 60)
+			// Escape pipe characters in description
+			desc = strings.ReplaceAll(desc, "|", "\\|")
+			sb.WriteString(fmt.Sprintf("| %s | `%s` | %s |\n", swt.service.Name, tool.Name, desc))
+			count++
+			toolsInTable++
+		}
+		// If there are more tools, add a hint row
+		if len(swt.tools) > 5 {
+			sb.WriteString(fmt.Sprintf("| %s | ... | +%d more tools, see [tools/%s.md](tools/%s.md) |\n",
+				swt.service.Name, len(swt.tools)-5, swt.service.Name, swt.service.Name))
+		}
+	}
+	sb.WriteString("\n")
+
+	// Available Services with full description
 	sb.WriteString("## Available Services\n\n")
 	for _, swt := range services {
 		toolCount := len(swt.tools)
@@ -175,86 +253,179 @@ func generateSkillMD(group *model.MCPServiceGroup, services []skillServiceWithTo
 		if desc == "" {
 			desc = swt.service.DisplayName
 		}
-		sb.WriteString(fmt.Sprintf("- **%s** (%d tools) - %s\n", swt.service.Name, toolCount, desc))
-		sb.WriteString(fmt.Sprintf("  - [View all tools](tools/%s.md)\n", swt.service.Name))
+		sb.WriteString(fmt.Sprintf("### %s (%d tools)\n\n", swt.service.Name, toolCount))
+		sb.WriteString(fmt.Sprintf("%s\n\n", desc))
+		sb.WriteString(fmt.Sprintf("- [View all tools](tools/%s.md)\n", swt.service.Name))
 
-		// Show up to 3 popular tools
+		// List all tool names
 		if toolCount > 0 {
-			popularTools := make([]string, 0, 3)
-			for i := 0; i < toolCount && i < 3; i++ {
-				popularTools = append(popularTools, fmt.Sprintf("`%s`", swt.tools[i].Name))
+			toolNames := make([]string, 0, toolCount)
+			for _, t := range swt.tools {
+				toolNames = append(toolNames, fmt.Sprintf("`%s`", t.Name))
 			}
-			sb.WriteString(fmt.Sprintf("  - Popular tools: %s\n", strings.Join(popularTools, ", ")))
+			sb.WriteString(fmt.Sprintf("- Tools: %s\n", strings.Join(toolNames, ", ")))
 		}
 		sb.WriteString("\n")
 	}
 
 	// How to Use section
 	sb.WriteString("## How to Use\n\n")
-	sb.WriteString("When you need to use a tool:\n\n")
-	sb.WriteString("1. Check the service list above to identify which MCP provides the tool\n")
-	sb.WriteString("2. Read the detailed tool documentation from `tools/{mcp-name}.md`\n")
-	sb.WriteString("3. Execute the tool using the syntax below\n\n")
+	sb.WriteString("1. Find the tool you need in the Quick Reference table above\n")
+	sb.WriteString("2. Read detailed documentation from `tools/{service-name}.md`\n")
+	sb.WriteString("3. Execute using the syntax below\n\n")
 
-	// Execution Syntax
+	// Execution Syntax with real examples
 	sb.WriteString("## Execution Syntax\n\n")
 	sb.WriteString("```bash\n")
-	sb.WriteString("python executor.py {mcp-name} {tool-name} '{json-params}'\n")
+	sb.WriteString("python executor.py <service-name> <tool-name> '<json-params>'\n")
 	sb.WriteString("```\n\n")
 
-	// Examples
-	sb.WriteString("Examples:\n")
-	sb.WriteString("```bash\n")
+	// Generate one real example from first tool with params
+	sb.WriteString("### Example\n\n")
 	for _, swt := range services {
-		if len(swt.tools) > 0 {
-			tool := swt.tools[0]
-			sb.WriteString(fmt.Sprintf("# Use %s\n", tool.Name))
-			sb.WriteString(fmt.Sprintf("python executor.py %s %s '{...}'\n\n", swt.service.Name, tool.Name))
-			break
+		for _, tool := range swt.tools {
+			if len(tool.InputSchema.Properties) > 0 {
+				exampleParams := generateExampleParams(tool.InputSchema)
+				sb.WriteString(fmt.Sprintf("```bash\npython executor.py %s %s '%s'\n```\n\n",
+					swt.service.Name, tool.Name, exampleParams))
+				goto doneExample
+			}
 		}
 	}
-	sb.WriteString("```\n\n")
+doneExample:
 
 	// Refresh Tool Docs
 	sb.WriteString("## Refresh Tool Docs\n\n")
 	sb.WriteString("If the MCP tools change, refresh the docs:\n\n")
 	sb.WriteString("```bash\n")
 	sb.WriteString("python refresh_tool_docs.py\n")
-	sb.WriteString("```\n\n")
-
-	// Alternative: Use in Cursor
-	sb.WriteString("## Alternative: Use in Cursor\n\n")
-	sb.WriteString("Copy `mcp-config.json` to your Cursor MCP settings to use these services directly.\n")
+	sb.WriteString("```\n")
 
 	return sb.String()
+}
+
+// generateExampleParams creates example JSON params from inputSchema
+func generateExampleParams(schema mcp.ToolInputSchema) string {
+	if len(schema.Properties) == 0 {
+		return "{}"
+	}
+
+	example := make(map[string]any)
+	for name, prop := range schema.Properties {
+		propMap, ok := prop.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		propType, _ := propMap["type"].(string)
+		desc, _ := propMap["description"].(string)
+
+		// Generate example value based on type and name
+		switch propType {
+		case "string":
+			if enum, ok := propMap["enum"].([]any); ok && len(enum) > 0 {
+				example[name] = enum[0]
+			} else if strings.Contains(strings.ToLower(name), "query") {
+				example[name] = "example search query"
+			} else if strings.Contains(strings.ToLower(name), "url") {
+				example[name] = "https://example.com"
+			} else if strings.Contains(strings.ToLower(name), "repo") {
+				example[name] = "owner/repo"
+			} else if strings.Contains(strings.ToLower(desc), "message") {
+				example[name] = "Hello, world!"
+			} else {
+				example[name] = "..."
+			}
+		case "number", "integer":
+			if def, ok := propMap["default"]; ok {
+				example[name] = def
+			} else {
+				example[name] = 10
+			}
+		case "boolean":
+			example[name] = true
+		case "object":
+			example[name] = map[string]any{}
+		case "array":
+			example[name] = []any{}
+		}
+	}
+
+	jsonBytes, _ := json.Marshal(example)
+	return string(jsonBytes)
 }
 
 func generateToolsMD(service *model.MCPService, tools []mcp.Tool) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("# %s Tools\n\n", service.DisplayName))
-	sb.WriteString("## Available Tools\n\n")
 
 	for _, tool := range tools {
-		sb.WriteString(fmt.Sprintf("### %s\n\n", tool.Name))
+		sb.WriteString(fmt.Sprintf("## %s\n\n", tool.Name))
 		if tool.Description != "" {
 			sb.WriteString(tool.Description + "\n\n")
 		}
 
-		sb.WriteString("**Parameters:**\n")
-		sb.WriteString("```json\n")
-		schemaJSON, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
-		sb.WriteString(string(schemaJSON) + "\n")
-		sb.WriteString("```\n\n")
-
-		sb.WriteString("**Example:**\n")
-		sb.WriteString("```bash\n")
-		sb.WriteString(fmt.Sprintf("python executor.py %s %s '{...}'\n", service.Name, tool.Name))
-		sb.WriteString("```\n\n")
-		sb.WriteString("---\n\n")
+		// Use YAML format for params (more compact than JSON)
+		if len(tool.InputSchema.Properties) > 0 {
+			sb.WriteString("**Params:**\n")
+			sb.WriteString("```yaml\n")
+			paramsYAML := convertInputSchemaToYAML(tool.InputSchema)
+			sb.WriteString(paramsYAML)
+			sb.WriteString("```\n\n")
+		}
 	}
 
 	return sb.String()
+}
+
+// convertInputSchemaToYAML converts inputSchema to compact YAML format
+func convertInputSchemaToYAML(schema mcp.ToolInputSchema) string {
+	params := make(map[string]map[string]any)
+
+	requiredSet := make(map[string]bool)
+	for _, r := range schema.Required {
+		requiredSet[r] = true
+	}
+
+	for name, prop := range schema.Properties {
+		propMap, ok := prop.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		param := make(map[string]any)
+
+		// Type
+		if t, ok := propMap["type"].(string); ok {
+			param["type"] = t
+		}
+
+		// Description (shortened key)
+		if d, ok := propMap["description"].(string); ok {
+			param["desc"] = d
+		}
+
+		// Enum
+		if e, ok := propMap["enum"]; ok {
+			param["enum"] = e
+		}
+
+		// Default
+		if def, ok := propMap["default"]; ok {
+			param["default"] = def
+		}
+
+		// Required
+		if requiredSet[name] {
+			param["required"] = true
+		}
+
+		params[name] = param
+	}
+
+	yamlBytes, _ := yaml.Marshal(params)
+	return string(yamlBytes)
 }
 
 func generateMCPConfig(services []*model.MCPService, user *model.User, serverAddress string) string {
@@ -273,121 +444,3 @@ func generateMCPConfig(services []*model.MCPService, user *model.User, serverAdd
 	jsonBytes, _ := json.MarshalIndent(config, "", "  ")
 	return string(jsonBytes)
 }
-
-const executorPy = `#!/usr/bin/env python3
-"""
-MCP Tool Executor - Zero-token execution script
-
-Usage:
-    python executor.py <mcp_name> <tool_name> <json_params>
-
-Example:
-    python executor.py github-mcp create_issue '{"repo": "owner/repo", "title": "Test"}'
-"""
-
-import sys
-import json
-import requests
-
-
-def load_config():
-    with open('mcp-config.json') as f:
-        return json.load(f)
-
-
-def call_tool(mcp_url, tool_name, params):
-    """Call MCP tool via streamableHttp protocol"""
-    response = requests.post(mcp_url, json={
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-            "name": tool_name,
-            "arguments": params
-        }
-    }, headers={
-        "Content-Type": "application/json"
-    })
-    return response.json()
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print(__doc__)
-        sys.exit(1)
-
-    mcp_name = sys.argv[1]
-    tool_name = sys.argv[2]
-    params = json.loads(sys.argv[3])
-
-    config = load_config()
-    mcp_url = config["mcpServers"][mcp_name]["url"]
-
-    result = call_tool(mcp_url, tool_name, params)
-    print(json.dumps(result, indent=2))
-`
-
-const refreshToolDocsPy = `#!/usr/bin/env python3
-"""
-Refresh MCP tool documentation for all configured servers.
-
-Usage:
-    python refresh_tool_docs.py
-"""
-
-import json
-import os
-from pathlib import Path
-import requests
-
-
-def load_config():
-    with open('mcp-config.json') as f:
-        return json.load(f)
-
-
-def fetch_tools(mcp_url):
-    response = requests.post(mcp_url, json={
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/list",
-        "params": {}
-    }, headers={
-        "Content-Type": "application/json"
-    })
-    return response.json().get("result", {}).get("tools", [])
-
-
-def write_tools_md(mcp_name, tools, output_dir):
-    lines = [f"# {mcp_name} Tools", "", "## Available Tools", ""]
-    for tool in tools:
-        lines.append(f"### {tool['name']}")
-        lines.append("")
-        lines.append(tool.get("description", ""))
-        lines.append("")
-        lines.append("**Parameters:**")
-        lines.append("` + "```" + `json")
-        lines.append(json.dumps(tool.get("inputSchema", {}), indent=2))
-        lines.append("` + "```" + `")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
-    output_path = output_dir / f"{mcp_name}.md"
-    output_path.write_text("\n".join(lines))
-    print(f"Updated: {output_path}")
-
-
-if __name__ == "__main__":
-    config = load_config()
-    tools_dir = Path("tools")
-    tools_dir.mkdir(exist_ok=True)
-
-    for mcp_name, server in config["mcpServers"].items():
-        try:
-            tools = fetch_tools(server["url"])
-            write_tools_md(mcp_name, tools, tools_dir)
-        except Exception as e:
-            print(f"Error fetching tools for {mcp_name}: {e}")
-
-    print("Tool docs refreshed")
-`

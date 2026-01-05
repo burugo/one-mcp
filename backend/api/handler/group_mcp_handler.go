@@ -339,19 +339,6 @@ func fetchToolsFromService(ctx context.Context, svc *model.MCPService) ([]mcp_pr
 	return result.Tools, nil
 }
 
-func convertTools(tools []mcp_protocol.Tool, mcpName string) []map[string]any {
-	result := make([]map[string]any, 0, len(tools))
-	for _, tool := range tools {
-		result = append(result, map[string]any{
-			"mcp_name":    mcpName,
-			"tool_name":   tool.Name,
-			"description": tool.Description,
-			"inputSchema": tool.InputSchema,
-		})
-	}
-	return result
-}
-
 // yamlTool is a compact YAML-friendly tool representation
 type yamlTool struct {
 	Name   string         `yaml:"name"`

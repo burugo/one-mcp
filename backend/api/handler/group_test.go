@@ -339,11 +339,17 @@ func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
 	resp := decodeMCPResponse(t, recorder)
-	tools, ok := resp.Result["tools"].([]any)
+	// Response now returns YAML format
+	toolsYAML, ok := resp.Result["tools_yaml"].(string)
 	assert.True(t, ok)
-	assert.Len(t, tools, 1)
+	assert.Contains(t, toolsYAML, "alpha")
+	assert.Contains(t, toolsYAML, "beta")
 
-	tool := tools[0].(map[string]any)
-	assert.Equal(t, "svc-search", tool["mcp_name"])
-	assert.Equal(t, "alpha", tool["name"])
+	toolCount, ok := resp.Result["tool_count"].(float64)
+	assert.True(t, ok)
+	assert.Equal(t, float64(2), toolCount)
+
+	currentTime, ok := resp.Result["current_time"].(string)
+	assert.True(t, ok)
+	assert.NotEmpty(t, currentTime)
 }
