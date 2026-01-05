@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -38,7 +38,7 @@ export function UsersPage() {
     const [currentUserForEdit, setCurrentUserForEdit] = useState<User | null>(null);
 
     // 获取用户列表
-    const fetchUsers = async (page = 0, search = '') => {
+    const fetchUsers = useCallback(async (page = 0, search = '') => {
         setLoading(true);
         try {
             let url = `/user/?p=${page}`;
@@ -65,11 +65,11 @@ export function UsersPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [toast]);
 
     useEffect(() => {
         fetchUsers(currentPage, searchTerm);
-    }, [currentPage]);
+    }, [currentPage, fetchUsers, searchTerm]);
 
     // 搜索处理
     const handleSearch = () => {

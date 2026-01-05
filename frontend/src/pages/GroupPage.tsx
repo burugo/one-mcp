@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -243,7 +243,7 @@ export const GroupPage = () => {
         }
     }, [currentUser, updateUserInfo]);
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
             const [groupsResp, servicesResp] = await Promise.all([
                 GroupService.getAll(),
@@ -264,11 +264,11 @@ export const GroupPage = () => {
                 description: t('dashboard.fetchDataFailed')
             });
         }
-    };
+    }, [t, toast]);
 
     useEffect(() => {
         fetchData();
-    }, []);
+    }, [fetchData]);
 
     const handleCreate = () => {
         setEditingGroup(null);
@@ -296,22 +296,18 @@ export const GroupPage = () => {
     };
 
     const handleSave = async (data: any) => {
-        try {
-            let resp;
-            if (editingGroup) {
-                resp = await GroupService.update(editingGroup.id, data);
-            } else {
-                resp = await GroupService.create(data);
-            }
-            
-            if (resp.success) {
-                toast({ title: t('common.success'), description: t('common.success') });
-                fetchData();
-            } else {
-                toast({ variant: "destructive", title: t('common.error'), description: resp.message });
-            }
-        } catch (error) {
-            throw error;
+        let resp;
+        if (editingGroup) {
+            resp = await GroupService.update(editingGroup.id, data);
+        } else {
+            resp = await GroupService.create(data);
+        }
+
+        if (resp.success) {
+            toast({ title: t('common.success'), description: t('common.success') });
+            fetchData();
+        } else {
+            toast({ variant: "destructive", title: t('common.error'), description: resp.message });
         }
     };
 
@@ -421,7 +417,9 @@ export const GroupPage = () => {
                             const groupServiceIds = JSON.parse(group.service_ids_json || '[]') as number[];
                             const enabledServiceIds = new Set(services.map(s => s.id));
                             serviceCount = groupServiceIds.filter(id => enabledServiceIds.has(id)).length;
-                        } catch {}
+                        } catch {
+                            // Ignore invalid JSON in service_ids_json
+                        }
 
                         return (
                             <Card key={group.id} className="border-border shadow-sm hover:shadow transition-shadow duration-200 bg-card/30 flex flex-col">

@@ -76,7 +76,7 @@ export function ProfilePage() {
         };
 
         fetchUserInfo();
-    }, [toast]);
+    }, [t, toast]);
 
     // 判断登录方式
     const getLoginMethod = () => {
