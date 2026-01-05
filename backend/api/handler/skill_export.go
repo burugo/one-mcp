@@ -203,16 +203,23 @@ func generateSkillMD(group *model.MCPServiceGroup, services []skillServiceWithTo
 	// YAML frontmatter with enhanced metadata
 	// Use normalized name with one-mcp prefix (underscores -> hyphens) for consistency with zip filename
 	skillName := "one-mcp-" + normalizeSkillName(group.Name)
-	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("name: %s\n", skillName))
-	sb.WriteString(fmt.Sprintf("display_name: %s\n", group.DisplayName))
+
 	// Generate description from service summaries, max 500 chars total
 	descLine := "External tools: " + strings.Join(serviceSummaries, ", ")
 	descLine = truncateString(descLine, 500)
-	sb.WriteString(fmt.Sprintf("description: \"%s\"\n", descLine))
-	sb.WriteString(fmt.Sprintf("mcp_count: %d\n", len(services)))
-	sb.WriteString(fmt.Sprintf("tool_count: %d\n", totalTools))
-	sb.WriteString(fmt.Sprintf("services: [%s]\n", strings.Join(serviceNames, ", ")))
+
+	// Use YAML library for proper escaping of frontmatter
+	frontmatter := map[string]interface{}{
+		"name":         skillName,
+		"display_name": group.DisplayName,
+		"description":  descLine,
+		"mcp_count":    len(services),
+		"tool_count":   totalTools,
+		"services":     serviceNames,
+	}
+	frontmatterBytes, _ := yaml.Marshal(frontmatter)
+	sb.WriteString("---\n")
+	sb.WriteString(string(frontmatterBytes))
 	sb.WriteString("---\n\n")
 
 	// Title
