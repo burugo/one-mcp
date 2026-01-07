@@ -18,10 +18,10 @@ PORT=${PORT:-3000}
 
 # Clean up existing processes
 echo "Cleaning up existing processes..."
-# Kill processes using backend port
-lsof -ti:$PORT | xargs kill -9 2>/dev/null || echo "No existing backend processes found on port $PORT"
-# Kill processes using frontend Vite port
-lsof -ti:5173 | xargs kill -9 2>/dev/null || echo "No existing Vite processes found on port 5173"
+# Kill processes LISTENING on backend port (not clients connecting to remote port 3000)
+lsof -ti TCP:$PORT -sTCP:LISTEN | xargs kill -9 2>/dev/null || echo "No existing backend processes found on port $PORT"
+# Kill processes LISTENING on frontend Vite port
+lsof -ti TCP:5173 -sTCP:LISTEN | xargs kill -9 2>/dev/null || echo "No existing Vite processes found on port 5173"
 
 # Store process IDs
 BACKEND_PID=""
@@ -42,15 +42,15 @@ cleanup() {
     fi
     
     # Ensure no lingering processes
-    # Backend port
-    pid=$(lsof -ti :$PORT 2>/dev/null)
+    # Backend port (only LISTEN, not clients)
+    pid=$(lsof -ti TCP:$PORT -sTCP:LISTEN 2>/dev/null)
     if [ ! -z "$pid" ]; then
         echo "Killing lingering backend process on port $PORT (PID: $pid)"
         kill -9 $pid 2>/dev/null || true
     fi
     
-    # Frontend port
-    pid=$(lsof -ti :5173 2>/dev/null)
+    # Frontend port (only LISTEN, not clients)
+    pid=$(lsof -ti TCP:5173 -sTCP:LISTEN 2>/dev/null)
     if [ ! -z "$pid" ]; then
         echo "Killing lingering Vite process on port 5173 (PID: $pid)"
         kill -9 $pid 2>/dev/null || true

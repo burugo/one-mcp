@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"one-mcp/backend/common"
@@ -12,26 +11,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	mcp_protocol "github.com/mark3labs/mcp-go/mcp"
+	mcp "github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
 )
-
-type MCPRequest struct {
-	JSONRPC string `json:"jsonrpc"`
-	Method  string `json:"method"`
-	Params  struct {
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
-	} `json:"params"`
-	ID any `json:"id"`
-}
-
-type MCPResponse struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      any    `json:"id"`
-	Result  any    `json:"result,omitempty"`
-	Error   any    `json:"error,omitempty"`
-}
 
 type groupSearchArgs struct {
 	MCPName string
@@ -42,6 +24,13 @@ type executeArgs struct {
 	ToolName  string
 	Arguments map[string]any
 }
+
+type contextKey string
+
+const (
+	clientNameKey contextKey = "client_name"
+	userIDKey     contextKey = "user_id"
+)
 
 func GroupMCPHandler(c *gin.Context) {
 	groupName := c.Param("name")
@@ -63,42 +52,20 @@ func GroupMCPHandler(c *gin.Context) {
 		return
 	}
 
-	var req MCPRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.RespError(c, http.StatusBadRequest, "Invalid MCP request", err)
+	handler, err := getOrCreateGroupMCPHandler(group, userID)
+	if err != nil {
+		common.RespError(c, http.StatusInternalServerError, "Failed to create MCP handler", err)
 		return
 	}
 
-	resp := MCPResponse{
-		JSONRPC: "2.0",
-		ID:      req.ID,
-	}
+	// Store client name and userID in request context for logging and RPD check
+	clientName := c.Request.Header.Get("User-Agent")
+	ctx := c.Request.Context()
+	ctx = context.WithValue(ctx, clientNameKey, clientName)
+	ctx = context.WithValue(ctx, userIDKey, userID)
+	c.Request = c.Request.WithContext(ctx)
 
-	switch req.Method {
-	case "initialize":
-		resp.Result = handleGroupInitialize(group)
-	case "tools/list":
-		resp.Result = handleGroupToolsList(group)
-	case "tools/call":
-		toolName := req.Params.Name
-		args := req.Params.Arguments
-		result, err := handleGroupToolCall(c.Request.Context(), group, toolName, args)
-		if err != nil {
-			resp.Error = map[string]any{
-				"code":    -32603,
-				"message": err.Error(),
-			}
-		} else {
-			resp.Result = result
-		}
-	default:
-		resp.Error = map[string]any{
-			"code":    -32601,
-			"message": "Method not found",
-		}
-	}
-
-	c.JSON(http.StatusOK, resp)
+	handler.ServeHTTP(c.Writer, c.Request)
 }
 
 // getGroupServiceNames returns a list of service names in the group
@@ -112,90 +79,6 @@ func getGroupServiceNames(group *model.MCPServiceGroup) []string {
 		}
 	}
 	return names
-}
-
-func handleGroupInitialize(group *model.MCPServiceGroup) map[string]any {
-	serviceNames := getGroupServiceNames(group)
-	return map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities": map[string]any{
-			"tools": map[string]any{
-				"listChanged": false,
-			},
-		},
-		"serverInfo": map[string]any{
-			"name":     fmt.Sprintf("one-mcp-group-%s", group.Name),
-			"version":  "1.0.0",
-			"services": serviceNames,
-		},
-		"instructions": group.Description,
-	}
-}
-
-func handleGroupToolsList(group *model.MCPServiceGroup) map[string]any {
-	serviceNames := getGroupServiceNames(group)
-
-	return map[string]any{
-		"tools": []map[string]any{
-			{
-				"name":        "search_tools",
-				"description": "STEP 1: Discover available tools in a service. You MUST call this first before execute_tool.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"mcp_name": map[string]any{
-							"type":        "string",
-							"enum":        serviceNames,
-							"description": "MCP service name",
-						},
-					},
-					"required": []string{"mcp_name"},
-				},
-			},
-			{
-				"name":        "execute_tool",
-				"description": "STEP 2: Execute a tool found via search_tools. Pass arguments directly, do NOT nest.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"mcp_name": map[string]any{
-							"type":        "string",
-							"enum":        serviceNames,
-							"description": "MCP service name",
-						},
-						"tool_name": map[string]any{
-							"type":        "string",
-							"description": "Tool name from search_tools",
-						},
-						"arguments": map[string]any{
-							"type":        "object",
-							"description": "Tool arguments. Example: {\"message\": \"hello\"} for a tool with message param",
-						},
-					},
-					"required": []string{"mcp_name", "tool_name", "arguments"},
-				},
-			},
-		},
-	}
-}
-
-func handleGroupToolCall(ctx context.Context, group *model.MCPServiceGroup, toolName string, args map[string]any) (any, error) {
-	switch toolName {
-	case "search_tools":
-		parsed, err := parseGroupSearchArgs(args)
-		if err != nil {
-			return nil, err
-		}
-		return searchGroupTools(ctx, group, parsed)
-	case "execute_tool":
-		parsed, err := parseExecuteArgs(args)
-		if err != nil {
-			return nil, err
-		}
-		return executeGroupTool(ctx, group, parsed)
-	default:
-		return nil, fmt.Errorf("unknown tool: %s", toolName)
-	}
 }
 
 func parseGroupSearchArgs(args map[string]any) (*groupSearchArgs, error) {
@@ -252,35 +135,17 @@ func extractRemainingAsArguments(args map[string]any) map[string]any {
 func parseArgumentsValue(args map[string]any) (map[string]any, bool) {
 	for _, fieldName := range []string{"arguments", "parameters"} {
 		if v, ok := args[fieldName]; ok && v != nil {
-			return parseAnyToMap(v), true
+			return common.ParseAnyToMap(v), true
 		}
 	}
 	return nil, false
 }
 
-// parseAnyToMap converts a value to map[string]any, supporting both object and JSON string
-func parseAnyToMap(v any) map[string]any {
-	if v == nil {
-		return nil
-	}
-	// Try as map first
-	if m, ok := v.(map[string]any); ok {
-		return m
-	}
-	// Try as JSON string
-	if s, ok := v.(string); ok && s != "" {
-		var m map[string]any
-		if err := json.Unmarshal([]byte(s), &m); err == nil {
-			return m
-		}
-	}
-	return nil
-}
-
 func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *groupSearchArgs) (any, error) {
 	svc, err := group.GetServiceByName(args.MCPName)
 	if err != nil {
-		return nil, fmt.Errorf("mcp_name not in group: %s", args.MCPName)
+		available := getGroupServiceNames(group)
+		return nil, fmt.Errorf("mcp_name '%s' not in group, available: %v", args.MCPName, available)
 	}
 
 	currentTime := time.Now().Format("2006-01-02 15:04")
@@ -288,7 +153,7 @@ func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *g
 	toolsCacheMgr := proxy.GetToolsCacheManager()
 	entry, ok := toolsCacheMgr.GetServiceTools(svc.ID)
 
-	var tools []mcp_protocol.Tool
+	var tools []mcp.Tool
 	// If cache is empty, fetch tools by connecting to the service
 	if !ok || len(entry.Tools) == 0 {
 		fetchedTools, fetchErr := fetchToolsFromService(ctx, svc)
@@ -309,32 +174,32 @@ func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *g
 
 	toolsSummary := string(yamlBytes)
 
+	// Return in content for Cursor compatibility (Cursor doesn't read structuredContent)
+	// Prepend current_time as a comment in YAML
+	toolsSummaryWithTime := fmt.Sprintf("# current_time: %s\n%s", currentTime, toolsSummary)
 	return map[string]any{
-		"tools_yaml":   toolsSummary,
-		"current_time": currentTime,
-		"tool_count":   len(tools),
 		"content": []map[string]any{
 			{
-				"type": "text",
-				"text": toolsSummary,
+				"type": mcp.ContentTypeText,
+				"text": toolsSummaryWithTime,
 			},
 		},
 	}, nil
 }
 
-func fetchToolsFromService(ctx context.Context, svc *model.MCPService) ([]mcp_protocol.Tool, error) {
-	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, svc, sharedCacheKey(svc.ID), sharedInstanceName(svc.ID), svc.DefaultEnvsJSON)
+func fetchToolsFromService(ctx context.Context, svc *model.MCPService) ([]mcp.Tool, error) {
+	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, svc, proxy.SharedServiceCacheKey(svc.ID), proxy.SharedServiceInstanceName(svc.ID), svc.DefaultEnvsJSON)
 	if err != nil {
 		return nil, err
 	}
 
-	toolsReq := mcp_protocol.ListToolsRequest{}
+	toolsReq := mcp.ListToolsRequest{}
 	result, err := sharedInst.Client.ListTools(ctx, toolsReq)
 	if err != nil {
 		return nil, err
 	}
 	if result == nil {
-		return []mcp_protocol.Tool{}, nil
+		return []mcp.Tool{}, nil
 	}
 	return result.Tools, nil
 }
@@ -346,7 +211,7 @@ type yamlTool struct {
 	Params map[string]any `yaml:"params,omitempty"`
 }
 
-func convertToolsToYAML(tools []mcp_protocol.Tool, mcpName string) []yamlTool {
+func convertToolsToYAML(tools []mcp.Tool, mcpName string) []yamlTool {
 	result := make([]yamlTool, 0, len(tools))
 	for _, tool := range tools {
 		yt := yamlTool{
@@ -367,48 +232,94 @@ func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *e
 
 	svc, err := group.GetServiceByName(args.MCPName)
 	if err != nil {
-		return nil, fmt.Errorf("mcp_name not in group: %s", args.MCPName)
+		available := getGroupServiceNames(group)
+		return nil, fmt.Errorf("mcp_name '%s' not in group, available: %v", args.MCPName, available)
 	}
 
-	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, svc, sharedCacheKey(svc.ID), sharedInstanceName(svc.ID), svc.DefaultEnvsJSON)
+	// Get userID from context for RPD check and stats
+	var userID int64
+	if uid, ok := ctx.Value(userIDKey).(int64); ok {
+		userID = uid
+	}
+
+	// Check daily request limit (RPD) if limit is set
+	if userID > 0 && svc.RPDLimit > 0 {
+		if rpdErr := checkDailyRequestLimit(svc.ID, userID, svc.RPDLimit); rpdErr != nil {
+			return nil, rpdErr
+		}
+	}
+
+	sharedInst, err := proxy.GetOrCreateSharedMcpInstanceWithKey(ctx, svc, proxy.SharedServiceCacheKey(svc.ID), proxy.SharedServiceInstanceName(svc.ID), svc.DefaultEnvsJSON)
 	if err != nil {
 		return nil, err
 	}
 
-	callReq := mcp_protocol.CallToolRequest{}
+	callReq := mcp.CallToolRequest{}
 	callReq.Params.Name = args.ToolName
 	callReq.Params.Arguments = args.Arguments
 
 	result, err := sharedInst.Client.CallTool(ctx, callReq)
+	duration := time.Since(start)
+
+	// Get client name from context
+	clientName := ""
+	if cn, ok := ctx.Value(clientNameKey).(string); ok {
+		clientName = cn
+	}
+
+	// Determine success: no error AND result.IsError is false
+	success := err == nil && (result == nil || !result.IsError)
+
+	// Only record stats for successful calls (not errors or isError responses)
+	if success {
+		go model.RecordRequestStat(
+			svc.ID,
+			svc.Name,
+			userID,
+			model.ProxyRequestTypeHTTP,
+			"tools/call",
+			fmt.Sprintf("/group/%s/mcp", group.Name),
+			duration.Milliseconds(),
+			200,
+			true,
+		)
+	}
+
+	// Log the execution
+	logLevel := model.MCPLogLevelInfo
+	logMsg := fmt.Sprintf("Group execute_tool OK | group=%s | mcp=%s | tool=%s | duration=%dms | client=%s",
+		group.Name, svc.Name, args.ToolName, duration.Milliseconds(), clientName)
+	if err != nil {
+		logLevel = model.MCPLogLevelError
+		logMsg = fmt.Sprintf("Group execute_tool FAILED | group=%s | mcp=%s | tool=%s | duration=%dms | client=%s | error=%v",
+			group.Name, svc.Name, args.ToolName, duration.Milliseconds(), clientName, err)
+	} else if result != nil && result.IsError {
+		logLevel = model.MCPLogLevelError
+		logMsg = fmt.Sprintf("Group execute_tool ERROR | group=%s | mcp=%s | tool=%s | duration=%dms | client=%s | isError=true",
+			group.Name, svc.Name, args.ToolName, duration.Milliseconds(), clientName)
+	}
+	if saveErr := model.SaveMCPLog(ctx, svc.ID, svc.Name, model.MCPLogPhaseRun, logLevel, logMsg); saveErr != nil {
+		common.SysError(fmt.Sprintf("Failed to save MCP log for %s: %v", svc.Name, saveErr))
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	executionSeconds := time.Since(start).Seconds()
+	// Faithfully return upstream response structure
+	resp := map[string]any{}
 
-	var content any = result
 	if result != nil && len(result.Content) > 0 {
-		content = result.Content
-	} else if result != nil {
-		content = []map[string]any{
-			{
-				"type": "text",
-				"text": fmt.Sprintf("%v", result),
-			},
-		}
+		resp["content"] = result.Content
 	}
 
-	// Wrap result with execution time
-	return map[string]any{
-		"execution_seconds": fmt.Sprintf("%.2f", executionSeconds),
-		"content":           content,
-	}, nil
-}
+	if result != nil && result.StructuredContent != nil {
+		resp["structuredContent"] = result.StructuredContent
+	}
 
-func sharedCacheKey(serviceID int64) string {
-	return fmt.Sprintf("global-service-%d-shared", serviceID)
-}
+	if result != nil && result.IsError {
+		resp["isError"] = true
+	}
 
-func sharedInstanceName(serviceID int64) string {
-	return fmt.Sprintf("global-shared-svc-%d", serviceID)
+	return resp, nil
 }

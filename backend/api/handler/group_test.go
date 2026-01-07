@@ -79,6 +79,35 @@ func decodeMCPResponse(t *testing.T, recorder *httptest.ResponseRecorder) mcpRes
 	return resp
 }
 
+func initializeGroupSession(t *testing.T, groupName string, userID int64) (string, mcpResponse) {
+	t.Helper()
+	reqBody := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": mcp.LATEST_PROTOCOL_VERSION,
+			"clientInfo": map[string]any{
+				"name":    "group-test",
+				"version": "0.0.0",
+			},
+			"capabilities": map[string]any{},
+		},
+	}
+	req := newJSONRequest(t, http.MethodPost, "/group/"+groupName+"/mcp", reqBody)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = req
+	ctx.Params = gin.Params{{Key: "name", Value: groupName}}
+	ctx.Set("user_id", userID)
+
+	GroupMCPHandler(ctx)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	sessionID := recorder.Header().Get("Mcp-Session-Id")
+	assert.NotEmpty(t, sessionID)
+	return sessionID, decodeMCPResponse(t, recorder)
+}
+
 func TestGroupCRUDHandlers(t *testing.T) {
 	teardown := setupGroupTestDB(t)
 	defer teardown()
@@ -185,6 +214,14 @@ func TestGroupMCPHandlerUnauthorized(t *testing.T) {
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": mcp.LATEST_PROTOCOL_VERSION,
+			"clientInfo": map[string]any{
+				"name":    "group-test",
+				"version": "0.0.0",
+			},
+			"capabilities": map[string]any{},
+		},
 	}
 	req := newJSONRequest(t, http.MethodPost, "/group/test/mcp", reqBody)
 	recorder := httptest.NewRecorder()
@@ -210,12 +247,15 @@ func TestGroupMCPHandlerToolsList(t *testing.T) {
 	err := group.Insert()
 	assert.NoError(t, err)
 
+	sessionID, _ := initializeGroupSession(t, "group-tools", 1)
+
 	reqBody := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "tools/list",
 	}
 	req := newJSONRequest(t, http.MethodPost, "/group/group-tools/mcp", reqBody)
+	req.Header.Set("Mcp-Session-Id", sessionID)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = req
@@ -245,6 +285,8 @@ func TestGroupMCPHandlerSearchToolsValidation(t *testing.T) {
 	err := group.Insert()
 	assert.NoError(t, err)
 
+	sessionID, _ := initializeGroupSession(t, "group-validate", 1)
+
 	reqBody := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -255,6 +297,7 @@ func TestGroupMCPHandlerSearchToolsValidation(t *testing.T) {
 		},
 	}
 	req := newJSONRequest(t, http.MethodPost, "/group/group-validate/mcp", reqBody)
+	req.Header.Set("Mcp-Session-Id", sessionID)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = req
@@ -265,8 +308,11 @@ func TestGroupMCPHandlerSearchToolsValidation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
 	resp := decodeMCPResponse(t, recorder)
-	assert.NotNil(t, resp.Error)
-	assert.Equal(t, "mcp_name is required", resp.Error["message"])
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, true, resp.Result["isError"])
+	content, ok := resp.Result["content"].([]any)
+	assert.True(t, ok)
+	assert.NotEmpty(t, content)
 }
 
 func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
@@ -315,6 +361,8 @@ func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
 	})
 	defer cache.DeleteServiceTools(dbService.ID)
 
+	sessionID, _ := initializeGroupSession(t, "group-search", 1)
+
 	reqBody := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -329,6 +377,7 @@ func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
 		},
 	}
 	req := newJSONRequest(t, http.MethodPost, "/group/group-search/mcp", reqBody)
+	req.Header.Set("Mcp-Session-Id", sessionID)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = req
@@ -339,17 +388,17 @@ func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
 	resp := decodeMCPResponse(t, recorder)
-	// Response now returns YAML format
-	toolsYAML, ok := resp.Result["tools_yaml"].(string)
+	assert.Nil(t, resp.Error)
+
+	// content is an array with text containing tools and current_time
+	content, ok := resp.Result["content"].([]any)
+	assert.True(t, ok)
+	assert.NotEmpty(t, content)
+	firstContent, ok := content[0].(map[string]any)
+	assert.True(t, ok)
+	toolsYAML, ok := firstContent["text"].(string)
 	assert.True(t, ok)
 	assert.Contains(t, toolsYAML, "alpha")
 	assert.Contains(t, toolsYAML, "beta")
-
-	toolCount, ok := resp.Result["tool_count"].(float64)
-	assert.True(t, ok)
-	assert.Equal(t, float64(2), toolCount)
-
-	currentTime, ok := resp.Result["current_time"].(string)
-	assert.True(t, ok)
-	assert.NotEmpty(t, currentTime)
+	assert.Contains(t, toolsYAML, "current_time:")
 }

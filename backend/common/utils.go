@@ -1,8 +1,8 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"html/template"
 	"log"
 	"net"
@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 func OpenBrowser(url string) {
@@ -138,4 +140,29 @@ func Max(a int, b int) int {
 	} else {
 		return b
 	}
+}
+
+// ParseAnyToMap converts a value to map[string]any, supporting map, json.RawMessage, and JSON string
+func ParseAnyToMap(v any) map[string]any {
+	if v == nil {
+		return nil
+	}
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	// Handle json.RawMessage
+	if raw, ok := v.([]byte); ok && len(raw) > 0 {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err == nil {
+			return m
+		}
+	}
+	// Try as JSON string
+	if s, ok := v.(string); ok && s != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(s), &m); err == nil {
+			return m
+		}
+	}
+	return nil
 }

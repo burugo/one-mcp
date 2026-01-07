@@ -204,6 +204,6 @@ func SetApiRouter(route *gin.Engine) {
 	groupMcpRoute.Use(middleware.GlobalAPIRateLimit())
 	groupMcpRoute.Use(middleware.TokenAuth())
 	{
-		groupMcpRoute.POST("/:name/mcp", handler.GroupMCPHandler)
+		groupMcpRoute.Any("/:name/mcp", handler.GroupMCPHandler)
 	}
 }
