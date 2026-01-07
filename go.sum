@@ -8,6 +8,8 @@ github.com/buger/jsonparser v1.1.1 h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMU
 github.com/buger/jsonparser v1.1.1/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx27UK13J/0=
 github.com/burugo/thing v0.1.25 h1:neJRyFx86RCVt/hO8uo+ig052qPbvPqMQFVqJ+JQSn0=
 github.com/burugo/thing v0.1.25/go.mod h1:6J5e29JE726EXtfDYeLg2cx2l6/9lVp+fWb6Ovcc1I4=
+github.com/burugo/thing v0.1.26 h1:30u9te4rdvAmDcrnsC+vMd06oGbt0X/NuE35CPHV+iE=
+github.com/burugo/thing v0.1.26/go.mod h1:6J5e29JE726EXtfDYeLg2cx2l6/9lVp+fWb6Ovcc1I4=
 github.com/bytedance/sonic v1.13.2 h1:8/H1FempDZqC4VqjptGo14QQlJx8VdZJegxs6wwfqpQ=
 github.com/bytedance/sonic v1.13.2/go.mod h1:o68xyaF9u2gvVBuGHPlUVCy+ZfmNNO5ETf1+KgkJhz4=
 github.com/bytedance/sonic/loader v0.1.1/go.mod h1:ncP89zfokxS5LZrJxl5z0UJcsk4M4yY2JpfqGeCtNLU=
