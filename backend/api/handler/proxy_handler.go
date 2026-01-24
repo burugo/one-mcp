@@ -225,12 +225,12 @@ func ProxyHandler(c *gin.Context) {
 	mcpDBService, err := model.GetServiceByName(serviceName)
 	if err != nil || mcpDBService == nil {
 		common.SysError(fmt.Sprintf("[ProxyHandler] Service not found: %s, error: %v", serviceName, err))
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Service not found: " + serviceName})
+		common.RespErrorStr(c, http.StatusNotFound, "Service not found: "+serviceName)
 		return
 	}
 	if !mcpDBService.Enabled {
 		common.SysLog(fmt.Sprintf("WARN: [ProxyHandler] Service not enabled: %s", serviceName))
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Service not enabled: " + serviceName})
+		common.RespErrorStr(c, http.StatusServiceUnavailable, "Service not enabled: "+serviceName)
 		return
 	}
 
@@ -253,7 +253,7 @@ func ProxyHandler(c *gin.Context) {
 	// doesn't explicitly abort the request, ProxyHandler still enforces authentication.
 	if userID == 0 {
 		common.SysLog(fmt.Sprintf("WARN: [ProxyHandler] Unauthorized access: userID not found or invalid for service %s", serviceName))
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Authentication required. Please provide a valid user ID."})
+		common.RespErrorStr(c, http.StatusUnauthorized, "Authentication required. Please provide a valid user ID.")
 		return
 	}
 
@@ -261,9 +261,7 @@ func ProxyHandler(c *gin.Context) {
 	if userID > 0 && mcpDBService.RPDLimit > 0 {
 		if rpdErr := checkDailyRequestLimit(mcpDBService.ID, userID, mcpDBService.RPDLimit); rpdErr != nil {
 			common.SysLog(fmt.Sprintf("[RPD] User %d exceeded limit for %s: %v", userID, serviceName, rpdErr))
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"success":    false,
-				"message":    rpdErr.Error(),
+			common.RespErrorWithData(c, http.StatusTooManyRequests, rpdErr.Error(), gin.H{
 				"error_code": "DAILY_LIMIT_EXCEEDED",
 			})
 			return
@@ -280,7 +278,7 @@ func ProxyHandler(c *gin.Context) {
 			service, err := serviceManager.GetService(mcpDBService.ID)
 			if err != nil {
 				common.SysError(fmt.Sprintf("[ProxyHandler] Failed to get service %s: %v", serviceName, err))
-				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Service unavailable"})
+				common.RespErrorStr(c, http.StatusServiceUnavailable, "Service unavailable")
 				return
 			}
 
@@ -289,7 +287,7 @@ func ProxyHandler(c *gin.Context) {
 				ctx := c.Request.Context()
 				if err := serviceManager.StartService(ctx, mcpDBService.ID); err != nil {
 					common.SysError(fmt.Sprintf("[ProxyHandler] Failed to start on-demand service %s: %v", serviceName, err))
-					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Failed to start service"})
+					common.RespErrorStr(c, http.StatusServiceUnavailable, "Failed to start service")
 					return
 				}
 
@@ -437,6 +435,6 @@ func ProxyHandler(c *gin.Context) {
 		}
 
 		common.SysError(fmt.Sprintf("[ProxyHandler] Error: %s", finalErrMsg))
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": finalErrMsg})
+		common.RespErrorStr(c, http.StatusServiceUnavailable, finalErrMsg)
 	}
 }

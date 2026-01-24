@@ -272,7 +272,7 @@ export function ServicesPage() {
         const poll = async () => {
             try {
                 attempts++;
-                const response = await api.get(`/mcp_market/install_status/${serviceId}`) as APIResponse<any>;
+				const response = await api.get(`/mcp-market/install_status/${serviceId}`) as APIResponse<any>;
 
                 if (response.success && response.data) {
                     const status = response.data.status;
@@ -359,11 +359,11 @@ export function ServicesPage() {
                     user_provided_env_vars: parseEnvironments(serviceData.environments),
                     custom_args: customArgs.length > 0 ? customArgs : undefined, // Send custom args if available
                 };
-                res = await api.post('/mcp_market/install_or_add_service', payload) as APIResponse<any>;
+				res = await api.post('/mcp-market/install_or_add_service', payload) as APIResponse<any>;
 
             } else {
                 // For 'sse' and 'streamableHttp'
-                res = await api.post('/mcp_market/custom_service', serviceData) as APIResponse<any>;
+				res = await api.post('/mcp-market/custom_service', serviceData) as APIResponse<any>;
             }
 
             if (res.success) {
@@ -492,7 +492,7 @@ export function ServicesPage() {
                 }
             }
 
-            const response = await api.put(`/mcp_services/${serviceData.id}`, updatePayload) as APIResponse<any>;
+			const response = await api.put(`/mcp-services/${serviceData.id}`, updatePayload) as APIResponse<any>;
 
             if (response.success) {
                 toast({

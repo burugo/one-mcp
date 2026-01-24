@@ -103,20 +103,14 @@ func getGoogleUserInfoByCode(code string) (*GoogleUser, error) {
 
 func GoogleOAuth(c *gin.Context) {
 	if !common.GetGoogleOAuthEnabled() {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "管理员未开启通过 Google 登录以及注册",
-		})
+		common.RespErrorStr(c, http.StatusOK, "管理员未开启通过 Google 登录以及注册")
 		return
 	}
 
 	code := c.Query("code")
 	googleUser, err := getGoogleUserInfoByCode(code)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 
@@ -127,10 +121,7 @@ func GoogleOAuth(c *gin.Context) {
 	if model.IsGoogleIdAlreadyTaken(user.GoogleId) {
 		err := user.FillUserByGoogleId()
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.RespErrorStr(c, http.StatusOK, err.Error())
 			return
 		}
 	} else {
@@ -146,75 +137,50 @@ func GoogleOAuth(c *gin.Context) {
 			user.Status = common.UserStatusEnabled
 
 			if err := user.Insert(); err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+				common.RespErrorStr(c, http.StatusOK, err.Error())
 				return
 			}
 		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "管理员关闭了新用户注册",
-			})
+			common.RespErrorStr(c, http.StatusOK, "管理员关闭了新用户注册")
 			return
 		}
 	}
 
 	if user.Status != common.UserStatusEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "用户已被封禁",
-			"success": false,
-		})
+		common.RespErrorStr(c, http.StatusOK, "用户已被封禁")
 		return
 	}
 
 	// Generate JWT tokens
 	accessToken, err := service.GenerateToken(&user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate access token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate access token: "+err.Error())
 		return
 	}
 
 	refreshToken, err := service.GenerateRefreshToken(&user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate refresh token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate refresh token: "+err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Google OAuth login successful",
-		"data": gin.H{
-			"access_token":  accessToken,
-			"refresh_token": refreshToken,
-			"user":          &user,
-		},
+	common.RespSuccessWithMsg(c, "Google OAuth login successful", gin.H{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user":          &user,
 	})
 }
 
 func GoogleBind(c *gin.Context) {
 	if !common.GetGoogleOAuthEnabled() {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "管理员未开启通过 Google 登录以及注册",
-		})
+		common.RespErrorStr(c, http.StatusOK, "管理员未开启通过 Google 登录以及注册")
 		return
 	}
 
 	code := c.Query("code")
 	googleUser, err := getGoogleUserInfoByCode(code)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 
@@ -223,54 +189,36 @@ func GoogleBind(c *gin.Context) {
 	}
 
 	if model.IsGoogleIdAlreadyTaken(user.GoogleId) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该 Google 账户已被绑定",
-		})
+		common.RespErrorStr(c, http.StatusOK, "该 Google 账户已被绑定")
 		return
 	}
 
 	// Get user ID from JWT context
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "用户未登录",
-		})
+		common.RespErrorStr(c, http.StatusUnauthorized, "用户未登录")
 		return
 	}
 
 	id, ok := userID.(int64)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "用户ID格式错误",
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "用户ID格式错误")
 		return
 	}
 
 	user.ID = id
 	err = user.FillUserById()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 
 	user.GoogleId = googleUser.ID
 	err = user.Update(false)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Google账户绑定成功",
-	})
+	common.RespSuccessStr(c, "Google账户绑定成功")
 }

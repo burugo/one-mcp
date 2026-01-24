@@ -41,10 +41,7 @@ type LoginResponse struct {
 func Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusBadRequest, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -53,39 +50,26 @@ func Login(c *gin.Context) {
 		Password: req.Password,
 	}
 	if err := user.ValidateAndFill(); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	accessToken, err := service.GenerateToken(user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate access token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate access token: "+err.Error())
 		return
 	}
 
 	refreshToken, err := service.GenerateRefreshToken(user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate refresh token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate refresh token: "+err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Login successful",
-		"data": LoginResponse{
-			AccessToken:  accessToken,
-			RefreshToken: refreshToken,
-			User:         user, // Now directly using *model.User
-		},
+	common.RespSuccessWithMsg(c, "Login successful", LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		User:         user, // Now directly using *model.User
 	})
 }
 
@@ -103,30 +87,20 @@ type RefreshTokenResponse struct {
 func RefreshToken(c *gin.Context) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusBadRequest, "Invalid request: "+err.Error())
 		return
 	}
 
 	// Refresh the token
 	newToken, err := service.RefreshToken(req.RefreshToken)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "Invalid refresh token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusUnauthorized, "Invalid refresh token: "+err.Error())
 		return
 	}
 
 	// Return the new access token
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": RefreshTokenResponse{
-			AccessToken: newToken,
-		},
+	common.RespSuccess(c, RefreshTokenResponse{
+		AccessToken: newToken,
 	})
 }
 
@@ -139,20 +113,14 @@ type LogoutRequest struct {
 func Logout(c *gin.Context) {
 	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusBadRequest, "Invalid request: "+err.Error())
 		return
 	}
 
 	// Validate the token first
 	claims, err := service.ValidateToken(req.AccessToken)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "Invalid token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusUnauthorized, "Invalid token: "+err.Error())
 		return
 	}
 
@@ -165,18 +133,12 @@ func Logout(c *gin.Context) {
 		// Add token to blacklist
 		err := common.RDB.Set(c, "jwt:blacklist:"+req.AccessToken, true, ttl).Err()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Failed to blacklist token: " + err.Error(),
-			})
+			common.RespErrorStr(c, http.StatusInternalServerError, "Failed to blacklist token: "+err.Error())
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Logged out successfully",
-	})
+	common.RespSuccessStr(c, "Logged out successfully")
 }
 
 // RegisterRequest represents the request body for registration
@@ -193,10 +155,7 @@ type RegisterRequest struct {
 func Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusBadRequest, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -220,18 +179,12 @@ func Register(c *gin.Context) {
 	// }
 
 	if model.IsUsernameAlreadyTaken(req.Username) {
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false,
-			"message": "Username already exists",
-		})
+		common.RespErrorStr(c, http.StatusConflict, "Username already exists")
 		return
 	}
 
 	if model.IsEmailAlreadyTaken(req.Email) {
-		c.JSON(http.StatusConflict, gin.H{
-			"success": false,
-			"message": "Email already exists",
-		})
+		common.RespErrorStr(c, http.StatusConflict, "Email already exists")
 		return
 	}
 
@@ -250,38 +203,25 @@ func Register(c *gin.Context) {
 	}
 
 	if err := user.Insert(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to create user: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to create user: "+err.Error())
 		return
 	}
 
 	accessToken, err := service.GenerateToken(user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate access token after registration: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate access token after registration: "+err.Error())
 		return
 	}
 
 	refreshToken, err := service.GenerateRefreshToken(user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate refresh token after registration: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate refresh token after registration: "+err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Registration successful",
-		"data": LoginResponse{
-			AccessToken:  accessToken,
-			RefreshToken: refreshToken,
-			User:         user, // Now directly using *model.User
-		},
+	common.RespSuccessWithMsg(c, "Registration successful", LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		User:         user, // Now directly using *model.User
 	})
 }

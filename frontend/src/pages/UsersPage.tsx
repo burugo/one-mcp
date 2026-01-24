@@ -41,9 +41,9 @@ export function UsersPage() {
     const fetchUsers = useCallback(async (page = 0, search = '') => {
         setLoading(true);
         try {
-            let url = `/user/?p=${page}`;
+			let url = `/admin/users?p=${page}`;
             if (search.trim()) {
-                url = `/user/search?keyword=${encodeURIComponent(search.trim())}`;
+				url = `/admin/users/search?keyword=${encodeURIComponent(search.trim())}`;
             }
 
             const response = await api.get(url) as APIResponse<User[]>;
@@ -93,7 +93,7 @@ export function UsersPage() {
         if (!pendingDeleteId) return;
 
         try {
-            const response = await api.delete(`/user/${pendingDeleteId}`) as APIResponse<any>;
+			const response = await api.delete(`/admin/users/${pendingDeleteId}`) as APIResponse<any>;
             if (response.success) {
                 toast({
                     title: t('usersPage.messages.deleteSuccess'),
@@ -122,7 +122,7 @@ export function UsersPage() {
     // 设为管理员
     const handlePromoteToAdmin = async (username: string) => {
         try {
-            const response = await api.post('/user/manage', {
+			const response = await api.post('/admin/users/manage', {
                 username,
                 action: 'promote'
             }) as APIResponse<any>;
@@ -152,7 +152,7 @@ export function UsersPage() {
     // 设为普通用户
     const handleDemoteToUser = async (username: string) => {
         try {
-            const response = await api.post('/user/manage', {
+			const response = await api.post('/admin/users/manage', {
                 username,
                 action: 'demote'
             }) as APIResponse<any>;
@@ -183,7 +183,7 @@ export function UsersPage() {
     const handleToggleStatus = async (username: string, currentStatus: number) => {
         const action = currentStatus === 1 ? 'disable' : 'enable';
         try {
-            const response = await api.post('/user/manage', {
+			const response = await api.post('/admin/users/manage', {
                 username,
                 action
             }) as APIResponse<any>;

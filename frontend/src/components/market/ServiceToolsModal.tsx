@@ -69,7 +69,7 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
         setLoading(true);
         setError(null);
         try {
-            const response = await api.get(`/mcp_services/${serviceId}/tools`) as APIResponse<{ tools: Tool[] }>;
+			const response = await api.get(`/mcp-services/${serviceId}/tools`) as APIResponse<{ tools: Tool[] }>;
             if (response.success && response.data) {
                 setTools(response.data.tools || []);
             } else {

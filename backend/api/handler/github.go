@@ -86,19 +86,13 @@ func GitHubOAuth(c *gin.Context) {
 	}
 
 	if !common.GetGitHubOAuthEnabled() {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "管理员未开启通过 GitHub 登录以及注册",
-		})
+		common.RespErrorStr(c, http.StatusOK, "管理员未开启通过 GitHub 登录以及注册")
 		return
 	}
 	code := c.Query("code")
 	githubUser, err := getGitHubUserInfoByCode(code)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 	user := model.User{
@@ -107,10 +101,7 @@ func GitHubOAuth(c *gin.Context) {
 	if model.IsGitHubIdAlreadyTaken(user.GitHubId) {
 		err := user.FillUserByGitHubId()
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.RespErrorStr(c, http.StatusOK, err.Error())
 			return
 		}
 	} else {
@@ -126,124 +117,81 @@ func GitHubOAuth(c *gin.Context) {
 			user.Status = common.UserStatusEnabled
 
 			if err := user.Insert(); err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+				common.RespErrorStr(c, http.StatusOK, err.Error())
 				return
 			}
 		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "管理员关闭了新用户注册",
-			})
+			common.RespErrorStr(c, http.StatusOK, "管理员关闭了新用户注册")
 			return
 		}
 	}
 
 	if user.Status != common.UserStatusEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "用户已被封禁",
-			"success": false,
-		})
+		common.RespErrorStr(c, http.StatusOK, "用户已被封禁")
 		return
 	}
 	// Generate JWT tokens
 	accessToken, err := service.GenerateToken(&user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate access token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate access token: "+err.Error())
 		return
 	}
 
 	refreshToken, err := service.GenerateRefreshToken(&user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to generate refresh token: " + err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Failed to generate refresh token: "+err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "GitHub OAuth login successful",
-		"data": gin.H{
-			"access_token":  accessToken,
-			"refresh_token": refreshToken,
-			"user":          &user,
-		},
+	common.RespSuccessWithMsg(c, "GitHub OAuth login successful", gin.H{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user":          &user,
 	})
 }
 
 func GitHubBind(c *gin.Context) {
 	if !common.GetGitHubOAuthEnabled() {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "管理员未开启通过 GitHub 登录以及注册",
-		})
+		common.RespErrorStr(c, http.StatusOK, "管理员未开启通过 GitHub 登录以及注册")
 		return
 	}
 	code := c.Query("code")
 	githubUser, err := getGitHubUserInfoByCode(code)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 	user := model.User{
 		GitHubId: githubUser.Login,
 	}
 	if model.IsGitHubIdAlreadyTaken(user.GitHubId) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该 GitHub 账户已被绑定",
-		})
+		common.RespErrorStr(c, http.StatusOK, "该 GitHub 账户已被绑定")
 		return
 	}
 	// Get user ID from JWT context
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "用户未登录",
-		})
+		common.RespErrorStr(c, http.StatusUnauthorized, "用户未登录")
 		return
 	}
 
 	id, ok := userID.(int64)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "用户ID格式错误",
-		})
+		common.RespErrorStr(c, http.StatusInternalServerError, "用户ID格式错误")
 		return
 	}
 
 	user.ID = id
 	err = user.FillUserById()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 	user.GitHubId = githubUser.Login
 	err = user.Update(false)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "GitHub账户绑定成功",
-	})
+	common.RespSuccessStr(c, "GitHub账户绑定成功")
 }

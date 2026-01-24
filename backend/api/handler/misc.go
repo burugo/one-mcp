@@ -17,27 +17,23 @@ func GetStatus(c *gin.Context) {
 		lang = "zh-CN" // Default language
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"version":            common.Version,
-			"start_time":         common.StartTime,
-			"email_verification": common.GetEmailVerificationEnabled(),
-			"github_oauth":       common.GetGitHubOAuthEnabled(),
-			"github_client_id":   common.GetGitHubClientId(),
-			"google_oauth":       common.GetGoogleOAuthEnabled(),
-			"google_client_id":   common.GetGoogleClientId(),
-			"system_name":        common.GetSystemName(),
-			"home_page_link":     common.GetHomePageLink(),
-			"footer_html":        common.GetFooter(),
-			"wechat_qrcode":      common.GetWeChatAccountQRCodeImageURL(),
-			"wechat_login":       common.GetWeChatAuthEnabled(),
-			"server_address":     common.GetServerAddress(),
-			"turnstile_check":    common.GetTurnstileCheckEnabled(),
-			"turnstile_site_key": common.GetTurnstileSiteKey(),
-			"current_language":   lang,
-		},
+	common.RespSuccess(c, gin.H{
+		"version":            common.Version,
+		"start_time":         common.StartTime,
+		"email_verification": common.GetEmailVerificationEnabled(),
+		"github_oauth":       common.GetGitHubOAuthEnabled(),
+		"github_client_id":   common.GetGitHubClientId(),
+		"google_oauth":       common.GetGoogleOAuthEnabled(),
+		"google_client_id":   common.GetGoogleClientId(),
+		"system_name":        common.GetSystemName(),
+		"home_page_link":     common.GetHomePageLink(),
+		"footer_html":        common.GetFooter(),
+		"wechat_qrcode":      common.GetWeChatAccountQRCodeImageURL(),
+		"wechat_login":       common.GetWeChatAuthEnabled(),
+		"server_address":     common.GetServerAddress(),
+		"turnstile_check":    common.GetTurnstileCheckEnabled(),
+		"turnstile_site_key": common.GetTurnstileSiteKey(),
+		"current_language":   lang,
 	})
 	return
 }
@@ -45,39 +41,25 @@ func GetStatus(c *gin.Context) {
 func GetNotice(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    common.OptionMap["Notice"],
-	})
+	common.RespSuccess(c, common.OptionMap["Notice"])
 	return
 }
 
 func GetAbout(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    common.OptionMap["About"],
-	})
+	common.RespSuccess(c, common.OptionMap["About"])
 	return
 }
 
 func SendEmailVerification(c *gin.Context) {
 	email := c.Query("email")
 	if err := common.Validate.Var(email, "required,email"); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "无效的参数",
-		})
+		common.RespErrorStr(c, http.StatusOK, "无效的参数")
 		return
 	}
 	if model.IsEmailAlreadyTaken(email) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "邮箱地址已被占用",
-		})
+		common.RespErrorStr(c, http.StatusOK, "邮箱地址已被占用")
 		return
 	}
 	code := common.GenerateVerificationCode(6)
@@ -88,33 +70,21 @@ func SendEmailVerification(c *gin.Context) {
 		"<p>验证码 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.GetSystemName(), code, common.VerificationValidMinutes)
 	err := common.SendEmail(subject, email, content)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	common.RespSuccessStr(c, "")
 	return
 }
 
 func SendPasswordResetEmail(c *gin.Context) {
 	email := c.Query("email")
 	if err := common.Validate.Var(email, "required,email"); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "无效的参数",
-		})
+		common.RespErrorStr(c, http.StatusOK, "无效的参数")
 		return
 	}
 	if !model.IsEmailAlreadyTaken(email) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该邮箱地址未注册",
-		})
+		common.RespErrorStr(c, http.StatusOK, "该邮箱地址未注册")
 		return
 	}
 	code := common.GenerateVerificationCode(0)
@@ -126,16 +96,10 @@ func SendPasswordResetEmail(c *gin.Context) {
 		"<p>重置链接 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.GetSystemName(), link, common.VerificationValidMinutes)
 	err := common.SendEmail(subject, email, content)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	common.RespSuccessStr(c, "")
 	return
 }
 
@@ -148,33 +112,20 @@ func ResetPassword(c *gin.Context) {
 	var req PasswordResetRequest
 	err := json.NewDecoder(c.Request.Body).Decode(&req)
 	if req.Email == "" || req.Token == "" {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "无效的参数",
-		})
+		common.RespErrorStr(c, http.StatusOK, "无效的参数")
 		return
 	}
 	if !common.VerifyCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "重置链接非法或已过期",
-		})
+		common.RespErrorStr(c, http.StatusOK, "重置链接非法或已过期")
 		return
 	}
 	password := common.GenerateVerificationCode(12)
 	err = model.ResetUserPasswordByEmail(req.Email, password)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 	common.DeleteKey(req.Email, common.PasswordResetPurpose)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    password,
-	})
+	common.RespSuccess(c, password)
 	return
 }

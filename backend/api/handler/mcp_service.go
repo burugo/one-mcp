@@ -29,7 +29,7 @@ import (
 // @Failure 400 {object} common.APIResponse
 // @Failure 404 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_services/{id} [put]
+// @Router /api/mcp-services/{id} [put]
 func UpdateMCPService(c *gin.Context) {
 	lang := c.GetString("lang")
 	idStr := c.Param("id")
@@ -194,7 +194,7 @@ func UpdateMCPService(c *gin.Context) {
 // @Failure 400 {object} common.APIResponse
 // @Failure 404 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_services/{id}/toggle [post]
+// @Router /api/mcp-services/{id}/toggle [post]
 func ToggleMCPService(c *gin.Context) {
 	lang := c.GetString("lang")
 	idStr := c.Param("id")
@@ -283,7 +283,7 @@ func ToggleMCPService(c *gin.Context) {
 // @Failure 400 {object} common.APIResponse
 // @Failure 404 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_services/{id}/health/check [post]
+// @Router /api/mcp-services/{id}/health/check [post]
 func CheckMCPServiceHealth(c *gin.Context) {
 	lang := c.GetString("lang")
 	idStr := c.Param("id")
@@ -361,7 +361,7 @@ func CheckMCPServiceHealth(c *gin.Context) {
 // @Failure 400 {object} common.APIResponse
 // @Failure 404 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_services/{id}/tools [get]
+// @Router /api/mcp-services/{id}/tools [get]
 func GetMCPServiceTools(c *gin.Context) {
 	lang := c.GetString("lang")
 	idStr := c.Param("id")

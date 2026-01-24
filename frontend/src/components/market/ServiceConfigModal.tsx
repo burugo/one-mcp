@@ -215,7 +215,7 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         if (!service?.id) return;
 
         try {
-            const response = await fetch(`/api/mcp_services/${service.id}`, {
+			const response = await fetch(`/api/mcp-services/${service.id}`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`,

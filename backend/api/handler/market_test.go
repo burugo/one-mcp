@@ -98,7 +98,7 @@ func TestCreateCustomService_DuplicateName(t *testing.T) {
 
 	// 创建测试路由
 	router := gin.New()
-	router.POST("/api/mcp_market/custom_service", CreateCustomService)
+	router.POST("/api/mcp-market/custom_service", CreateCustomService)
 
 	// 第一次创建服务的请求体
 	serviceRequest := map[string]interface{}{
@@ -110,14 +110,14 @@ func TestCreateCustomService_DuplicateName(t *testing.T) {
 
 	// 第一次请求 - 应该成功
 	reqBody1, _ := json.Marshal(serviceRequest)
-	req1 := httptest.NewRequest("POST", "/api/mcp_market/custom_service", bytes.NewBuffer(reqBody1))
+	req1 := httptest.NewRequest("POST", "/api/mcp-market/custom_service", bytes.NewBuffer(reqBody1))
 	req1.Header.Set("Content-Type", "application/json")
 	w1 := httptest.NewRecorder()
 	router.ServeHTTP(w1, req1)
 
 	// 第二次请求 - 应该返回冲突错误
 	reqBody2, _ := json.Marshal(serviceRequest)
-	req2 := httptest.NewRequest("POST", "/api/mcp_market/custom_service", bytes.NewBuffer(reqBody2))
+	req2 := httptest.NewRequest("POST", "/api/mcp-market/custom_service", bytes.NewBuffer(reqBody2))
 	req2.Header.Set("Content-Type", "application/json")
 	w2 := httptest.NewRecorder()
 	router.ServeHTTP(w2, req2)

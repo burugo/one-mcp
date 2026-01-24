@@ -83,7 +83,7 @@ func sanitizeServiceName(raw string) string {
 // @Success 200 {object} common.APIResponse
 // @Failure 400 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/package_details [get]
+// @Router /api/mcp-market/package_details [get]
 func GetPackageDetails(c *gin.Context) {
 	lang := c.GetString("lang")
 	packageName := c.Query("package_name")
@@ -316,7 +316,7 @@ func GetPackageDetails(c *gin.Context) {
 // @Success 200 {object} common.APIResponse
 // @Failure 400 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/discover_env_vars [get]
+// @Router /api/mcp-market/discover_env_vars [get]
 func DiscoverEnvVars(c *gin.Context) {
 	lang := c.GetString("lang")
 	packageName := c.Query("package_name")
@@ -514,7 +514,7 @@ var (
 // @Success 200 {object} common.APIResponse
 // @Failure 400 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/install_or_add_service [post]
+// @Router /api/mcp-market/install_or_add_service [post]
 func InstallOrAddService(c *gin.Context) {
 	lang := c.GetString("lang")
 	var requestBody struct {
@@ -671,12 +671,8 @@ func InstallOrAddService(c *gin.Context) {
 		if len(missingEnvVars) > 0 && !isCustomSource {
 			// Use i18n for the error message
 			msg := i18n.Translate("missing_required_env_vars", lang, strings.Join(missingEnvVars, ", "))
-			c.JSON(http.StatusOK, common.APIResponse{ // use 200 OK, because this is not an error, but requires user input
-				Success: false, // require next action from user
-				Message: msg,
-				Data: gin.H{
-					"required_env_vars": missingEnvVars,
-				},
+			common.RespErrorWithData(c, http.StatusOK, msg, gin.H{
+				"required_env_vars": missingEnvVars,
 			})
 			return
 		}
@@ -846,7 +842,7 @@ func InstallOrAddService(c *gin.Context) {
 // @Failure 400 {object} common.APIResponse
 // @Failure 404 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/installation_status [get]
+// @Router /api/mcp-market/installation_status [get]
 func GetInstallationStatus(c *gin.Context) {
 	lang := c.GetString("lang")
 	serviceIDStr := c.Param("id")
@@ -928,7 +924,7 @@ func GetInstallationStatus(c *gin.Context) {
 // @Failure 400 {object} common.APIResponse
 // @Failure 404 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/uninstall [post]
+// @Router /api/mcp-market/uninstall [post]
 func UninstallService(c *gin.Context) {
 	lang := c.GetString("lang")
 	var requestBody struct {
@@ -1195,7 +1191,7 @@ func contains(slice []string, s string) bool {
 // @Param size query int false "每页数量"
 // @Success 200 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/search [get]
+// @Router /api/mcp-market/search [get]
 func SearchMCPMarket(c *gin.Context) {
 	ctx := c.Request.Context()
 	originalQuery := c.Query("query") // Get original query
@@ -1253,7 +1249,7 @@ func SearchMCPMarket(c *gin.Context) {
 // @Produce json
 // @Success 200 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/installed [get]
+// @Router /api/mcp-market/installed [get]
 func ListInstalledMCPServices(c *gin.Context) {
 	// 检查是否需要过滤只返回启用的服务
 	enabledOnly := c.Query("enabled") == "true"
@@ -1420,7 +1416,7 @@ func ListInstalledMCPServices(c *gin.Context) {
 // @Success 200 {object} common.APIResponse
 // @Failure 400 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/env_var [patch]
+// @Router /api/mcp-market/env_var [patch]
 func PatchEnvVar(c *gin.Context) {
 	lang := c.GetString("lang")
 	var req struct {
@@ -1550,7 +1546,7 @@ func PatchEnvVar(c *gin.Context) {
 // @Success 200 {object} common.APIResponse
 // @Failure 400 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_market/custom_service [post]
+// @Router /api/mcp-market/custom_service [post]
 func CreateCustomService(c *gin.Context) {
 	lang := c.GetString("lang")
 
@@ -1729,7 +1725,7 @@ func CreateCustomService(c *gin.Context) {
 func StartBatchImport(c *gin.Context) {
 	var requestBody map[string]interface{}
 	if err := c.ShouldBindJSON(&requestBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format: " + err.Error()})
+		common.RespErrorStr(c, http.StatusBadRequest, "Invalid JSON format: "+err.Error())
 		return
 	}
 
@@ -1740,7 +1736,7 @@ func StartBatchImport(c *gin.Context) {
 		if mcpServersMap, ok := mcpServers.(map[string]interface{}); ok {
 			services = mcpServersMap
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "mcpServers field must be an object"})
+			common.RespErrorStr(c, http.StatusBadRequest, "mcpServers field must be an object")
 			return
 		}
 	} else {
@@ -1749,7 +1745,7 @@ func StartBatchImport(c *gin.Context) {
 	}
 
 	if len(services) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No services provided"})
+		common.RespErrorStr(c, http.StatusBadRequest, "No services provided")
 		return
 	}
 
@@ -1768,7 +1764,7 @@ func StartBatchImport(c *gin.Context) {
 
 	go processBatchImport(task)
 
-	c.JSON(http.StatusOK, gin.H{"task_id": taskID})
+	common.RespSuccess(c, gin.H{"task_id": taskID})
 }
 
 func processBatchImport(task *BatchImportTask) {
@@ -2164,20 +2160,20 @@ func StreamBatchImportProgress(c *gin.Context) {
 	// Check authentication via query parameter since SSE doesn't support custom headers
 	token := c.Query("token")
 	if token == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication token required"})
+		common.RespErrorStr(c, http.StatusUnauthorized, "Authentication token required")
 		return
 	}
 
 	// Validate the token (reuse existing JWT validation logic)
 	claims, err := service.ValidateToken(token)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		common.RespErrorStr(c, http.StatusUnauthorized, "Invalid token")
 		return
 	}
 
 	// Check if user is admin (similar to AdminAuth middleware)
 	if claims.Role < common.RoleAdminUser {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		common.RespErrorStr(c, http.StatusForbidden, "Admin access required")
 		return
 	}
 
@@ -2186,7 +2182,7 @@ func StreamBatchImportProgress(c *gin.Context) {
 	tasksMutex.Unlock()
 
 	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		common.RespErrorStr(c, http.StatusNotFound, "Task not found")
 		return
 	}
 
@@ -2197,7 +2193,7 @@ func StreamBatchImportProgress(c *gin.Context) {
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming unsupported"})
+		common.RespErrorStr(c, http.StatusInternalServerError, "Streaming unsupported")
 		return
 	}
 

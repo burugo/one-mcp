@@ -160,7 +160,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         try {
             // sources 由 activeMarketTab 决定
             const currentSearchSource = activeMarketTab;
-            const response = await api.get(`/mcp_market/search?query=${encodeURIComponent(searchTerm)}&sources=${currentSearchSource}`) as APIResponse<any>;
+			const response = await api.get(`/mcp-market/search?query=${encodeURIComponent(searchTerm)}&sources=${currentSearchSource}`) as APIResponse<any>;
 
             if (response.success) {
                 if (Array.isArray(response.data)) {
@@ -234,7 +234,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         set({ isSearching: true });
 
         try {
-            const response = await api.get('/mcp_market/installed') as APIResponse<any>;
+			const response = await api.get('/mcp-market/installed') as APIResponse<any>;
 
             if (response.success && Array.isArray(response.data)) {
                 // 直接用后端返回的数组，保留所有字段
@@ -290,7 +290,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 throw new Error('Package name or manager not provided');
             }
 
-            const response = await api.get(`/mcp_market/package_details?package_name=${encodeURIComponent(packageName)}&package_manager=${packageManager}`) as APIResponse<any>;
+			const response = await api.get(`/mcp-market/package_details?package_name=${encodeURIComponent(packageName)}&package_manager=${packageManager}`) as APIResponse<any>;
 
             if (response.success && response.data) {
                 const details = response.data; // `details` here is the *entire* data object from API
@@ -420,7 +420,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                 display_name: service.name,
                 service_description: service.description,
             };
-            const response = await api.post('/mcp_market/install_or_add_service', requestBody) as APIResponse<any>;
+			const response = await api.post('/mcp-market/install_or_add_service', requestBody) as APIResponse<any>;
             // RESTful: 如果需要补充 env vars，直接返回 response（完整 APIResponse）
             if (response.success === false && response.data && Array.isArray(response.data.required_env_vars) && response.data.required_env_vars.length > 0) {
                 return response;
@@ -550,7 +550,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         const serviceDisplayName = service?.name || serviceId;
 
         try {
-            const response = await api.get(`/mcp_market/install_status/${taskId}`) as APIResponse<any>;
+			const response = await api.get(`/mcp-market/install_status/${taskId}`) as APIResponse<any>;
             if (response.success && response.data) {
                 const { status, logs = [], error_message } = response.data;
                 logs.forEach((log: string) => get().updateInstallProgress(serviceId, log));
@@ -616,7 +616,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         }));
 
         try {
-            const response = await api.post('/mcp_market/uninstall', {
+			const response = await api.post('/mcp-market/uninstall', {
                 service_id: serviceId,
             }) as APIResponse<any>;
 
@@ -711,7 +711,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         const wasEnabled = serviceToToggle.enabled;
 
         try {
-            const response = await api.post(`/mcp_services/${numericServiceId}/toggle`) as APIResponse<any>;
+			const response = await api.post(`/mcp-services/${numericServiceId}/toggle`) as APIResponse<any>;
 
             if (response.success) {
                 toastEmitter.emit({
@@ -767,7 +767,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         }
 
         try {
-            const response = await api.post(`/mcp_services/${numericServiceId}/health/check`) as APIResponse<any>;
+			const response = await api.post(`/mcp-services/${numericServiceId}/health/check`) as APIResponse<any>;
 
             if (response.success && response.data) {
                 toastEmitter.emit({

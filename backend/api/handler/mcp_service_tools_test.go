@@ -55,10 +55,10 @@ func TestGetMCPServiceTools_ReturnsToolsCacheWhenNotRunning(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/mcp_services/:id/tools", GetMCPServiceTools)
+	r.GET("/api/mcp-services/:id/tools", GetMCPServiceTools)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/mcp_services/"+fmt.Sprintf("%d", created.ID)+"/tools", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp-services/"+fmt.Sprintf("%d", created.ID)+"/tools", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

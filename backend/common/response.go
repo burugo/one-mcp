@@ -36,6 +36,15 @@ func RespSuccessStr(c *gin.Context, msg string) {
 	})
 }
 
+// RespSuccessWithMsg 响应成功，返回消息和数据
+func RespSuccessWithMsg(c *gin.Context, msg string, data interface{}) {
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Message: msg,
+		Data:    data,
+	})
+}
+
 // RespError 响应错误，包含错误信息
 func RespError(c *gin.Context, statusCode int, msg string, err error) {
 	errMsg := msg
@@ -54,6 +63,15 @@ func RespErrorStr(c *gin.Context, statusCode int, msg string) {
 	c.JSON(statusCode, APIResponse{
 		Success: false,
 		Message: msg,
+	})
+}
+
+// RespErrorWithData 响应错误，包含错误消息和数据
+func RespErrorWithData(c *gin.Context, statusCode int, msg string, data interface{}) {
+	c.JSON(statusCode, APIResponse{
+		Success: false,
+		Message: msg,
+		Data:    data,
 	})
 }
 

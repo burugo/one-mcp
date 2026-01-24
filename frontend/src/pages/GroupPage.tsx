@@ -247,7 +247,7 @@ export const GroupPage = () => {
         try {
             const [groupsResp, servicesResp] = await Promise.all([
                 GroupService.getAll(),
-                api.get<MCPService[]>('/mcp_market/installed?enabled=true')
+				api.get<MCPService[]>('/mcp-market/installed?enabled=true')
             ]);
             
             if (groupsResp.success) {

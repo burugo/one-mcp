@@ -9,6 +9,7 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import type { APIResponse } from '@/utils/api';
 
 interface BatchImportModalProps {
     open: boolean;
@@ -53,7 +54,7 @@ const BatchImportModal: React.FC<BatchImportModalProps> = ({
 
         try {
             // Call the backend API to start batch import
-            const response = await fetch('/api/mcp_market/batch-import', {
+			const response = await fetch('/api/mcp-market/batch-import', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -66,12 +67,15 @@ const BatchImportModal: React.FC<BatchImportModalProps> = ({
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            const data = await response.json();
-            const taskId = data.task_id;
+			const data = await response.json() as APIResponse<{ task_id: string }>; 
+			if (!data.success || !data.data?.task_id) {
+				throw new Error(data.message || 'Failed to start batch import');
+			}
+			const taskId = data.data.task_id;
 
             // Establish SSE connection to receive progress updates
             const token = localStorage.getItem('token');
-            const eventSource = new EventSource(`/api/mcp_market/batch-import/progress/${taskId}?token=${encodeURIComponent(token || '')}`);
+			const eventSource = new EventSource(`/api/mcp-market/batch-import/progress/${taskId}?token=${encodeURIComponent(token || '')}`);
 
             eventSource.onmessage = (event) => {
                 try {

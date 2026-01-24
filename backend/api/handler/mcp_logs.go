@@ -28,7 +28,7 @@ import (
 // @Failure 401 {object} common.APIResponse
 // @Failure 403 {object} common.APIResponse
 // @Failure 500 {object} common.APIResponse
-// @Router /api/mcp_logs [get]
+// @Router /api/mcp-logs [get]
 func GetMCPLogs(c *gin.Context) {
 	// Parse query parameters (admin auth already handled by middleware)
 	var serviceID *int64

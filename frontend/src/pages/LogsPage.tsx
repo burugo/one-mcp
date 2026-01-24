@@ -67,7 +67,7 @@ const LogsPage: React.FC = () => {
                 params.append('level', levelFilter)
             }
 
-            const response = await api.get<LogsResponse>(`/mcp_logs?${params.toString()}`)
+			const response = await api.get<LogsResponse>(`/mcp-logs?${params.toString()}`)
 
             if (response.success) {
                 const { logs, total, page } = response.data!

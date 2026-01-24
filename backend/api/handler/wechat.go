@@ -52,19 +52,13 @@ func getWeChatIdByCode(code string) (string, error) {
 
 func WeChatAuth(c *gin.Context) {
 	if !common.GetWeChatAuthEnabled() {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "管理员未开启通过微信登录以及注册",
-			"success": false,
-		})
+		common.RespErrorStr(c, http.StatusOK, "管理员未开启通过微信登录以及注册")
 		return
 	}
 	code := c.Query("code")
 	wechatId, err := getWeChatIdByCode(code)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"message": err.Error(),
-			"success": false,
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 	user := model.User{
@@ -73,10 +67,7 @@ func WeChatAuth(c *gin.Context) {
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
 		err := user.FillUserByWeChatId()
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.RespErrorStr(c, http.StatusOK, err.Error())
 			return
 		}
 	} else {
@@ -87,26 +78,17 @@ func WeChatAuth(c *gin.Context) {
 			user.Status = common.UserStatusEnabled
 
 			if err := user.Insert(); err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+				common.RespErrorStr(c, http.StatusOK, err.Error())
 				return
 			}
 		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "管理员关闭了新用户注册",
-			})
+			common.RespErrorStr(c, http.StatusOK, "管理员关闭了新用户注册")
 			return
 		}
 	}
 
 	if user.Status != common.UserStatusEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "用户已被封禁",
-			"success": false,
-		})
+		common.RespErrorStr(c, http.StatusOK, "用户已被封禁")
 		return
 	}
 	// setupLogin(&user, c) // TODO: implement or replace with actual login handler
@@ -114,26 +96,17 @@ func WeChatAuth(c *gin.Context) {
 
 func WeChatBind(c *gin.Context) {
 	if !common.GetWeChatAuthEnabled() {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "管理员未开启通过微信登录以及注册",
-			"success": false,
-		})
+		common.RespErrorStr(c, http.StatusOK, "管理员未开启通过微信登录以及注册")
 		return
 	}
 	code := c.Query("code")
 	wechatId, err := getWeChatIdByCode(code)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"message": err.Error(),
-			"success": false,
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "该微信账号已被绑定",
-		})
+		common.RespErrorStr(c, http.StatusOK, "该微信账号已被绑定")
 		return
 	}
 	id := c.GetInt("id")
@@ -141,24 +114,15 @@ func WeChatBind(c *gin.Context) {
 	user.ID = int64(id)
 	err = user.FillUserById()
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
 	user.WeChatId = wechatId
 	err = user.Update(false)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.RespErrorStr(c, http.StatusOK, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	common.RespSuccessStr(c, "")
 	return
 }

@@ -33,3 +33,4 @@ one-mcp*
 .cursor/rules/*-mode.mdc
 *.db
 *.log
+.claude/

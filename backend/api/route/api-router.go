@@ -42,10 +42,8 @@ func SetApiRouter(route *gin.Engine) {
 			authOauthRoutes.GET("/email/bind", middleware.CriticalRateLimit(), handler.EmailBind)
 		}
 
-		// User routes - keeping legacy endpoints for backwards compatibility
+		// User routes - keeping legacy register endpoint for backwards compatibility
 		apiRouter.POST("/user/register", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), handler.Register)
-		apiRouter.POST("/user/login", middleware.CriticalRateLimit(), handler.Login)
-		apiRouter.GET("/user/logout", handler.Logout)
 
 		// User routes that require authentication
 		userRoute := apiRouter.Group("/user")
@@ -60,20 +58,20 @@ func SetApiRouter(route *gin.Engine) {
 				selfRoute.GET("/token", handler.GenerateToken)
 				selfRoute.POST("/change-password", handler.ChangePassword)
 			}
+		}
 
-			// Admin-only endpoints
-			adminRoute := userRoute.Group("/")
-			adminRoute.Use(middleware.JWTAuth())   // First authenticate with JWT
-			adminRoute.Use(middleware.AdminAuth()) // Then check admin privileges
-			{
-				adminRoute.GET("/", handler.GetAllUsers)
-				adminRoute.GET("/search", handler.SearchUsers)
-				adminRoute.GET("/:id", handler.GetUser)
-				adminRoute.POST("/", handler.CreateUser)
-				adminRoute.POST("/manage", handler.ManageUser)
-				adminRoute.PUT("/", handler.UpdateUser)
-				adminRoute.DELETE("/:id", handler.DeleteUser)
-			}
+		// Admin-only endpoints (moved under /api/admin/users)
+		adminUserRoute := apiRouter.Group("/admin/users")
+		adminUserRoute.Use(middleware.JWTAuth())   // First authenticate with JWT
+		adminUserRoute.Use(middleware.AdminAuth()) // Then check admin privileges
+		{
+			adminUserRoute.GET("", handler.GetAllUsers)
+			adminUserRoute.GET("/search", handler.SearchUsers)
+			adminUserRoute.GET("/:id", handler.GetUser)
+			adminUserRoute.POST("", handler.CreateUser)
+			adminUserRoute.POST("/manage", handler.ManageUser)
+			adminUserRoute.PUT("", handler.UpdateUser)
+			adminUserRoute.DELETE("/:id", handler.DeleteUser)
 		}
 
 		// Option routes (Root admin only)
@@ -86,7 +84,7 @@ func SetApiRouter(route *gin.Engine) {
 		}
 
 		// MCP Service routes
-		mcpServiceRoute := apiRouter.Group("/mcp_services")
+		mcpServiceRoute := apiRouter.Group("/mcp-services")
 		{
 			// Public endpoints (read-only, require authentication)
 			mcpServiceRoute.Use(middleware.JWTAuth())
@@ -106,7 +104,7 @@ func SetApiRouter(route *gin.Engine) {
 		}
 
 		// MCP Logs routes (Admin-only)
-		mcpLogsRoute := apiRouter.Group("/mcp_logs")
+		mcpLogsRoute := apiRouter.Group("/mcp-logs")
 		mcpLogsRoute.Use(middleware.JWTAuth())   // First authenticate with JWT
 		mcpLogsRoute.Use(middleware.AdminAuth()) // Then check admin privileges
 		{
@@ -125,7 +123,7 @@ func SetApiRouter(route *gin.Engine) {
 		}
 
 		// Market API routes
-		marketRoute := apiRouter.Group("/mcp_market")
+		marketRoute := apiRouter.Group("/mcp-market")
 		marketRoute.Use(middleware.JWTAuth())
 		{
 			marketRoute.GET("/search", handler.SearchMCPMarket)
@@ -148,7 +146,7 @@ func SetApiRouter(route *gin.Engine) {
 
 		// SSE endpoint for batch import progress (no middleware, handles auth internally)
 		// This must be outside the marketRoute group to avoid JWTAuth middleware
-		apiRouter.GET("/mcp_market/batch-import/progress/:task_id", handler.StreamBatchImportProgress)
+		apiRouter.GET("/mcp-market/batch-import/progress/:task_id", handler.StreamBatchImportProgress)
 
 		// User Config routes
 		// configRoute := apiRouter.Group("/configs")
