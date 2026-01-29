@@ -29,6 +29,7 @@ go.work.sum
 one-mcp*
 .tmp
 .vscode
+.claude
 .cursor/**/*.md
 .cursor/rules/*-mode.mdc
 *.db

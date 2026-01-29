@@ -37,24 +37,28 @@ func GroupMCPHandler(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
 	if userID == 0 {
-		common.RespErrorStr(c, http.StatusUnauthorized, "Unauthorized")
+		common.RespJSONRPCError(c, http.StatusUnauthorized, common.JSONRPCErrorCodeInvalidRequest,
+			"Authentication failed: Invalid or expired API key. Please check your API key in Profile settings or refresh it if recently changed.")
 		return
 	}
 
 	group, err := model.GetMCPServiceGroupByName(groupName, userID)
 	if err != nil {
-		common.RespError(c, http.StatusNotFound, "Group not found", err)
+		common.RespJSONRPCError(c, http.StatusNotFound, common.JSONRPCErrorCodeInvalidRequest,
+			"Group not found: "+err.Error())
 		return
 	}
 
 	if !group.Enabled {
-		common.RespErrorStr(c, http.StatusServiceUnavailable, "Group disabled")
+		common.RespJSONRPCError(c, http.StatusServiceUnavailable, common.JSONRPCErrorCodeInvalidRequest,
+			"Group is disabled")
 		return
 	}
 
 	handler, err := getOrCreateGroupMCPHandler(group, userID)
 	if err != nil {
-		common.RespError(c, http.StatusInternalServerError, "Failed to create MCP handler", err)
+		common.RespJSONRPCError(c, http.StatusInternalServerError, common.JSONRPCErrorCodeInvalidRequest,
+			"Failed to create MCP handler: "+err.Error())
 		return
 	}
 

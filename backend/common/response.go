@@ -61,3 +61,20 @@ func RespErrorStr(c *gin.Context, statusCode int, msg string) {
 func FormatTime(t time.Time) string {
 	return t.Format(RFC3339MilliZ)
 }
+
+// JSON-RPC 2.0 error codes
+const (
+	JSONRPCErrorCodeInvalidRequest = -32600
+)
+
+// RespJSONRPCError returns a JSON-RPC 2.0 formatted error response for MCP clients
+func RespJSONRPCError(c *gin.Context, statusCode int, code int, message string) {
+	c.JSON(statusCode, gin.H{
+		"jsonrpc": "2.0",
+		"id":      nil,
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
+}

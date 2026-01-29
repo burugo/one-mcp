@@ -253,7 +253,8 @@ func ProxyHandler(c *gin.Context) {
 	// doesn't explicitly abort the request, ProxyHandler still enforces authentication.
 	if userID == 0 {
 		common.SysLog(fmt.Sprintf("WARN: [ProxyHandler] Unauthorized access: userID not found or invalid for service %s", serviceName))
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Authentication required. Please provide a valid user ID."})
+		common.RespJSONRPCError(c, http.StatusUnauthorized, common.JSONRPCErrorCodeInvalidRequest,
+			"Authentication failed: Invalid or expired API key. Please check your API key in Profile settings or refresh it if recently changed.")
 		return
 	}
 
