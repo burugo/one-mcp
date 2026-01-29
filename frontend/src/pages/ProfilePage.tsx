@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-// import { useAuth } from '@/contexts/AuthContext'; // 暂时未使用
+import { useAuth } from '@/contexts/AuthContext';
 import { Eye, EyeOff, RefreshCw, Github, User, Lock } from 'lucide-react';
 import api, { APIResponse } from '@/utils/api';
 import type { PageOutletContext } from '../App';
@@ -27,7 +27,7 @@ interface UserInfo {
 
 export function ProfilePage() {
     useOutletContext<PageOutletContext>();
-    // const { currentUser } = useAuth(); // 暂时未使用
+    const { currentUser, updateUserInfo } = useAuth();
     const { toast } = useToast();
     const { t } = useTranslation();
 
@@ -162,6 +162,10 @@ export function ProfilePage() {
             const response: APIResponse = await api.get('/user/token');
             if (response.success && response.data) {
                 setUserInfo(prev => prev ? { ...prev, token: response.data } : null);
+                // Update AuthContext to propagate new token to all components
+                if (currentUser) {
+                    updateUserInfo({ ...currentUser, token: response.data });
+                }
                 toast({
                     title: t('profile.messages.apiKeyRefreshSuccess'),
                     description: t('profile.messages.apiKeyRefreshSuccess')

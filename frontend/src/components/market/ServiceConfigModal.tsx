@@ -91,6 +91,12 @@ const ServiceConfigModal: React.FC<ServiceConfigModalProps> = ({ open, service, 
         }
     }, [open, currentUser, updateUserInfo]);
 
+    React.useEffect(() => {
+        if (currentUser?.token) {
+            setUserToken(currentUser.token);
+        }
+    }, [currentUser?.token]);
+
 
 
     // 检查用户是否是管理员(role >= 10)

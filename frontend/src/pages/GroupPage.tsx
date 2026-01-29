@@ -202,7 +202,7 @@ export const GroupPage = () => {
     const [editingGroup, setEditingGroup] = useState<Group | null>(null);
     const [userToken, setUserToken] = useState<string>('');
 
-    // Fetch user token
+    // Sync user token from AuthContext
     useEffect(() => {
         const fetchUserToken = async () => {
             try {
@@ -242,6 +242,13 @@ export const GroupPage = () => {
             fetchUserToken();
         }
     }, [currentUser, updateUserInfo]);
+
+    // Update userToken when currentUser.token changes (e.g., after refresh in ProfilePage)
+    useEffect(() => {
+        if (currentUser?.token) {
+            setUserToken(currentUser.token);
+        }
+    }, [currentUser?.token]);
 
     const fetchData = useCallback(async () => {
         try {
