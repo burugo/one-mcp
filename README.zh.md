@@ -93,6 +93,30 @@ One MCP 是一个全面的模型上下文协议 (MCP) 服务管理平台。作�
 
 ## 快速开始
 
+### 使用 Homebrew（macOS & Linux）
+
+```bash
+# 添加 tap
+brew tap burugo/tap
+
+# 安装 one-mcp
+brew install one-mcp
+
+# 以后台服务启动（默认端口：3000）
+brew services start one-mcp
+
+# 停止服务
+brew services stop one-mcp
+```
+
+如果端口 `3000` 已被占用，可用自定义端口重启服务：
+
+```bash
+ONE_MCP_PORT=3001 brew services restart one-mcp
+```
+
+访问地址：http://localhost:3000（或你的自定义端口）
+
 ### 使用 Docker（推荐）
 
 ```bash
@@ -131,8 +155,14 @@ go run main.go
 
 ### 前置要求
 
+#### Homebrew 安装（macOS & Linux）
+
+- 已安装 **Homebrew**
+
+#### 手动安装
+
 - **Go**：版本 1.19 或更高
-- **Node.js**：版本 16 或更高  
+- **Node.js**：版本 16 或更高
 - **数据库**：SQLite（默认）、MySQL 或 PostgreSQL
 - **Redis**：可选，用于分布式缓存
 
@@ -162,6 +192,25 @@ REDIS_CONN_STRING=redis://localhost:6379
 
 # GitHub API（可选，在服务器查询npm所在github主页的star数，不填会有rate limit的问题）
 GITHUB_TOKEN=your-github-token
+```
+
+### Homebrew 安装（macOS & Linux）
+
+```bash
+# 添加 tap
+brew tap burugo/tap
+
+# 安装 one-mcp
+brew install one-mcp
+
+# 前台运行
+one-mcp --port 3000
+
+# 或作为系统服务运行（默认端口：3000）
+brew services start one-mcp
+
+# 当 3000 被占用时，使用自定义端口
+ONE_MCP_PORT=3001 brew services restart one-mcp
 ```
 
 ### Docker 部署

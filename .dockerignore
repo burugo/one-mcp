@@ -1,0 +1,11 @@
+.git
+.cache
+.gocache
+.cursor
+node_modules
+frontend/node_modules
+one-mcp
+*.log
+.env
+.DS_Store
+images

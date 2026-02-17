@@ -91,6 +91,30 @@ Create service groups to combine multiple MCP services and export as Skills:
 
 ## Quick Start
 
+### Using Homebrew (macOS & Linux)
+
+```bash
+# Add tap
+brew tap burugo/tap
+
+# Install one-mcp
+brew install one-mcp
+
+# Start as background service (default port: 3000)
+brew services start one-mcp
+
+# Stop service
+brew services stop one-mcp
+```
+
+If port `3000` is already in use, restart with a custom port:
+
+```bash
+ONE_MCP_PORT=3001 brew services restart one-mcp
+```
+
+Access the application at http://localhost:3000 (or your custom port).
+
 ### Using Docker (Recommended)
 
 ```bash
@@ -124,8 +148,14 @@ bash ./run.sh
 
 ### Prerequisites
 
+#### Homebrew Installation (macOS & Linux)
+
+- **Homebrew** installed
+
+#### Manual Installation
+
 - **Go**: Version 1.19 or later
-- **Node.js**: Version 16 or later  
+- **Node.js**: Version 16 or later
 - **Database**: SQLite (default), MySQL, or PostgreSQL
 - **Redis**: Optional
 
@@ -156,6 +186,25 @@ REDIS_CONN_STRING=redis://localhost:6379
 
 # GitHub API (optional, for querying npm's github homepage star count, without this, there will be rate limit issues)
 GITHUB_TOKEN=your-github-token
+```
+
+### Homebrew Installation (macOS & Linux)
+
+```bash
+# Add tap
+brew tap burugo/tap
+
+# Install one-mcp
+brew install one-mcp
+
+# Run in foreground
+one-mcp --port 3000
+
+# Or run as system service (default port: 3000)
+brew services start one-mcp
+
+# Use a custom service port when 3000 is occupied
+ONE_MCP_PORT=3001 brew services restart one-mcp
 ```
 
 ### Docker Deployment

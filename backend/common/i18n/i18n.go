@@ -3,7 +3,9 @@ package i18n
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sync"
 )
@@ -33,7 +35,7 @@ func Init(localesDir string) error {
 	}
 
 	for _, file := range files {
-		if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+		if file.IsDir() || path.Ext(file.Name()) != ".json" {
 			continue
 		}
 
@@ -53,6 +55,37 @@ func Init(localesDir string) error {
 		}
 
 		// 添加到消息映射
+		messagesLock.Lock()
+		messages[lang] = langMessages
+		messagesLock.Unlock()
+	}
+
+	return nil
+}
+
+// 从任意 fs.FS 初始化 i18n（用于 embed.FS）
+func InitFromFS(fsys fs.FS, localesDir string) error {
+	files, err := fs.ReadDir(fsys, localesDir)
+	if err != nil {
+		return fmt.Errorf("locales directory not found: %s", localesDir)
+	}
+
+	for _, file := range files {
+		if file.IsDir() || path.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		lang := file.Name()[:len(file.Name())-5]
+		data, err := fs.ReadFile(fsys, path.Join(localesDir, file.Name()))
+		if err != nil {
+			return err
+		}
+
+		var langMessages map[string]string
+		if err := json.Unmarshal(data, &langMessages); err != nil {
+			return err
+		}
+
 		messagesLock.Lock()
 		messages[lang] = langMessages
 		messagesLock.Unlock()

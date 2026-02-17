@@ -27,6 +27,7 @@ go.work.sum
 .env
 .tool-versions
 one-mcp*
+!*.rb
 .tmp
 .vscode
 .claude

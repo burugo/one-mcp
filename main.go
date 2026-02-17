@@ -30,6 +30,9 @@ var indexPage []byte
 //go:embed VERSION
 var versionFileContent string
 
+//go:embed backend/locales/*.json
+var localesFS embed.FS
+
 func main() {
 	// Set version from embedded file at the very beginning
 	common.Version = strings.TrimSpace(versionFileContent)
@@ -65,12 +68,16 @@ func main() {
 	}()
 
 	// Initialize i18n
-	localesPath := "./backend/locales"
-	// In Docker environment, try absolute path if relative path fails
-	err = i18n.Init(localesPath)
+	localesPath := "embedded:backend/locales"
+	err = i18n.InitFromFS(localesFS, "backend/locales")
 	if err != nil {
-		localesPath = "/backend/locales"
+		localesPath = "./backend/locales"
+		// In Docker environment, try absolute path if relative path fails
 		err = i18n.Init(localesPath)
+		if err != nil {
+			localesPath = "/backend/locales"
+			err = i18n.Init(localesPath)
+		}
 	}
 	if err != nil {
 		common.SysError("Failed to initialize i18n: " + err.Error())
