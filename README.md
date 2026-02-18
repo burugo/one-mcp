@@ -242,6 +242,40 @@ docker run -d \
 
 ## Configuration
 
+### Runtime Configuration (`~/.config/one-mcp/config.ini`)
+
+One MCP supports runtime configuration from an INI file at:
+
+```bash
+~/.config/one-mcp/config.ini
+```
+
+The runtime priority is:
+
+```text
+defaults < config file < environment variables < flags
+```
+
+- `defaults`: built-in defaults (for example port `3000`)
+- `config file`: values from `~/.config/one-mcp/config.ini`
+- `environment variables`: values like `PORT`, `SQLITE_PATH`, `ENABLE_GZIP`
+- `flags`: command-line flags like `--port` (highest priority)
+
+On first startup, One MCP automatically creates a minimal default `config.ini`.
+
+Example `config.ini`:
+
+```ini
+PORT=3000
+SQLITE_PATH=data/one-mcp.db
+ENABLE_GZIP=true
+```
+
+Notes:
+
+- One MCP only reads `~/.config/one-mcp/config.ini` for runtime file-based config.
+- Homebrew service values (`ONE_MCP_PORT`, service env, `--port`) still override `config.ini`.
+
 ### OAuth Setup
 
 #### GitHub OAuth

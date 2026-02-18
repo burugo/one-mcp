@@ -248,6 +248,40 @@ docker run -d \
 
 ## 配置说明
 
+### 运行时配置（`~/.config/one-mcp/config.ini`）
+
+One MCP 支持从以下 INI 文件读取运行时配置：
+
+```bash
+~/.config/one-mcp/config.ini
+```
+
+运行时优先级为：
+
+```text
+defaults < config file < environment variables < flags
+```
+
+- `defaults`：内置默认值（例如端口 `3000`）
+- `config file`：`~/.config/one-mcp/config.ini` 中的配置
+- `environment variables`：如 `PORT`、`SQLITE_PATH`、`ENABLE_GZIP`
+- `flags`：命令行参数（如 `--port`，优先级最高）
+
+首次启动时，One MCP 会自动创建最简默认 `config.ini`。
+
+`config.ini` 示例：
+
+```ini
+PORT=3000
+SQLITE_PATH=data/one-mcp.db
+ENABLE_GZIP=true
+```
+
+说明：
+
+- 运行时文件配置仅读取 `~/.config/one-mcp/config.ini`。
+- Homebrew service 的值（`ONE_MCP_PORT`、service 环境变量、`--port`）仍会覆盖 `config.ini`。
+
 ### OAuth 设置
 
 #### GitHub OAuth

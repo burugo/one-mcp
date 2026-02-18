@@ -17,9 +17,6 @@ var (
 	EnableGzip    = flag.Bool("gzip", true, "enable gzip compression")
 )
 
-// UploadPath Maybe override by ENV_VAR
-var UploadPath = "upload"
-
 func PrintHelp() {
 	fmt.Println("Copyright (C) 2025 Buru. All rights reserved.")
 	fmt.Println("GitHub: https://github.com/burugo/one-mcp")
@@ -27,6 +24,10 @@ func PrintHelp() {
 }
 
 func init() {
+	if err := loadConfigFile(); err != nil {
+		log.Fatal(err)
+	}
+
 	if os.Getenv("SESSION_SECRET") != "" {
 		SessionSecret = os.Getenv("SESSION_SECRET")
 	}
@@ -42,9 +43,6 @@ func init() {
 		}
 	}
 
-	if os.Getenv("UPLOAD_PATH") != "" {
-		UploadPath = os.Getenv("UPLOAD_PATH")
-	}
 	if os.Getenv("JWT_SECRET") != "" {
 		JWTSecret = os.Getenv("JWT_SECRET")
 	}
@@ -58,7 +56,7 @@ func init() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		Port = &portInt
+		*Port = portInt
 	}
 
 	if os.Getenv("ENABLE_GZIP") != "" {
@@ -81,8 +79,5 @@ func init() {
 				log.Fatal(err)
 			}
 		}
-	}
-	if _, err := os.Stat(UploadPath); os.IsNotExist(err) {
-		_ = os.Mkdir(UploadPath, 0777)
 	}
 }

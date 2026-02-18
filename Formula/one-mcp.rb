@@ -41,7 +41,6 @@ class OneMcp < Formula
 
   def post_install
     one_mcp_data_dir.mkpath
-    (one_mcp_data_dir/"upload").mkpath
   end
 
   service do
@@ -52,7 +51,6 @@ class OneMcp < Formula
     keep_alive true
     working_dir data_dir
     environment_variables SQLITE_PATH: "#{data_dir}/one-mcp.db",
-                          UPLOAD_PATH: "#{data_dir}/upload",
                           PORT: port
     log_path "#{data_dir}/one-mcp.log"
     error_log_path "#{data_dir}/one-mcp-error.log"

@@ -9,6 +9,7 @@ services:
       - "3000:3000"
     volumes:
       - ./data:/data
+      - ./config:/root/.config/one-mcp
     environment:
       - JWT_SECRET=your-very-secret-key
       - SQLITE_PATH=/data/one-mcp.db
