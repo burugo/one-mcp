@@ -295,13 +295,14 @@ jobs:
     - name: Update formula in tap repository
       run: |
         git clone "https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/${TAP_REPO}.git" tap-repo
-        cp Formula/one-mcp.rb tap-repo/Formula/one-mcp.rb
-
         ruby -i -pe 'gsub(/^  version ".*"$/, "  version \"${{ steps.release_version.outputs.version_no_v }}\"")' tap-repo/Formula/one-mcp.rb
-        ruby -i -pe 'gsub("REPLACE_WITH_DARWIN_AMD64_SHA256", "${{ steps.checksum.outputs.sha256_darwin_amd64 }}")' tap-repo/Formula/one-mcp.rb
-        ruby -i -pe 'gsub("REPLACE_WITH_DARWIN_ARM64_SHA256", "${{ steps.checksum.outputs.sha256_darwin_arm64 }}")' tap-repo/Formula/one-mcp.rb
-        ruby -i -pe 'gsub("REPLACE_WITH_LINUX_AMD64_SHA256", "${{ steps.checksum.outputs.sha256_linux_amd64 }}")' tap-repo/Formula/one-mcp.rb
-        ruby -i -pe 'gsub("REPLACE_WITH_LINUX_ARM64_SHA256", "${{ steps.checksum.outputs.sha256_linux_arm64 }}")' tap-repo/Formula/one-mcp.rb
+
+        # one-mcp.rb has 4 sha256 lines in fixed order:
+        # 1) darwin arm64, 2) darwin amd64, 3) linux arm64, 4) linux amd64
+        ruby -i -pe 'gsub(/^\s*sha256\s+"[0-9a-f]{64}"\s*$/, "      sha256 \"${{ steps.checksum.outputs.sha256_darwin_arm64 }}\"", 1)' tap-repo/Formula/one-mcp.rb
+        ruby -i -pe 'gsub(/^\s*sha256\s+"[0-9a-f]{64}"\s*$/, "      sha256 \"${{ steps.checksum.outputs.sha256_darwin_amd64 }}\"", 1)' tap-repo/Formula/one-mcp.rb
+        ruby -i -pe 'gsub(/^\s*sha256\s+"[0-9a-f]{64}"\s*$/, "      sha256 \"${{ steps.checksum.outputs.sha256_linux_arm64 }}\"", 1)' tap-repo/Formula/one-mcp.rb
+        ruby -i -pe 'gsub(/^\s*sha256\s+"[0-9a-f]{64}"\s*$/, "      sha256 \"${{ steps.checksum.outputs.sha256_linux_amd64 }}\"", 1)' tap-repo/Formula/one-mcp.rb
 
         cd tap-repo
         if git diff --quiet -- Formula/one-mcp.rb; then
