@@ -27,25 +27,22 @@ class OneMcp < Formula
     bin.install Dir["one-mcp-*"][0] => "one-mcp"
   end
 
-  def one_mcp_data_dir
-    if OS.mac?
+  def post_install
+    data_dir = if RUBY_PLATFORM.include?("darwin")
       Pathname.new("#{Dir.home}/Library/Application Support/one-mcp")
     else
       Pathname.new("#{Dir.home}/.local/share/one-mcp")
     end
-  end
-
-  def one_mcp_port
-    ENV.fetch("ONE_MCP_PORT", "3000")
-  end
-
-  def post_install
-    one_mcp_data_dir.mkpath
+    data_dir.mkpath
   end
 
   service do
-    data_dir = one_mcp_data_dir.to_s
-    port = one_mcp_port
+    data_dir = if RUBY_PLATFORM.include?("darwin")
+      "#{Dir.home}/Library/Application Support/one-mcp"
+    else
+      "#{Dir.home}/.local/share/one-mcp"
+    end
+    port = ENV.fetch("ONE_MCP_PORT", "3000")
 
     run [opt_bin/"one-mcp", "--port", port]
     keep_alive true
