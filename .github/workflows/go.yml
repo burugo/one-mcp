@@ -105,7 +105,7 @@ jobs:
 
   build:
     name: Build Binaries
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs: [lint, test-backend]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     strategy:
@@ -113,14 +113,19 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
           - goos: linux
             goarch: arm64
+            runner: ubuntu-latest
           - goos: darwin
             goarch: amd64
+            runner: macos-13
           - goos: darwin
             goarch: arm64
+            runner: macos-14
           - goos: windows
             goarch: amd64
+            runner: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
@@ -168,14 +173,17 @@ jobs:
       run: |
         mkdir -p release
         OUTPUT_NAME="one-mcp-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+
         if [ "${{ matrix.goos }}" = "windows" ]; then
           export CGO_ENABLED=1
           export CC=x86_64-w64-mingw32-gcc
           OUTPUT_NAME="${OUTPUT_NAME}.exe"
+        elif [ "${{ matrix.goos }}" = "darwin" ]; then
+          export CGO_ENABLED=1
         else
           export CGO_ENABLED=0
         fi
-        
+
         go build -ldflags="-s -w -X 'one-mcp/common.Version=${{ steps.version.outputs.version }}'" \
           -o "release/${OUTPUT_NAME}" main.go
 
