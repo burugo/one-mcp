@@ -42,43 +42,11 @@ One MCP is a comprehensive management platform for Model Context Protocol (MCP) 
 
 ## Features
 
-### 🚀 **Service Management**
-- **Install & Configure**: Deploy MCP services from marketplace or custom sources
-- **Multiple Service Types**: Support for stdio, Server-Sent Events (SSE), and streamable HTTP services
-- **Environment Management**: Secure handling of service environment variables and configurations
-- **Health Monitoring**: Real-time service health checks and status monitoring
-
-### 🔗 **Service Groups (Combo)**
-- **Combine Services**: Group multiple MCP services into a single unified endpoint
-- **Skill Export**: Export groups as Anthropic Skills for Claude Code and Droid
-- **Flexible Configuration**: Custom group naming and service selection
-- **SSE/HTTP Support**: Access grouped services via SSE or streamable HTTP protocols
-
-### 🛒 **Service Marketplace**
-- **Discover Services**: Browse and search MCP services from various repositories
-- **One-Click Installation**: Simple installation process with automatic dependency resolution
-- **Custom Services**: Create and deploy custom MCP services with flexible configuration options
-
-### 📊 **Analytics & Monitoring**
-- **Usage Statistics**: Track service utilization and performance metrics
-- **Request Analytics**: Monitor API requests, response times, and error rates
-- **System Health**: Comprehensive system status and uptime monitoring
-
-### 👥 **User Management**
-- **Multi-User Support**: Role-based access control with admin and user roles
-- **OAuth Integration**: Login with GitHub and Google accounts
-- **Secure Authentication**: Token-based authentication with refresh token support
-
-### 🌐 **Internationalization**
-- **Multi-Language Support**: English and Chinese (Simplified) interface
-- **Localized Content**: Fully translated user interface and error messages
-- **Language Persistence**: User language preferences saved across sessions
-
-### ⚙️ **Advanced Configuration**
-- **Environment Variables**: Flexible configuration management
-- **Database Support**: SQLite (default) with MySQL/PostgreSQL support
-- **Redis Integration**: Optional Redis support for distributed caching
-- **Docker Ready**: Full Docker support for easy deployment
+- **Service Management** — Install, configure, and monitor MCP services (stdio / SSE / streamable HTTP) from a marketplace or custom sources
+- **Service Groups** — Combine multiple MCP services into a single endpoint; export as Anthropic Skills for Claude Code & Droid
+- **Analytics** — Track usage, request rates, response times, and system health in real time
+- **Multi-User & OAuth** — Role-based access control with GitHub / Google login
+- **Flexible Deployment** — SQLite (default) / MySQL / PostgreSQL, optional Redis, Docker ready, i18n (EN / ZH)
 
 ![Screenshot](./images/services.png)
 ![Screenshot](./images/copy_config.png)
