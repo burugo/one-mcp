@@ -44,9 +44,22 @@ class OneMcp < Formula
     end
     port = ENV.fetch("ONE_MCP_PORT", "3000")
 
+    path_env = [
+      "#{HOMEBREW_PREFIX}/bin",
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+      "#{Dir.home}/.local/bin",
+      "#{Dir.home}/.cargo/bin"
+    ].uniq.join(":")
+
     run [opt_bin/"one-mcp", "--port", port]
     keep_alive true
     working_dir data_dir
+    environment_variables PATH: path_env
     log_path "#{data_dir}/one-mcp.log"
     error_log_path "#{data_dir}/one-mcp-error.log"
   end
