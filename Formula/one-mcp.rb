@@ -50,8 +50,6 @@ class OneMcp < Formula
     run [opt_bin/"one-mcp", "--port", port]
     keep_alive true
     working_dir data_dir
-    environment_variables SQLITE_PATH: "#{data_dir}/one-mcp.db",
-                          PORT: port
     log_path "#{data_dir}/one-mcp.log"
     error_log_path "#{data_dir}/one-mcp-error.log"
   end

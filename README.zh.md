@@ -273,14 +273,14 @@ defaults < config file < environment variables < flags
 
 ```ini
 PORT=3000
-SQLITE_PATH=data/one-mcp.db
+SQLITE_PATH=one-mcp.db
 ENABLE_GZIP=true
 ```
 
 说明：
 
 - 运行时文件配置仅读取 `~/.config/one-mcp/config.ini`。
-- Homebrew service 的值（`ONE_MCP_PORT`、service 环境变量、`--port`）仍会覆盖 `config.ini`。
+- Homebrew service 的值（`ONE_MCP_PORT`、`--port`）仍会覆盖 `config.ini`。
 
 ### OAuth 设置
 

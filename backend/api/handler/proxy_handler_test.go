@@ -714,21 +714,12 @@ func TestProxyHandler_RealMCPServerIntegration(t *testing.T) {
 			}
 		}
 
-		// Should accept the request and return JSON
-		// Note: 400 errors are also acceptable if it's a proper JSON-RPC error response
-		assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusAccepted || w.Code == http.StatusBadRequest || w.Code == http.StatusUnauthorized,
+		// Should accept the request and return JSON.
+		// With newer mcp-go, invalid/expired sessions align to 404 (not 400).
+		assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusAccepted || w.Code == http.StatusNotFound || w.Code == http.StatusUnauthorized,
 			"Streamable POST endpoint should handle requests with real MCP server, got: %d", w.Code)
 
-		// If it's a 400, it should still be a JSON response (JSON-RPC error)
 		contentType := w.Header().Get("Content-Type")
-		if w.Code == http.StatusBadRequest {
-			// 400 with "Invalid session ID" is actually expected for HTTP/MCP without proper session setup
-			if strings.Contains(w.Body.String(), "Invalid session ID") {
-				t.Log("Got expected 'Invalid session ID' error - Streamable POST endpoint is working")
-				// This is actually a success - the endpoint is working and responding to requests
-				return
-			}
-		}
 
 		// Accept any valid response that indicates the endpoint is working
 		validResponseIndicators := []bool{

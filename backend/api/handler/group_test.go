@@ -402,3 +402,34 @@ func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
 	assert.Contains(t, toolsYAML, "beta")
 	assert.Contains(t, toolsYAML, "current_time:")
 }
+
+func TestGroupMCPHandlerInvalidSessionReturnsNotFound(t *testing.T) {
+	teardown := setupGroupTestDB(t)
+	defer teardown()
+
+	group := &model.MCPServiceGroup{
+		UserID:      1,
+		Name:        "group-invalid-session",
+		DisplayName: "Group Invalid Session",
+		Enabled:     true,
+	}
+	group.SetServiceIDs([]int64{})
+	err := group.Insert()
+	assert.NoError(t, err)
+
+	reqBody := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+	}
+	req := newJSONRequest(t, http.MethodPost, "/group/group-invalid-session/mcp", reqBody)
+	req.Header.Set("Mcp-Session-Id", "invalid-session-id")
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = req
+	ctx.Params = gin.Params{{Key: "name", Value: "group-invalid-session"}}
+	ctx.Set("user_id", int64(1))
+
+	GroupMCPHandler(ctx)
+	assert.Equal(t, http.StatusNotFound, recorder.Code)
+}

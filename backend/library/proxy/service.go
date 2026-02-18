@@ -1654,13 +1654,8 @@ func createHTTPProxyHttpHandler(mcpGoServer *mcpserver.MCPServer, mcpDBService *
 		mcpserver.WithHeartbeatInterval(30*time.Second),
 	)
 
-	// Wrap the handler to fix mcp-go's incorrect status code for invalid sessions
-	// mcp-go returns 400 for invalid/expired sessions, but MCP spec requires 404
-	// Only wrap POST requests - GET requests are SSE streams that should pass through directly
-	wrappedHandler := WrapSessionErrorFixingHandler(actualMCPGoHTTPServer)
-
 	common.SysLog(fmt.Sprintf("Successfully created HTTP/MCP handler for %s (ID: %d)", mcpDBService.Name, mcpDBService.ID))
-	return wrappedHandler, nil
+	return actualMCPGoHTTPServer, nil
 }
 
 // GetCachedHandler safely retrieves a handler from the cache.

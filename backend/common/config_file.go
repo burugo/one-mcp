@@ -12,7 +12,7 @@ import (
 	"gopkg.in/ini.v1"
 )
 
-const defaultConfigTemplate = "PORT=3000\nSQLITE_PATH=data/one-mcp.db\nENABLE_GZIP=true\nJWT_SECRET=%s\n"
+const defaultConfigTemplate = "PORT=3000\nSQLITE_PATH=one-mcp.db\nENABLE_GZIP=true\nJWT_SECRET=%s\n"
 
 func loadConfigFile() error {
 	homeDir, err := os.UserHomeDir()

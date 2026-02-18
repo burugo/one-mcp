@@ -267,14 +267,14 @@ Example `config.ini`:
 
 ```ini
 PORT=3000
-SQLITE_PATH=data/one-mcp.db
+SQLITE_PATH=one-mcp.db
 ENABLE_GZIP=true
 ```
 
 Notes:
 
 - One MCP only reads `~/.config/one-mcp/config.ini` for runtime file-based config.
-- Homebrew service values (`ONE_MCP_PORT`, service env, `--port`) still override `config.ini`.
+- Homebrew service values (`ONE_MCP_PORT`, `--port`) still override `config.ini`.
 
 ### OAuth Setup
 

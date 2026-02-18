@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"one-mcp/backend/common"
-	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 
 	mcp "github.com/mark3labs/mcp-go/mcp"
@@ -72,7 +71,7 @@ func buildGroupMCPHandler(group *model.MCPServiceGroup) (http.Handler, error) {
 		mcpserver.WithHeartbeatInterval(30*time.Second),
 	)
 
-	return proxy.WrapSessionErrorFixingHandler(streamable), nil
+	return streamable, nil
 }
 
 func buildGroupMCPServer(group *model.MCPServiceGroup) (*mcpserver.MCPServer, error) {
