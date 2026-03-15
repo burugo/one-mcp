@@ -382,6 +382,14 @@ func networkHeartbeatJitter() time.Duration {
 	return parseDurationOption(common.OptionNetworkMcpHeartbeatJitter, 5*time.Second)
 }
 
+// mcpToolCallTimeout returns the configured timeout for MCP tool calls.
+// A value of 0 means no timeout (tool calls run until completion).
+// The callCtx is always detached from the HTTP request context so that
+// client-side HTTP timeouts do not cancel long-running upstream calls.
+func mcpToolCallTimeout() time.Duration {
+	return parseDurationOption(common.OptionMCPToolCallTimeout, 0)
+}
+
 type pingableMcpClient interface {
 	Ping(context.Context) error
 }
@@ -1752,7 +1760,20 @@ func addClientToolsToMCPServer(
 			toolName := tool.Name
 			mcpGoServer.AddTool(tool, func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				start := time.Now()
-				result, callErr := mcpGoClient.CallTool(callCtx, request)
+				// Detach the tool call context from the incoming HTTP request context so that
+				// a client-side HTTP timeout (e.g. 60 s) does not cancel long-running upstream
+				// calls (e.g. LLM-backed MCP services like GrokSearch).
+				// context.WithoutCancel (Go 1.21+) returns a copy of callCtx that carries the
+				// same values but is never cancelled by the parent.
+				// A configurable per-call timeout is applied on top of the detached context.
+				toolCtx := context.WithoutCancel(callCtx)
+				timeout := mcpToolCallTimeout()
+				if timeout > 0 {
+					var cancelFn context.CancelFunc
+					toolCtx, cancelFn = context.WithTimeout(toolCtx, timeout)
+					defer cancelFn()
+				}
+				result, callErr := mcpGoClient.CallTool(toolCtx, request)
 				duration := time.Since(start)
 				if callErr != nil {
 					trigger := fmt.Sprintf("tool call (%s)", toolName)

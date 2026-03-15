@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"one-mcp/backend/common"
+	"os"
 	"strconv"
 
 	"github.com/burugo/thing"
@@ -61,6 +62,10 @@ func InitOptionMap() error {
 	if err := InitOptionMapFromDB(); err != nil {
 		common.SysError(fmt.Sprintf("Failed to initialize option map from database: %v", err))
 		return err
+	}
+	// Override with environment variables if set (env vars take precedence over DB for deployment convenience)
+	if v := os.Getenv("MCP_TOOL_CALL_TIMEOUT"); v != "" {
+		common.OptionMap[common.OptionMCPToolCallTimeout] = v
 	}
 	return nil
 }

@@ -95,3 +95,11 @@ const (
 	OptionNetworkMcpHeartbeatTimeout  = "NetworkMcpHeartbeatTimeout"
 	OptionNetworkMcpHeartbeatJitter   = "NetworkMcpHeartbeatJitter"
 )
+
+// MCP tool call timeout.
+// Value is parsed as time.Duration (e.g. "300s", "5m"), then as seconds if duration parsing fails.
+// 0 means no timeout (tool calls run until completion).
+// Env var: MCP_TOOL_CALL_TIMEOUT
+const (
+	OptionMCPToolCallTimeout = "MCPToolCallTimeout"
+)
