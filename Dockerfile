@@ -6,7 +6,7 @@ COPY ./VERSION .
 RUN npm install
 RUN REACT_APP_VERSION=$(cat VERSION) npm run build
 
-FROM --platform=$BUILDPLATFORM golang AS builder2
+FROM --platform=$BUILDPLATFORM golang:1.26.2 AS builder2
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM

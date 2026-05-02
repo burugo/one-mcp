@@ -1,7 +1,7 @@
 module one-mcp
 
-// +heroku goVersion go1.24
-go 1.24
+// +heroku goVersion go1.26.2
+go 1.26.2
 
 require (
 	github.com/burugo/thing v0.1.26
