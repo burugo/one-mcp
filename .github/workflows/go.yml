@@ -26,7 +26,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: '1.26.2'
         cache: true
 
     - name: Set up Node.js
@@ -71,7 +71,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: '1.26.2'
         cache: true
 
     - name: Install dependencies
@@ -133,7 +133,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: '1.26.2'
         cache: true
 
     - name: Set up Node.js
