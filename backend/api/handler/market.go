@@ -1042,51 +1042,32 @@ func UninstallService(c *gin.Context) {
 		return
 	}
 
-	// 检查是否是处于安装中的服务
-	isPendingOrInstalling := false
-	if service.InstalledVersion == "" || service.InstalledVersion == "installing" {
-		// 进一步检查安装任务状态
-		installationManager := market.GetInstallationManager()
-		if task, exists := installationManager.GetTaskStatus(service.ID); exists {
-			if task.Status == market.StatusPending || task.Status == market.StatusInstalling {
-				isPendingOrInstalling = true
-				log.Printf("[UninstallService] Service ID %d is in %s state, will skip physical uninstall and proceed with soft delete only", service.ID, task.Status)
-			}
-		} else if service.InstalledVersion == "" {
-			// 没有安装任务但也没有安装版本，可能是之前失败的安装遗留
-			isPendingOrInstalling = true
-			log.Printf("[UninstallService] Service ID %d has no installed version and no running task, treating as pending installation - will skip physical uninstall", service.ID)
-		}
+	// Only an active installation task makes a service pending/installing. An empty
+	// installed version can also belong to a custom or failed service that still
+	// has a live in-memory registration.
+	isPendingOrInstalling := market.IsServiceInstallationActive(service.ID)
+	if isPendingOrInstalling {
+		log.Printf("[UninstallService] Service ID %d has an active installation task, will skip physical uninstall and proceed with soft delete only", service.ID)
 	}
 
-	// 对于非安装中的服务，进行 ServiceManager 注销（适用于所有类型）
-	if !isPendingOrInstalling {
-		log.Printf("[UninstallService] Attempting to unregister service ID %d (Name: %s) from ServiceManager", service.ID, service.Name)
-		serviceManager := proxy.GetServiceManager()
-
-		// 创建一个专门的超时上下文，给予足够的时间进行清理
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := serviceManager.UnregisterService(ctx, service.ID); err != nil {
-			// 非注册状态也不必视为致命错误
-			if err == proxy.ErrServiceNotFound {
-				log.Printf("[UninstallService] Service ID %d was not registered. Continuing.", service.ID)
-			} else {
-				log.Printf("[UninstallService] Error unregistering service ID %d from ServiceManager: %v.", service.ID, err)
-				// 如果是超时错误，我们跳过物理卸载，直接进行软删除
-				if errors.Is(err, context.DeadlineExceeded) {
-					log.Printf("[UninstallService] Unregistration timed out. Skipping physical uninstall.")
-					isPendingOrInstalling = true // Treat as pending to skip physical uninstall
-				}
-			}
+	// Always unregister before soft deletion, including active installation tasks,
+	// so no health check can retain or recreate the removed service.
+	log.Printf("[UninstallService] Attempting to unregister service ID %d (Name: %s) from ServiceManager", service.ID, service.Name)
+	serviceManager := proxy.GetServiceManager()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := serviceManager.UnregisterService(ctx, service.ID); err != nil {
+		if err == proxy.ErrServiceNotFound {
+			log.Printf("[UninstallService] Service ID %d was not registered. Continuing.", service.ID)
 		} else {
-			log.Printf("[UninstallService] Successfully unregistered service ID %d from ServiceManager.", service.ID)
+			log.Printf("[UninstallService] Error unregistering service ID %d from ServiceManager: %v.", service.ID, err)
+			if errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("[UninstallService] Unregistration timed out. Skipping physical uninstall.")
+				isPendingOrInstalling = true
+			}
 		}
-		// 无论注销是否成功，都主动删除健康缓存，避免残留状态
-		proxy.GetHealthCacheManager().DeleteServiceHealth(service.ID)
 	} else {
-		log.Printf("[UninstallService] Skipping ServiceManager unregistration for pending/installing service ID %d", service.ID)
+		log.Printf("[UninstallService] Successfully unregistered service ID %d from ServiceManager.", service.ID)
 	}
 
 	// 对于安装中的服务，跳过物理卸载，直接进行软删除
@@ -1801,13 +1782,9 @@ func CreateCustomService(c *gin.Context) {
 	}
 
 	log.Printf("Successfully registered custom service %s (ID: %d) with ServiceManager", newService.Name, newService.ID)
-
-	// 注册后立即主动健康检查并刷新数据库状态
-	if _, err := serviceManager.ForceCheckServiceHealth(newService.ID); err != nil {
-		log.Printf("Warning: Force health check failed for custom service %s (ID: %d): %v", newService.Name, newService.ID, err)
-	} else {
-		if err := serviceManager.UpdateMCPServiceHealth(newService.ID); err != nil {
-			log.Printf("Warning: UpdateMCPServiceHealth failed for custom service %s (ID: %d): %v", newService.Name, newService.ID, err)
+	if currentService, err := serviceManager.GetService(newService.ID); err == nil {
+		if health := currentService.GetHealth(); health != nil {
+			proxy.GetHealthCacheManager().SetServiceHealth(newService.ID, health)
 		}
 	}
 

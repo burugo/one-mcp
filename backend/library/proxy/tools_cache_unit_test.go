@@ -7,6 +7,7 @@ import (
 
 	"one-mcp/backend/model"
 
+	"github.com/burugo/thing"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 )
@@ -87,4 +88,95 @@ func TestHealthChecker_PopulatesToolsCacheAndToolCountWhenHealthy(t *testing.T) 
 	assert.NotNil(t, health)
 	assert.Equal(t, 1, health.ToolCount)
 	assert.True(t, health.ToolsFetched)
+}
+
+func TestServiceManagerUnregisterServiceClearsHealthRegistrationAndCaches(t *testing.T) {
+	serviceID := int64(991003)
+	manager := &ServiceManager{
+		services:      make(map[int64]Service),
+		healthChecker: NewHealthChecker(1 * time.Hour),
+		lastAccessed:  make(map[int64]time.Time),
+	}
+	service := &fakeHealthyService{
+		id:      serviceID,
+		name:    "fake-uninstall",
+		running: true,
+	}
+	manager.services[serviceID] = service
+	manager.healthChecker.RegisterService(service)
+	manager.lastAccessed[serviceID] = time.Now()
+	GetHealthCacheManager().SetServiceHealth(serviceID, &ServiceHealth{Status: StatusHealthy})
+	GetToolsCacheManager().SetServiceTools(serviceID, &ToolsCacheEntry{Tools: []mcp.Tool{{Name: "stale"}}})
+
+	assert.NoError(t, manager.UnregisterService(context.Background(), serviceID))
+	_, err := manager.GetService(serviceID)
+	assert.ErrorIs(t, err, ErrServiceNotFound)
+	_, err = manager.ForceCheckServiceHealth(serviceID)
+	assert.ErrorIs(t, err, ErrServiceNotRegistered)
+	_, healthFound := GetHealthCacheManager().GetServiceHealth(serviceID)
+	assert.False(t, healthFound)
+	_, toolsFound := GetToolsCacheManager().GetServiceTools(serviceID)
+	assert.False(t, toolsFound)
+	_, accessFound := manager.lastAccessed[serviceID]
+	assert.False(t, accessFound)
+}
+
+func TestServiceManagerUnregisterMissingServiceClearsStaleHealthRegistrationAndCaches(t *testing.T) {
+	serviceID := int64(991004)
+	manager := &ServiceManager{
+		services:      make(map[int64]Service),
+		healthChecker: NewHealthChecker(1 * time.Hour),
+		lastAccessed:  map[int64]time.Time{serviceID: time.Now()},
+	}
+	service := &fakeHealthyService{id: serviceID, name: "stale-health-registration"}
+	manager.healthChecker.RegisterService(service)
+	GetHealthCacheManager().SetServiceHealth(serviceID, &ServiceHealth{Status: StatusHealthy})
+	GetToolsCacheManager().SetServiceTools(serviceID, &ToolsCacheEntry{Tools: []mcp.Tool{{Name: "stale"}}})
+
+	assert.ErrorIs(t, manager.UnregisterService(context.Background(), serviceID), ErrServiceNotFound)
+	_, err := manager.ForceCheckServiceHealth(serviceID)
+	assert.ErrorIs(t, err, ErrServiceNotRegistered)
+	_, healthFound := GetHealthCacheManager().GetServiceHealth(serviceID)
+	assert.False(t, healthFound)
+	_, toolsFound := GetToolsCacheManager().GetServiceTools(serviceID)
+	assert.False(t, toolsFound)
+	_, accessFound := manager.lastAccessed[serviceID]
+	assert.False(t, accessFound)
+}
+
+func TestServiceManagerRejectsDisabledOrUninstalledServices(t *testing.T) {
+	tests := []struct {
+		name    string
+		service *model.MCPService
+	}{
+		{
+			name: "disabled",
+			service: &model.MCPService{
+				Name:    "disabled-service",
+				Type:    model.ServiceType("test"),
+				Enabled: false,
+			},
+		},
+		{
+			name: "uninstalled",
+			service: &model.MCPService{
+				BaseModel: thing.BaseModel{Deleted: true},
+				Name:      "uninstalled-service",
+				Type:      model.ServiceType("test"),
+				Enabled:   true,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manager := &ServiceManager{
+				services:      make(map[int64]Service),
+				healthChecker: NewHealthChecker(1 * time.Hour),
+				lastAccessed:  make(map[int64]time.Time),
+			}
+			assert.Error(t, manager.RegisterService(context.Background(), test.service))
+			assert.Empty(t, manager.GetAllServices())
+		})
+	}
 }

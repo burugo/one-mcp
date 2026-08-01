@@ -77,28 +77,14 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
         }
     }, [group, isOpen, services]);
 
-    // Generate description automatically based on selected services
-    const generateDescription = (): string => {
-        const selectedServices = services.filter(svc => formData.service_ids.includes(svc.id));
-        if (selectedServices.length === 0) return '';
-        
-        const lines = selectedServices.map(svc => {
-            const desc = svc.description || svc.display_name || svc.name;
-            return `- ${svc.name}: ${desc}`;
-        });
-        return `This group contains the following MCP services:\n${lines.join('\n')}`;
-    };
-
     const handleSubmit = async () => {
         if (!formData.name || !formData.display_name) {
             return;
         }
         setLoading(true);
         try {
-            const description = generateDescription();
             await onSave({
                 ...formData,
-                description,
                 service_ids_json: JSON.stringify(formData.service_ids)
             });
             onClose();
@@ -173,8 +159,15 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, group, service
                                             htmlFor={`svc-${svc.id}`}
                                             className="text-sm font-medium leading-none cursor-pointer"
                                         >
-                                            {svc.display_name || svc.name}
-                                            <span className="text-muted-foreground ml-2 font-normal">({svc.name})</span>
+                                            <span>
+                                                {svc.display_name || svc.name}
+                                                <span className="text-muted-foreground ml-2 font-normal">({svc.name})</span>
+                                            </span>
+                                            {svc.description && (
+                                                <span className="mt-1 block text-xs font-normal leading-snug text-muted-foreground">
+                                                    {svc.description}
+                                                </span>
+                                            )}
                                         </label>
                                     </div>
                                 ))

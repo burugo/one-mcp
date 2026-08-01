@@ -58,7 +58,7 @@ func groupHandlerCacheKey(groupID int64, userID int64) string {
 }
 
 func groupHandlerFingerprint(group *model.MCPServiceGroup) string {
-	return fmt.Sprintf("%s|%s|%s", group.Name, group.Description, group.ServiceIDsJSON)
+	return fmt.Sprintf("%q|%q|%q", group.Name, group.Description, group.ServiceIDsJSON)
 }
 
 func buildGroupMCPHandler(group *model.MCPServiceGroup) (http.Handler, error) {

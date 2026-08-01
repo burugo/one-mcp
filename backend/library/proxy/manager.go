@@ -130,6 +130,10 @@ func (m *ServiceManager) Shutdown(ctx context.Context) error {
 
 // RegisterService 注册一个服务到管理器
 func (m *ServiceManager) RegisterService(ctx context.Context, mcpService *model.MCPService) error {
+	if !mcpService.Enabled || mcpService.Deleted {
+		return fmt.Errorf("cannot register disabled or uninstalled service %d", mcpService.ID)
+	}
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -142,6 +146,11 @@ func (m *ServiceManager) RegisterService(ctx context.Context, mcpService *model.
 	service, err := ServiceFactory(mcpService)
 	if err != nil {
 		return fmt.Errorf("failed to create service instance: %w", err)
+	}
+	if freshService, refreshErr := model.GetServiceByID(mcpService.ID); refreshErr == nil &&
+		(!freshService.Enabled || freshService.Deleted) {
+		_ = service.Stop(ctx)
+		return fmt.Errorf("cannot register disabled or uninstalled service %d", mcpService.ID)
 	}
 
 	// 注册服务
@@ -183,6 +192,10 @@ func (m *ServiceManager) UnregisterService(ctx context.Context, serviceID int64)
 
 	service, exists := m.services[serviceID]
 	if !exists {
+		m.healthChecker.UnregisterService(serviceID)
+		GetHealthCacheManager().DeleteServiceHealth(serviceID)
+		GetToolsCacheManager().DeleteServiceTools(serviceID)
+		delete(m.lastAccessed, serviceID)
 		return ErrServiceNotFound
 	}
 
@@ -202,9 +215,11 @@ func (m *ServiceManager) UnregisterService(ctx context.Context, serviceID int64)
 	// 从健康状态缓存中移除
 	cacheManager := GetHealthCacheManager()
 	cacheManager.DeleteServiceHealth(serviceID)
+	GetToolsCacheManager().DeleteServiceTools(serviceID)
 
 	// 从服务列表中移除
 	delete(m.services, serviceID)
+	delete(m.lastAccessed, serviceID)
 
 	return nil
 }

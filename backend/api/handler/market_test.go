@@ -2,15 +2,85 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"one-mcp/backend/model"
+	"path/filepath"
+	"strconv"
 	"testing"
 
+	"one-mcp/backend/common"
+	"one-mcp/backend/library/proxy"
+	"one-mcp/backend/model"
+
 	"github.com/gin-gonic/gin"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestUninstallServiceUnregistersServiceWithoutInstalledVersion(t *testing.T) {
+	originalSQLitePath := common.SQLitePath
+	common.SQLitePath = filepath.Join(t.TempDir(), "market_uninstall_test.db")
+	t.Cleanup(func() { common.SQLitePath = originalSQLitePath })
+	require.NoError(t, model.InitDB())
+
+	service := &model.MCPService{
+		Name:             "uninstall-empty-version",
+		DisplayName:      "Uninstall Empty Version",
+		Type:             model.ServiceType("test"),
+		Enabled:          true,
+		InstalledVersion: "",
+	}
+	require.NoError(t, model.CreateService(service))
+
+	serviceManager := proxy.GetServiceManager()
+	require.NoError(t, serviceManager.RegisterService(context.Background(), service))
+	proxy.GetHealthCacheManager().SetServiceHealth(service.ID, &proxy.ServiceHealth{Status: proxy.StatusHealthy})
+	proxy.GetToolsCacheManager().SetServiceTools(service.ID, &proxy.ToolsCacheEntry{Tools: []mcp.Tool{{Name: "stale"}}})
+	t.Cleanup(func() {
+		_ = serviceManager.UnregisterService(context.Background(), service.ID)
+		proxy.GetHealthCacheManager().DeleteServiceHealth(service.ID)
+		proxy.GetToolsCacheManager().DeleteServiceTools(service.ID)
+	})
+
+	request := newJSONRequest(t, http.MethodPost, "/api/mcp_market/uninstall", map[string]any{"service_id": service.ID})
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = request
+	ctx.Set("lang", "en")
+
+	UninstallService(ctx)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	_, err := serviceManager.GetService(service.ID)
+	assert.ErrorIs(t, err, proxy.ErrServiceNotFound)
+	_, err = serviceManager.ForceCheckServiceHealth(service.ID)
+	assert.ErrorIs(t, err, proxy.ErrServiceNotRegistered)
+	_, healthFound := proxy.GetHealthCacheManager().GetServiceHealth(service.ID)
+	assert.False(t, healthFound)
+	_, toolsFound := proxy.GetToolsCacheManager().GetServiceTools(service.ID)
+	assert.False(t, toolsFound)
+
+	deletedService, err := model.GetServiceByID(service.ID)
+	require.NoError(t, err)
+	assert.True(t, deletedService.Deleted)
+	assert.False(t, deletedService.Enabled)
+	assert.Error(t, serviceManager.RegisterService(context.Background(), deletedService))
+
+	healthRequest, err := http.NewRequest(http.MethodPost, "/api/mcp_services/1/health/check", nil)
+	require.NoError(t, err)
+	healthRecorder := httptest.NewRecorder()
+	healthCtx, _ := gin.CreateTestContext(healthRecorder)
+	healthCtx.Request = healthRequest
+	healthCtx.Params = gin.Params{{Key: "id", Value: strconv.FormatInt(service.ID, 10)}}
+	healthCtx.Set("lang", "en")
+	CheckMCPServiceHealth(healthCtx)
+	assert.Equal(t, http.StatusBadRequest, healthRecorder.Code)
+	_, err = serviceManager.GetService(service.ID)
+	assert.ErrorIs(t, err, proxy.ErrServiceNotFound)
+}
 
 func TestSanitizeServiceName(t *testing.T) {
 	tests := []struct {

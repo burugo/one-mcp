@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type apiResponse struct {
@@ -118,7 +119,6 @@ func TestGroupCRUDHandlers(t *testing.T) {
 	createPayload := map[string]any{
 		"name":             "group-a",
 		"display_name":     "Group A",
-		"description":      "test group",
 		"service_ids_json": "[1,2]",
 	}
 	createReq := newJSONRequest(t, http.MethodPost, "/api/groups", createPayload)
@@ -202,6 +202,80 @@ func TestGroupCRUDHandlers(t *testing.T) {
 	err = json.Unmarshal(listAfterResp.Data, &groupsAfter)
 	assert.NoError(t, err)
 	assert.Len(t, groupsAfter, 0)
+}
+
+func TestGroupDescriptionReflectsCurrentServiceDescription(t *testing.T) {
+	teardown := setupGroupTestDB(t)
+	defer teardown()
+
+	service := &model.MCPService{
+		Name:        "dynamic-description-service",
+		DisplayName: "Dynamic Description Service",
+		Description: "Initial service description",
+		Type:        model.ServiceTypeSSE,
+		Command:     "http://127.0.0.1:1/sse",
+		Enabled:     true,
+	}
+	require.NoError(t, model.CreateService(service))
+
+	group := &model.MCPServiceGroup{
+		UserID:      1,
+		Name:        "dynamic-description-group",
+		DisplayName: "Dynamic Description Group",
+		Description: "This group contains the following MCP services:\n- dynamic-description-service: Initial service description",
+		Enabled:     true,
+	}
+	group.SetServiceIDs([]int64{service.ID})
+	require.NoError(t, group.Insert())
+	customGroup := &model.MCPServiceGroup{
+		UserID:      1,
+		Name:        "custom-description-group",
+		DisplayName: "Custom Description Group",
+		Description: "Custom group instructions",
+		Enabled:     true,
+	}
+	customGroup.SetServiceIDs([]int64{service.ID})
+	require.NoError(t, customGroup.Insert())
+
+	_, initialInitializeResp := initializeGroupSession(t, group.Name, group.UserID)
+	initialInstructions, ok := initialInitializeResp.Result["instructions"].(string)
+	require.True(t, ok)
+	assert.Contains(t, initialInstructions, "Initial service description")
+
+	service.Description = "Current service description"
+	require.NoError(t, model.UpdateService(service))
+
+	listRecorder := httptest.NewRecorder()
+	listCtx, _ := gin.CreateTestContext(listRecorder)
+	listCtx.Request, _ = http.NewRequest(http.MethodGet, "/api/groups", nil)
+	listCtx.Set("user_id", int64(1))
+	GetGroups(listCtx)
+	require.Equal(t, http.StatusOK, listRecorder.Code)
+
+	listResp := decodeAPIResponse(t, listRecorder)
+	var groups []groupResponse
+	require.NoError(t, json.Unmarshal(listResp.Data, &groups))
+	require.Len(t, groups, 2)
+	groupsByName := make(map[string]groupResponse, len(groups))
+	for _, currentGroup := range groups {
+		groupsByName[currentGroup.Name] = currentGroup
+	}
+	assert.Equal(t, "This group contains the following MCP services:\n- dynamic-description-service: Current service description", groupsByName[group.Name].Description)
+	assert.Equal(t, "Custom group instructions", groupsByName[customGroup.Name].Description)
+
+	persistedGroup, err := model.MCPServiceGroupDB.ByID(group.ID)
+	require.NoError(t, err)
+	assert.Contains(t, persistedGroup.Description, "Initial service description")
+	assert.NotContains(t, persistedGroup.Description, "Current service description")
+
+	_, initializeResp := initializeGroupSession(t, group.Name, group.UserID)
+	instructions, ok := initializeResp.Result["instructions"].(string)
+	require.True(t, ok)
+	assert.Contains(t, instructions, "Current service description")
+	assert.NotContains(t, instructions, "Initial service description")
+
+	_, customInitializeResp := initializeGroupSession(t, customGroup.Name, customGroup.UserID)
+	assert.Equal(t, "Custom group instructions", customInitializeResp.Result["instructions"])
 }
 
 func TestGroupMCPHandlerUnauthorized(t *testing.T) {

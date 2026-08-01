@@ -77,7 +77,11 @@ func (m *InstallationManager) GetTaskStatus(serviceID int64) (*InstallationTask,
 	defer m.tasksMutex.RUnlock()
 
 	task, exists := m.tasks[serviceID]
-	return task, exists
+	if !exists {
+		return nil, false
+	}
+	taskCopy := *task
+	return &taskCopy, true
 }
 
 // SubmitTask 提交安装任务

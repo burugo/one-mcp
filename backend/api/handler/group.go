@@ -55,6 +55,7 @@ func CreateGroup(c *gin.Context) {
 		ServiceIDsJSON: filteredServiceIDsJSON,
 		Enabled:        true,
 	}
+	group.RefreshDescription()
 	if payload.Enabled != nil {
 		group.Enabled = *payload.Enabled
 	}
@@ -100,6 +101,7 @@ func UpdateGroup(c *gin.Context) {
 		// Filter out disabled services
 		group.ServiceIDsJSON = filterEnabledServiceIDs(payload.ServiceIDsJSON)
 	}
+	group.RefreshDescription()
 	if payload.Enabled != nil {
 		group.Enabled = *payload.Enabled
 	}

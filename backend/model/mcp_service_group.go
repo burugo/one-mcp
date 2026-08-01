@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/burugo/thing"
 )
@@ -44,8 +46,67 @@ func (g *MCPServiceGroup) SetServiceIDs(ids []int64) {
 	g.ServiceIDsJSON = string(bytes)
 }
 
+// EffectiveDescription returns a current summary of the services in the group.
+// Group membership is persisted, while service descriptions remain the source of truth.
+func (g *MCPServiceGroup) EffectiveDescription() string {
+	servicesByID := make(map[int64]*MCPService, len(g.GetServiceIDs()))
+	for _, id := range g.GetServiceIDs() {
+		service, err := GetServiceByID(id)
+		if err == nil {
+			servicesByID[id] = service
+		}
+	}
+	return g.effectiveDescription(servicesByID)
+}
+
+func (g *MCPServiceGroup) effectiveDescription(servicesByID map[int64]*MCPService) string {
+	storedDescription := strings.TrimSpace(g.Description)
+	if storedDescription != "" && !strings.HasPrefix(storedDescription, "This group contains the following MCP services:") {
+		return storedDescription
+	}
+
+	lines := make([]string, 0, len(g.GetServiceIDs()))
+	for _, id := range g.GetServiceIDs() {
+		service, exists := servicesByID[id]
+		if !exists || service.Deleted {
+			continue
+		}
+		description := strings.TrimSpace(service.Description)
+		if description == "" {
+			description = strings.TrimSpace(service.DisplayName)
+		}
+		if description == "" {
+			description = service.Name
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", service.Name, description))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "This group contains the following MCP services:\n" + strings.Join(lines, "\n")
+}
+
+func (g *MCPServiceGroup) RefreshDescription() {
+	g.Description = g.EffectiveDescription()
+}
+
 func GetMCPServiceGroupsByUserID(userID int64) ([]*MCPServiceGroup, error) {
-	return MCPServiceGroupDB.Where("user_id = ?", userID).Order("id DESC").Fetch(0, 1000)
+	groups, err := MCPServiceGroupDB.Where("user_id = ?", userID).Order("id DESC").Fetch(0, 1000)
+	if err != nil {
+		return nil, err
+	}
+	services, err := GetAllServices()
+	if err != nil {
+		return nil, err
+	}
+	servicesByID := make(map[int64]*MCPService, len(services))
+	for _, service := range services {
+		servicesByID[service.ID] = service
+	}
+	for _, group := range groups {
+		group.Description = group.effectiveDescription(servicesByID)
+	}
+	return groups, nil
 }
 
 func GetMCPServiceGroupByName(name string, userID int64) (*MCPServiceGroup, error) {
@@ -56,6 +117,7 @@ func GetMCPServiceGroupByName(name string, userID int64) (*MCPServiceGroup, erro
 	if len(groups) == 0 {
 		return nil, errors.New("group_not_found")
 	}
+	groups[0].RefreshDescription()
 	return groups[0], nil
 }
 
@@ -67,6 +129,7 @@ func GetMCPServiceGroupByID(id int64, userID int64) (*MCPServiceGroup, error) {
 	if group.UserID != userID {
 		return nil, errors.New("unauthorized")
 	}
+	group.RefreshDescription()
 	return group, nil
 }
 

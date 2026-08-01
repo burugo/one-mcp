@@ -143,7 +143,7 @@ func reloadMCPService(serviceID int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_ = manager.UnregisterService(ctx, mcpService.ID)
-	if !mcpService.Enabled {
+	if !mcpService.Enabled || mcpService.Deleted {
 		return
 	}
 	if err := manager.RegisterService(ctx, mcpService); err != nil {

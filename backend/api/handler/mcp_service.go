@@ -153,6 +153,11 @@ func UpdateMCPService(c *gin.Context) {
 				common.SysError(fmt.Sprintf("Failed to re-fetch service %s (ID: %d) from database after configuration change: %v. Restart aborted.", service.Name, service.ID, err))
 				return
 			}
+			if !freshService.Enabled || freshService.Deleted {
+				common.SysLog(fmt.Sprintf("Service %s (ID: %d) was disabled or uninstalled before background restart; skipping registration", freshService.Name, freshService.ID))
+				_ = serviceManager.UnregisterService(ctx, freshService.ID)
+				return
+			}
 			common.SysLog(fmt.Sprintf("Re-fetched fresh configuration for service %s (ID: %d) from database. New DefaultEnvsJSON: %s", freshService.Name, freshService.ID, freshService.DefaultEnvsJSON))
 
 			// Step 2: Check if service exists in manager and unregister it to clean up old configuration
@@ -297,6 +302,10 @@ func CheckMCPServiceHealth(c *gin.Context) {
 	service, err := model.GetServiceByID(id)
 	if err != nil {
 		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found", lang), err)
+		return
+	}
+	if !service.Enabled || service.Deleted {
+		common.RespErrorStr(c, http.StatusBadRequest, "service is disabled or uninstalled")
 		return
 	}
 
