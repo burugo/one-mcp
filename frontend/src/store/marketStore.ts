@@ -35,6 +35,9 @@ export interface ServiceType {
     args_json?: string;
     default_envs_json?: string;
     tool_count?: number; // 工具数量
+    oauth_enabled?: boolean;
+    oauth_scopes?: string;
+    oauth_auth_status?: 'not_configured' | 'auth_required' | 'authorized';
 }
 
 // 详细服务类型定义
@@ -246,6 +249,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     description: info.Description || info.description || '',
                     version: info.InstalledVersion || info.version || 'unknown',
                     source: info.PackageManager || info.package_manager || 'unknown',
+					type: info.type === 'streamable_http' ? 'streamableHttp' : info.type,
                     author: 'Installed',
                     stars: 0,
                     npmScore: undefined,
@@ -254,7 +258,10 @@ export const useMarketStore = create<MarketState>((set, get) => ({
                     env_vars: info.env_vars || {},
                     health_status: info.HealthStatus || info.health_status || '',
                     health_details: info.HealthDetails || info.health_details || '',
-                    enabled: typeof info.Enabled === 'boolean' ? info.Enabled : undefined,
+                    enabled: typeof info.Enabled === 'boolean' ? info.Enabled : (typeof info.enabled === 'boolean' ? info.enabled : undefined),
+					oauth_enabled: typeof info.oauth_enabled === 'boolean' ? info.oauth_enabled : false,
+					oauth_scopes: info.oauth_scopes || '',
+					oauth_auth_status: info.oauth_auth_status || 'not_configured',
                     installed_service_id: info.installed_service_id,
                     tool_count: info.tool_count || 0,
                 }));

@@ -20,6 +20,7 @@ import (
 
 	"one-mcp/backend/common"
 	"one-mcp/backend/model"
+	appservice "one-mcp/backend/service"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -279,6 +280,11 @@ func (s *SharedMcpInstance) handleTransportDisruption(trigger string, cause erro
 	}
 
 	s.cleanupOnce.Do(func() {
+		if model.MCPServiceDB != nil && appservice.IsMCPOAuthAuthorizationRequired(cause) {
+			if dbService, serviceErr := model.GetServiceByID(s.serviceID); serviceErr == nil && dbService.OAuthEnabled {
+				_ = appservice.SetMCPOAuthStatus(s.serviceID, appservice.MCPOAuthStatusAuthRequired)
+			}
+		}
 		common.SysError(fmt.Sprintf("Detected transport disruption for service %s (ID: %d, cache key: %s) triggered by %s: %v",
 			s.serviceName, s.serviceID, s.cacheKey, trigger, cause))
 
@@ -910,6 +916,18 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 		s.health.FailureCount++
 		s.health.WarningLevel = 3 // Critical if not initialized
 		healthCopy := s.health
+		if s.dbServiceConfig != nil && model.MCPServiceDB != nil {
+			if freshService, refreshErr := model.GetServiceByID(s.dbServiceConfig.ID); refreshErr == nil {
+				s.dbServiceConfig.Enabled = freshService.Enabled
+				s.dbServiceConfig.OAuthEnabled = freshService.OAuthEnabled
+				s.dbServiceConfig.OAuthAuthStatus = freshService.OAuthAuthStatus
+			}
+		}
+		if s.dbServiceConfig != nil && s.dbServiceConfig.OAuthEnabled && s.dbServiceConfig.OAuthAuthStatus == appservice.MCPOAuthStatusAuthRequired {
+			s.health.ErrorMessage = appservice.MCPOAuthStatusAuthRequired
+			healthCopy.ErrorMessage = s.health.ErrorMessage
+			return &healthCopy, errors.New(appservice.MCPOAuthStatusAuthRequired)
+		}
 
 		// Self-healing logic: attempt to re-create the instance for services that should be running
 		// Skip this for on-demand stdio services (already handled above)
@@ -975,6 +993,20 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 	}
 	originalPingErr := s.sharedInstance.Client.Ping(ctx)
 	finalErrToReturn := originalPingErr
+	if originalPingErr != nil && s.dbServiceConfig != nil && s.dbServiceConfig.OAuthEnabled && appservice.IsMCPOAuthAuthorizationRequired(originalPingErr) {
+		_ = appservice.SetMCPOAuthStatus(s.serviceID, appservice.MCPOAuthStatusAuthRequired)
+		if s.dbServiceConfig != nil {
+			s.dbServiceConfig.OAuthAuthStatus = appservice.MCPOAuthStatusAuthRequired
+		}
+		s.health.Status = StatusUnhealthy
+		s.health.ErrorMessage = appservice.MCPOAuthStatusAuthRequired
+		s.health.FailureCount++
+		s.health.WarningLevel = 3
+		s.health.LastChecked = time.Now()
+		s.health.ResponseTime = time.Since(startTime).Milliseconds()
+		healthCopy := s.health
+		return &healthCopy, errors.New(appservice.MCPOAuthStatusAuthRequired)
+	}
 
 	if originalPingErr != nil {
 		serviceType := s.Type() // Get the service type from BaseService
@@ -1453,10 +1485,19 @@ func createActualMcpGoServerAndClientUncached(
 				serviceName: serviceConfigForInstance.Name,
 			},
 		}
+		var sseOptions []transport.ClientOption
+		sseOptions = append(sseOptions, mcpclient.WithHTTPClient(debugHTTPClient))
 		if len(headers) > 0 {
-			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, mcpclient.WithHeaders(headers), mcpclient.WithHTTPClient(debugHTTPClient))
+			sseOptions = append(sseOptions, mcpclient.WithHeaders(headers))
+		}
+		if serviceConfigForInstance.OAuthEnabled {
+			oauthConfig, oauthErr := appservice.BuildMCPOAuthConfig(serviceConfigForInstance, debugHTTPClient)
+			if oauthErr != nil {
+				return nil, nil, nil, nil, nil, fmt.Errorf("build OAuth config for %s: %w", serviceConfigForInstance.Name, oauthErr)
+			}
+			mcpGoClient, err = mcpclient.NewOAuthSSEClient(url, oauthConfig, sseOptions...)
 		} else {
-			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, mcpclient.WithHTTPClient(debugHTTPClient))
+			mcpGoClient, err = mcpclient.NewSSEMCPClient(url, sseOptions...)
 		}
 		needManualStart = true
 
@@ -1495,7 +1536,15 @@ func createActualMcpGoServerAndClientUncached(
 			streamableOptions = append(streamableOptions, transport.WithHTTPHeaders(headers))
 		}
 
-		mcpGoClient, err = mcpclient.NewStreamableHttpClient(url, streamableOptions...)
+		if serviceConfigForInstance.OAuthEnabled {
+			oauthConfig, oauthErr := appservice.BuildMCPOAuthConfig(serviceConfigForInstance, debugHTTPClient)
+			if oauthErr != nil {
+				return nil, nil, nil, nil, nil, fmt.Errorf("build OAuth config for %s: %w", serviceConfigForInstance.Name, oauthErr)
+			}
+			mcpGoClient, err = mcpclient.NewOAuthStreamableHttpClient(url, oauthConfig, streamableOptions...)
+		} else {
+			mcpGoClient, err = mcpclient.NewStreamableHttpClient(url, streamableOptions...)
+		}
 		needManualStart = true
 
 	default:
@@ -1526,7 +1575,14 @@ func createActualMcpGoServerAndClientUncached(
 		}
 
 		if startErr != nil {
-			errMsg := fmt.Sprintf("Failed to start mcp-go client for %s (%s): %v", serviceConfigForInstance.Name, instanceNameDetail, startErr)
+			if serviceConfigForInstance.OAuthEnabled && appservice.IsMCPOAuthAuthorizationRequired(startErr) {
+				_ = appservice.SetMCPOAuthStatus(serviceConfigForInstance.ID, appservice.MCPOAuthStatusAuthRequired)
+			}
+			safeStartErr := startErr.Error()
+			if serviceConfigForInstance.OAuthEnabled && appservice.IsMCPOAuthAuthorizationRequired(startErr) {
+				safeStartErr = appservice.MCPOAuthStatusAuthRequired
+			}
+			errMsg := fmt.Sprintf("Failed to start mcp-go client for %s (%s): %s", serviceConfigForInstance.Name, instanceNameDetail, safeStartErr)
 			common.SysError(errMsg)
 
 			// Save client start failure to database
@@ -1554,6 +1610,9 @@ func createActualMcpGoServerAndClientUncached(
 
 	initResult, err := mcpGoClient.Initialize(handshakeCtx, initRequest)
 	if err != nil {
+		if serviceConfigForInstance.OAuthEnabled && appservice.IsMCPOAuthAuthorizationRequired(err) {
+			_ = appservice.SetMCPOAuthStatus(serviceConfigForInstance.ID, appservice.MCPOAuthStatusAuthRequired)
+		}
 		// Give stderr some time to output error details before we return
 		// This helps capture the actual error messages from the subprocess
 		time.Sleep(100 * time.Millisecond)
@@ -1562,7 +1621,11 @@ func createActualMcpGoServerAndClientUncached(
 		if closeErr != nil {
 			common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after initialization error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
 		}
-		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s (%s): %v. Check stderr logs for detailed error messages from the subprocess.", serviceConfigForInstance.Name, instanceNameDetail, err)
+		safeInitErr := err.Error()
+		if serviceConfigForInstance.OAuthEnabled && appservice.IsMCPOAuthAuthorizationRequired(err) {
+			safeInitErr = appservice.MCPOAuthStatusAuthRequired
+		}
+		errMsg := fmt.Sprintf("Failed to initialize mcp-go client for %s (%s): %s. Check stderr logs for detailed error messages from the subprocess.", serviceConfigForInstance.Name, instanceNameDetail, safeInitErr)
 		common.SysError(errMsg)
 
 		// Save initialization failure to database
@@ -1693,6 +1756,11 @@ func ServiceFactory(mcpDBService *model.MCPService) (Service, error) {
 			common.SysLog(fmt.Sprintf("ServiceFactory: Service %s (ID: %d) is disabled, creating unhealthy service without shared instance", mcpDBService.Name, mcpDBService.ID))
 			monitoredService := NewMonitoredProxiedService(baseService, nil, mcpDBService)
 			monitoredService.UpdateHealth(StatusStopped, 0, "Service is disabled")
+			return monitoredService, nil
+		}
+		if mcpDBService.OAuthEnabled && mcpDBService.OAuthAuthStatus == appservice.MCPOAuthStatusAuthRequired {
+			monitoredService := NewMonitoredProxiedService(baseService, nil, mcpDBService)
+			monitoredService.UpdateHealth(StatusUnhealthy, 0, appservice.MCPOAuthStatusAuthRequired)
 			return monitoredService, nil
 		}
 

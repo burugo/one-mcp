@@ -1120,6 +1120,10 @@ func UninstallService(c *gin.Context) {
 
 	// 标记服务为软删除 (or hard delete if preferred)
 	// Current logic from GetServiceByID already fetched the service
+	if err := model.DeleteMCPOAuthByServiceID(service.ID); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("uninstall_failed", lang), err)
+		return
+	}
 	service.Enabled = false // Explicitly disable
 	service.Deleted = true
 	service.HealthStatus = "unknown"

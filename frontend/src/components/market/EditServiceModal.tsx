@@ -7,8 +7,9 @@ import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { CheckCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, ExternalLink, Loader2 } from 'lucide-react';
 import { ServiceType } from '@/store/marketStore';
+import api, { APIResponse } from '@/utils/api';
 
 interface EditServiceModalProps {
     open: boolean;
@@ -29,6 +30,8 @@ export interface EditServiceData {
     headers?: string;
     envVars?: string;
     commandLine?: string; // For stdio services merged command display
+    oauth_enabled?: boolean;
+    oauth_scopes?: string;
 }
 
 // Define submission status types
@@ -51,6 +54,13 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
         envVars: ''
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [oauthEnabled, setOAuthEnabled] = useState(false);
+    const [oauthScopes, setOAuthScopes] = useState('');
+    const [oauthClientId, setOAuthClientId] = useState('');
+    const [oauthClientSecret, setOAuthClientSecret] = useState('');
+    const [oauthStatus, setOAuthStatus] = useState('not_configured');
+    const [oauthCallbackUrl, setOAuthCallbackUrl] = useState('');
+    const [oauthWasConfigured, setOAuthWasConfigured] = useState(false);
 
     // Initialize form data when service prop changes
     useEffect(() => {
@@ -161,6 +171,13 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
             });
             setErrors({});
             setSubmissionStatus('idle');
+            setOAuthEnabled(Boolean(service.oauth_enabled));
+            setOAuthScopes(service.oauth_scopes || '');
+            setOAuthClientId('');
+            setOAuthClientSecret('');
+            setOAuthStatus(service.oauth_auth_status || 'not_configured');
+            setOAuthCallbackUrl('');
+            setOAuthWasConfigured(Boolean(service.oauth_enabled));
         }
     }, [service, open]);
 
@@ -169,6 +186,19 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
             setSubmissionStatus('idle');
         }
     }, [open]);
+
+    useEffect(() => {
+        if (!open || !service.oauth_enabled) return;
+        api.get(`/mcp_services/${service.id}/oauth`).then((response) => {
+            const oauthResponse = response as APIResponse<{ client_id?: string; status?: string; scopes?: string; callback_url?: string }>;
+            if (oauthResponse.success && oauthResponse.data) {
+                setOAuthClientId(oauthResponse.data.client_id || '');
+                setOAuthStatus(oauthResponse.data.status || 'not_configured');
+                setOAuthScopes(oauthResponse.data.scopes || '');
+                setOAuthCallbackUrl(oauthResponse.data.callback_url || '');
+            }
+        }).catch(() => undefined);
+    }, [open, service.id, service.oauth_enabled]);
 
     const handleChange = (field: keyof EditServiceData, value: string) => {
         setServiceData(prev => ({ ...prev, [field]: value }));
@@ -250,6 +280,57 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
     };
 
     const isBusy = submissionStatus === 'validating' || submissionStatus === 'validationSuccess' || submissionStatus === 'submittingApi';
+
+    const handleAuthorizeOAuth = async () => {
+        let configured = false;
+        try {
+            const configResponse = await api.put(`/mcp_services/${service.id}/oauth`, {
+                client_id: oauthClientId,
+                client_secret: oauthClientSecret,
+                scopes: oauthScopes,
+            }) as APIResponse<{ status: string }>;
+            if (!configResponse.success) {
+                throw new Error(configResponse.message || 'Failed to save OAuth configuration');
+            }
+            configured = true;
+            setOAuthWasConfigured(true);
+            const authorizeResponse = await api.post(`/mcp_services/${service.id}/oauth/authorize`) as APIResponse<{ authorization_url: string }>;
+            if (!authorizeResponse.success || !authorizeResponse.data?.authorization_url) {
+                throw new Error(authorizeResponse.message || 'Failed to start OAuth authorization');
+            }
+            window.location.href = authorizeResponse.data.authorization_url;
+        } catch (error) {
+            setOAuthWasConfigured(configured || Boolean(service.oauth_enabled));
+            toast({
+                title: 'OAuth authorization failed',
+                description: error instanceof Error ? error.message : 'Unknown error',
+                variant: 'destructive'
+            });
+        }
+    };
+
+    const handleOAuthEnabledChange = async (enabled: boolean) => {
+        setOAuthEnabled(enabled);
+        if (enabled || !oauthWasConfigured) return;
+        try {
+            const response = await api.delete(`/mcp_services/${service.id}/oauth`) as APIResponse;
+            if (!response.success) {
+                throw new Error(response.message || 'Failed to disable OAuth');
+            }
+            setOAuthStatus('not_configured');
+            setOAuthClientId('');
+            setOAuthClientSecret('');
+            setOAuthScopes('');
+            setOAuthWasConfigured(false);
+        } catch (error) {
+            setOAuthEnabled(true);
+            toast({
+                title: 'Failed to disable OAuth',
+                description: error instanceof Error ? error.message : 'Unknown error',
+                variant: 'destructive'
+            });
+        }
+    };
 
     return (
         <Dialog open={open} onOpenChange={(isOpen: boolean) => {
@@ -396,6 +477,44 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                                     className="min-h-[80px]"
                                 />
                             </div>
+
+                            <div className="space-y-3 rounded-md border p-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <Label htmlFor="service-oauth-enabled">OAuth</Label>
+                                        <p className="text-xs text-muted-foreground">One administrator authorization is shared globally.</p>
+                                    </div>
+                                    <input
+                                        id="service-oauth-enabled"
+                                        type="checkbox"
+                                        checked={oauthEnabled}
+                                        onChange={(event) => void handleOAuthEnabledChange(event.target.checked)}
+                                    />
+                                </div>
+                                {oauthEnabled && (
+                                    <>
+                                        <p className="text-xs">Status: <strong>{oauthStatus}</strong></p>
+                                        {oauthCallbackUrl && (
+                                            <p className="break-all text-xs text-muted-foreground">Callback: {oauthCallbackUrl}</p>
+                                        )}
+                                        <div className="space-y-2">
+                                            <Label htmlFor="service-oauth-client-id">Client ID (optional with DCR)</Label>
+                                            <Input id="service-oauth-client-id" value={oauthClientId} onChange={(event) => setOAuthClientId(event.target.value)} />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="service-oauth-client-secret">Client Secret</Label>
+                                            <Input id="service-oauth-client-secret" type="password" value={oauthClientSecret} onChange={(event) => setOAuthClientSecret(event.target.value)} />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="service-oauth-scopes">Scopes</Label>
+                                            <Input id="service-oauth-scopes" value={oauthScopes} onChange={(event) => setOAuthScopes(event.target.value)} placeholder="read write" />
+                                        </div>
+                                        <Button type="button" variant="secondary" onClick={handleAuthorizeOAuth}>
+                                            <ExternalLink className="mr-2 h-4 w-4" /> Authorize / Reauthorize
+                                        </Button>
+                                    </>
+                                )}
+                            </div>
                         </>
                     )}
 
@@ -421,4 +540,4 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
     );
 };
 
-export default EditServiceModal; 
+export default EditServiceModal;

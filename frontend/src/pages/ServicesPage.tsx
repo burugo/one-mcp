@@ -5,7 +5,7 @@ import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Search, PlusCircle, Trash2, Plus, RotateCcw, Grid, List, Upload, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceToolsModal from '@/components/market/ServiceToolsModal';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
@@ -29,6 +29,7 @@ export function ServicesPage() {
     const { t } = useTranslation();
     const { toast } = useToast();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { currentUser } = useAuth();
     const { installedServices: globalInstalledServices, fetchInstalledServices, uninstallService, toggleService, checkServiceHealth } = useMarketStore();
     const [configModalOpen, setConfigModalOpen] = useState(false);
@@ -64,6 +65,18 @@ export function ServicesPage() {
             hasFetched.current = true;
         }
     }, [fetchInstalledServices]);
+
+    useEffect(() => {
+        const oauthResult = searchParams.get('mcp_oauth');
+        if (!oauthResult) return;
+        toast({
+            title: oauthResult === 'success' ? 'OAuth authorized' : 'OAuth authorization failed',
+            description: oauthResult === 'success' ? 'The global MCP OAuth connection is ready.' : (searchParams.get('message') || 'Authorization was not completed.'),
+            variant: oauthResult === 'success' ? 'default' : 'destructive'
+        });
+        fetchInstalledServices();
+        setSearchParams({}, { replace: true });
+    }, [fetchInstalledServices, searchParams, setSearchParams, toast]);
 
     const allServices = globalInstalledServices;
     const activeServices = globalInstalledServices.filter(s => s.enabled === true);
@@ -475,6 +488,7 @@ export function ServicesPage() {
                             }, {} as Record<string, string>)
                     );
                 }
+
             } else if (serviceData.type === 'stdio') {
                 // For stdio services, update environment variables
                 if (serviceData.envVars !== undefined) {

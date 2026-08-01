@@ -22,6 +22,7 @@ func SetApiRouter(route *gin.Engine) {
 		apiRouter.GET("/oauth/github", middleware.CriticalRateLimit(), handler.GitHubOAuth)
 		apiRouter.GET("/oauth/google", middleware.CriticalRateLimit(), handler.GoogleOAuth)
 		apiRouter.GET("/oauth/wechat", middleware.CriticalRateLimit(), handler.WeChatAuth)
+		apiRouter.GET("/mcp_oauth/callback", middleware.CriticalRateLimit(), handler.MCPOAuthCallback)
 
 		// Authentication routes
 		authRoutes := apiRouter.Group("/auth")
@@ -102,6 +103,10 @@ func SetApiRouter(route *gin.Engine) {
 			{
 				adminMCPServiceRoute.PUT("/:id", handler.UpdateMCPService)
 				adminMCPServiceRoute.POST("/:id/toggle", handler.ToggleMCPService)
+				adminMCPServiceRoute.GET("/:id/oauth", handler.GetMCPOAuthStatus)
+				adminMCPServiceRoute.PUT("/:id/oauth", handler.ConfigureMCPOAuth)
+				adminMCPServiceRoute.DELETE("/:id/oauth", handler.DisableMCPOAuth)
+				adminMCPServiceRoute.POST("/:id/oauth/authorize", handler.AuthorizeMCPOAuth)
 			}
 		}
 
