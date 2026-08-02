@@ -211,7 +211,7 @@ func (m *MCPOAuthManager) Disable(serviceID int64) error {
 
 func (m *MCPOAuthManager) BeginAuthorization(ctx context.Context, serviceID int64, returnURL string) (string, error) {
 	m.pruneExpiredFlows()
-	if err := validateSecureOAuthURL(MCPOAuthCallbackURL(), "OAuth callback URL"); err != nil {
+	if err := validateMCPOAuthCallbackURL(MCPOAuthCallbackURL()); err != nil {
 		return "", err
 	}
 	service, err := model.GetServiceByID(serviceID)
@@ -883,6 +883,14 @@ func validateMCPOAuthMetadataURL(rawURL string) error {
 		return nil
 	}
 	return validateSecureOAuthURL(rawURL, "OAuth metadata URL")
+}
+
+func validateMCPOAuthCallbackURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("invalid OAuth callback URL")
+	}
+	return nil
 }
 
 func validateSecureOAuthURL(rawURL, label string) error {

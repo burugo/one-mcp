@@ -332,6 +332,49 @@ func TestBeginAuthorizationAllowsDisabledConfiguredServiceWithoutEnablingIt(t *t
 	require.Equal(t, MCPOAuthStatusAuthRequired, updatedService.OAuthAuthStatus)
 }
 
+func TestBeginAuthorizationReturnsProviderErrorForPublicHTTPCallback(t *testing.T) {
+	setupMCPOAuthTestDB(t)
+	service := createMCPOAuthTestService(t, 14)
+
+	common.OptionMapRWMutex.Lock()
+	previousServerAddress := common.OptionMap["ServerAddress"]
+	common.OptionMap["ServerAddress"] = "http://demo.one-mcp.com:3000"
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap["ServerAddress"] = previousServerAddress
+		common.OptionMapRWMutex.Unlock()
+	})
+
+	registrationCalled := false
+	oauthHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issuer":"` + "http://" + r.Host + `","authorization_endpoint":"` + "http://" + r.Host + `/authorize","token_endpoint":"` + "http://" + r.Host + `/token","registration_endpoint":"` + "http://" + r.Host + `/register","response_types_supported":["code"],"code_challenge_methods_supported":["S256"]}`))
+		case "/register":
+			registrationCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_redirect_uri","error_description":"HTTPS callback required by provider"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer oauthHTTP.Close()
+
+	record, err := model.GetMCPOAuthByServiceID(service.ID)
+	require.NoError(t, err)
+	record.AuthServerMetadataURL = oauthHTTP.URL + "/.well-known/oauth-authorization-server"
+	require.NoError(t, model.SaveMCPOAuth(record))
+
+	_, err = NewMCPOAuthManager().BeginAuthorization(context.Background(), service.ID, "http://demo.one-mcp.com:3000/services")
+
+	require.True(t, registrationCalled)
+	require.ErrorContains(t, err, "invalid_redirect_uri")
+	require.ErrorContains(t, err, "HTTPS callback required by provider")
+}
+
 func TestFailedAuthorizationKeepsDisabledServiceDisabled(t *testing.T) {
 	setupMCPOAuthTestDB(t)
 	service := createMCPOAuthTestService(t, 13)
