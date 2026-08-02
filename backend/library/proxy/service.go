@@ -211,6 +211,61 @@ func (c *stdioErrorCapture) text() string {
 	return strings.Join(c.lines, "\n")
 }
 
+type stderrLogAggregator struct {
+	tracebackLines    []string
+	tracebackComplete bool
+}
+
+func (a *stderrLogAggregator) add(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	if len(a.tracebackLines) == 0 {
+		if strings.HasPrefix(trimmed, "Traceback (most recent call last):") {
+			a.tracebackLines = append(a.tracebackLines, line)
+			return nil
+		}
+		return []string{line}
+	}
+
+	if a.tracebackComplete && !isPythonTracebackContinuation(line) {
+		messages := a.flush()
+		if strings.HasPrefix(trimmed, "Traceback (most recent call last):") {
+			a.tracebackLines = append(a.tracebackLines, line)
+			return messages
+		}
+		return append(messages, line)
+	}
+
+	a.tracebackLines = append(a.tracebackLines, line)
+	if isPythonTracebackChainMarker(trimmed) || strings.HasPrefix(trimmed, "Traceback (most recent call last):") {
+		a.tracebackComplete = false
+	} else if line == trimmed {
+		a.tracebackComplete = true
+	}
+	return nil
+}
+
+func (a *stderrLogAggregator) flush() []string {
+	if len(a.tracebackLines) == 0 {
+		return nil
+	}
+	message := strings.Join(a.tracebackLines, "\n")
+	a.tracebackLines = nil
+	a.tracebackComplete = false
+	return []string{message}
+}
+
+func isPythonTracebackContinuation(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return len(line) != len(strings.TrimLeft(line, " \t")) ||
+		strings.HasPrefix(trimmed, "Traceback (most recent call last):") ||
+		isPythonTracebackChainMarker(trimmed)
+}
+
+func isPythonTracebackChainMarker(line string) bool {
+	return strings.HasPrefix(line, "During handling of the above exception") ||
+		strings.HasPrefix(line, "The above exception was the direct cause")
+}
+
 func isUVXCommand(command string) bool {
 	return strings.EqualFold(filepath.Base(strings.TrimSpace(command)), "uvx")
 }
@@ -1534,6 +1589,15 @@ func createActualMcpGoServerAndClientWithStdioOptions(
 				if stderrReader, hasStderr := mcpclient.GetStderr(client); hasStderr {
 					go func() {
 						defer close(stderrDone)
+						logAggregator := &stderrLogAggregator{}
+						saveStderrMessage := func(message string) {
+							logLevel := classifyStderrLogLevel(message)
+							if globalStderrThrottler.shouldLog(serviceConfigForInstance.ID, message) {
+								if err := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, logLevel, message); err != nil {
+									common.SysError(fmt.Sprintf("Failed to save MCP log for %s: %v", serviceConfigForInstance.Name, err))
+								}
+							}
+						}
 						scanner := bufio.NewScanner(stderrReader)
 						for scanner.Scan() {
 							line := scanner.Text()
@@ -1555,13 +1619,14 @@ func createActualMcpGoServerAndClientWithStdioOptions(
 									common.SysLog(fmt.Sprintf("Stderr from %s: %s", serviceConfigForInstance.Name, line))
 								}
 
-								// Save to database with throttling to prevent high-frequency writes
-								if globalStderrThrottler.shouldLog(serviceConfigForInstance.ID, line) {
-									if err := model.SaveMCPLog(runtimeCtx, serviceConfigForInstance.ID, serviceConfigForInstance.Name, model.MCPLogPhaseRun, logLevel, line); err != nil {
-										common.SysError(fmt.Sprintf("Failed to save MCP log for %s: %v", serviceConfigForInstance.Name, err))
-									}
+								// Aggregate Python tracebacks before applying database log throttling.
+								for _, message := range logAggregator.add(line) {
+									saveStderrMessage(message)
 								}
 							}
+						}
+						for _, message := range logAggregator.flush() {
+							saveStderrMessage(message)
 						}
 						if err := scanner.Err(); err != nil {
 							// Skip benign/normal closure errors

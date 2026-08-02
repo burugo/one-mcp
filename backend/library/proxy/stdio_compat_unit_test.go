@@ -15,6 +15,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStderrLogAggregatorPreservesCompletePythonTraceback(t *testing.T) {
+	aggregator := &stderrLogAggregator{}
+	var messages []string
+	for _, line := range []string{
+		"Traceback (most recent call last):",
+		`  File "/app/server.py", line 12, in <module>`,
+		"    from mcp.shared.exceptions import McpError",
+		"ImportError: cannot import name 'McpError' from 'mcp.shared.exceptions'",
+		"server restarting",
+	} {
+		messages = append(messages, aggregator.add(line)...)
+	}
+	messages = append(messages, aggregator.flush()...)
+
+	require.Equal(t, []string{
+		"Traceback (most recent call last):\n" +
+			`  File "/app/server.py", line 12, in <module>` + "\n" +
+			"    from mcp.shared.exceptions import McpError\n" +
+			"ImportError: cannot import name 'McpError' from 'mcp.shared.exceptions'",
+		"server restarting",
+	}, messages)
+}
+
+func TestStderrLogAggregatorEmitsOrdinaryLinesSeparately(t *testing.T) {
+	aggregator := &stderrLogAggregator{}
+
+	require.Equal(t, []string{"server starting"}, aggregator.add("server starting"))
+	require.Equal(t, []string{"server ready"}, aggregator.add("server ready"))
+	require.Empty(t, aggregator.flush())
+}
+
 func TestShouldRetryUVXWithMCPV1ForSDK2ImportError(t *testing.T) {
 	stderr := `ImportError: cannot import name 'McpError' from 'mcp.shared.exceptions' (` +
 		`/root/.cache/uv/archive/lib/python3.13/site-packages/mcp/shared/exceptions.py). Did you mean: 'MCPError'?`
