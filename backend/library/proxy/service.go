@@ -440,7 +440,9 @@ func handleTransportErrorForCache(cacheKey string, serviceID int64, serviceName 
 }
 
 func parseDurationOption(key string, defaultValue time.Duration) time.Duration {
+	common.OptionMapRWMutex.RLock()
 	raw := strings.TrimSpace(common.OptionMap[key])
+	common.OptionMapRWMutex.RUnlock()
 	if raw == "" {
 		return defaultValue
 	}
