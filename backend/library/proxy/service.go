@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -193,6 +194,77 @@ func isBenignStderrLine(line string) bool {
 	return false
 }
 
+type stdioErrorCapture struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (c *stdioErrorCapture) add(line string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lines = append(c.lines, line)
+}
+
+func (c *stdioErrorCapture) text() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return strings.Join(c.lines, "\n")
+}
+
+func isUVXCommand(command string) bool {
+	return strings.EqualFold(filepath.Base(strings.TrimSpace(command)), "uvx")
+}
+
+func isMCPRequirement(requirement string) bool {
+	requirement = strings.ToLower(strings.TrimSpace(requirement))
+	if requirement == "mcp" {
+		return true
+	}
+	if !strings.HasPrefix(requirement, "mcp") || len(requirement) == len("mcp") {
+		return false
+	}
+	remainder := strings.TrimSpace(requirement[len("mcp"):])
+	if remainder == "" {
+		return true
+	}
+	switch remainder[0] {
+	case '<', '>', '=', '!', '~', '[', '@', ';':
+		return true
+	default:
+		return false
+	}
+}
+
+func hasExplicitMCPRequirement(args []string) bool {
+	for index, arg := range args {
+		if arg == "--with" && index+1 < len(args) && isMCPRequirement(args[index+1]) {
+			return true
+		}
+		if strings.HasPrefix(arg, "--with=") && isMCPRequirement(strings.TrimPrefix(arg, "--with=")) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldRetryUVXWithMCPV1(command string, args []string, stderr string) bool {
+	if !isUVXCommand(command) || hasExplicitMCPRequirement(args) {
+		return false
+	}
+
+	lowerStderr := strings.ToLower(stderr)
+	return strings.Contains(lowerStderr, "cannot import name 'mcperror' from 'mcp.shared.exceptions'") ||
+		strings.Contains(lowerStderr, `cannot import name "mcperror" from "mcp.shared.exceptions"`) ||
+		strings.Contains(lowerStderr, "'server' object has no attribute 'list_tools'") ||
+		strings.Contains(lowerStderr, `"server" object has no attribute "list_tools"`)
+}
+
+func withMCPV1Constraint(args []string) []string {
+	constrained := make([]string, 0, len(args)+2)
+	constrained = append(constrained, "--with", "mcp<2")
+	return append(constrained, args...)
+}
+
 // SharedMcpInstance encapsulates a shared MCPServer and its MCPClient.
 type SharedMcpInstance struct {
 	Server        *mcpserver.MCPServer
@@ -249,6 +321,10 @@ func (s *SharedMcpInstance) startMaintenanceLoops(runtimeCtx context.Context) {
 
 		// First ping immediately after initial jitter to speed up detection.
 		if err := quickPingWithTimeout(s.Client, networkHeartbeatTimeout()); err != nil {
+			if isPingUnsupported(err) {
+				common.SysLog(fmt.Sprintf("Heartbeat ping is unsupported by service %s (ID: %d); disabling ping heartbeat for this instance.", s.serviceName, s.serviceID))
+				return
+			}
 			s.handleTransportDisruption("heartbeat ping", err)
 			return
 		}
@@ -265,6 +341,10 @@ func (s *SharedMcpInstance) startMaintenanceLoops(runtimeCtx context.Context) {
 				return
 			case <-ticker.C:
 				if err := quickPingWithTimeout(s.Client, networkHeartbeatTimeout()); err != nil {
+					if isPingUnsupported(err) {
+						common.SysLog(fmt.Sprintf("Heartbeat ping is unsupported by service %s (ID: %d); disabling ping heartbeat for this instance.", s.serviceName, s.serviceID))
+						return
+					}
 					s.handleTransportDisruption("heartbeat ping", err)
 					return
 				}
@@ -335,6 +415,10 @@ func isTransportClosedError(err error) bool {
 	}
 
 	return false
+}
+
+func isPingUnsupported(err error) bool {
+	return errors.Is(err, mcp.ErrMethodNotFound)
 }
 
 func handleTransportErrorForCache(cacheKey string, serviceID int64, serviceName string, serviceType model.ServiceType, trigger string, err error) {
@@ -430,7 +514,7 @@ func shouldInvalidateInstanceAfterCallError(cli pingableMcpClient, err error) bo
 	// For timeouts/cancellations, only invalidate if a quick ping also fails.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 		strings.Contains(lower, "request timed out") || strings.Contains(lower, "timed out") || strings.Contains(lower, "timeout") {
-		if pingErr := quickPingWithTimeout(cli, networkHeartbeatTimeout()); pingErr != nil {
+		if pingErr := quickPingWithTimeout(cli, networkHeartbeatTimeout()); pingErr != nil && !isPingUnsupported(pingErr) {
 			return true
 		}
 	}
@@ -966,7 +1050,7 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 			// Immediate re-ping after successful creation
 			rePingErr := s.sharedInstance.Client.Ping(ctx)
 
-			if rePingErr != nil {
+			if rePingErr != nil && !isPingUnsupported(rePingErr) {
 				s.health.Status = StatusUnhealthy
 				s.health.ErrorMessage = fmt.Sprintf("Re-ping after initial client creation failed: %v", rePingErr)
 				s.health.FailureCount++
@@ -992,6 +1076,9 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 		return &healthCopy, errors.New(s.health.ErrorMessage)
 	}
 	originalPingErr := s.sharedInstance.Client.Ping(ctx)
+	if isPingUnsupported(originalPingErr) {
+		originalPingErr = nil
+	}
 	finalErrToReturn := originalPingErr
 	if originalPingErr != nil && s.dbServiceConfig != nil && s.dbServiceConfig.OAuthEnabled && appservice.IsMCPOAuthAuthorizationRequired(originalPingErr) {
 		_ = appservice.SetMCPOAuthStatus(s.serviceID, appservice.MCPOAuthStatusAuthRequired)
@@ -1057,6 +1144,9 @@ func (s *MonitoredProxiedService) CheckHealth(ctx context.Context) (*ServiceHeal
 					common.SysLog(fmt.Sprintf("Successfully re-created shared MCP instance for %s from CheckHealth. Performing immediate re-ping.", s.serviceName))
 
 					rePingErr := s.sharedInstance.Client.Ping(ctx)
+					if isPingUnsupported(rePingErr) {
+						rePingErr = nil
+					}
 
 					if rePingErr != nil {
 						s.health.Status = StatusUnhealthy
@@ -1351,11 +1441,35 @@ func createActualMcpGoServerAndClientUncached(
 	serviceConfigForInstance *model.MCPService,
 	instanceNameDetail string,
 ) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, []mcp.Tool, *mcp.Implementation, error) {
+	return createActualMcpGoServerAndClientWithStdioOptions(
+		handshakeCtx,
+		runtimeCtx,
+		cacheKey,
+		serviceConfigForInstance,
+		instanceNameDetail,
+		nil,
+		true,
+	)
+}
+
+func createActualMcpGoServerAndClientWithStdioOptions(
+	handshakeCtx context.Context,
+	runtimeCtx context.Context,
+	cacheKey string,
+	serviceConfigForInstance *model.MCPService,
+	instanceNameDetail string,
+	stdioArgsOverride []string,
+	allowUVXCompatibilityRetry bool,
+) (*mcpserver.MCPServer, mcpclient.MCPClient, *exec.Cmd, []mcp.Tool, *mcp.Implementation, error) {
 
 	var mcpGoClient mcpclient.MCPClient
 	var err error
 	var needManualStart bool
 	var stdioCmd *exec.Cmd
+	var stdioCommand string
+	var stdioArgs []string
+	var stderrCapture *stdioErrorCapture
+	var stderrDone chan struct{}
 
 	switch serviceConfigForInstance.Type {
 	case model.ServiceTypeStdio:
@@ -1376,6 +1490,11 @@ func createActualMcpGoServerAndClientUncached(
 		} else {
 			stdioConf.Args = []string{}
 		}
+		if stdioArgsOverride != nil {
+			stdioConf.Args = append([]string(nil), stdioArgsOverride...)
+		}
+		stdioCommand = stdioConf.Command
+		stdioArgs = append([]string(nil), stdioConf.Args...)
 		stdioConf.Env = []string{}
 		if serviceConfigForInstance.DefaultEnvsJSON != "" && serviceConfigForInstance.DefaultEnvsJSON != "{}" {
 			var defaultEnvs map[string]string
@@ -1406,14 +1525,18 @@ func createActualMcpGoServerAndClientUncached(
 		})
 		mcpGoClient, err = mcpclient.NewStdioMCPClientWithOptions(stdioConf.Command, stdioConf.Env, stdioConf.Args, stdioOption)
 		if err == nil {
+			stderrCapture = &stdioErrorCapture{}
+			stderrDone = make(chan struct{})
 			// Capture stderr output from the subprocess to get detailed error messages
 			if client, ok := mcpGoClient.(*mcpclient.Client); ok {
 				if stderrReader, hasStderr := mcpclient.GetStderr(client); hasStderr {
 					go func() {
+						defer close(stderrDone)
 						scanner := bufio.NewScanner(stderrReader)
 						for scanner.Scan() {
 							line := scanner.Text()
 							if line != "" {
+								stderrCapture.add(line)
 								// Skip benign close-related lines
 								if isBenignStderrLine(line) {
 									// Optional: one-line info for visibility (not error, not DB)
@@ -1452,7 +1575,11 @@ func createActualMcpGoServerAndClientUncached(
 							}
 						}
 					}()
+				} else {
+					close(stderrDone)
 				}
+			} else {
+				close(stderrDone)
 			}
 		}
 		needManualStart = false
@@ -1620,6 +1747,25 @@ func createActualMcpGoServerAndClientUncached(
 		closeErr := mcpGoClient.Close()
 		if closeErr != nil {
 			common.SysError(fmt.Sprintf("Failed to close mcp-go client for %s (%s) after initialization error: %v", serviceConfigForInstance.Name, instanceNameDetail, closeErr))
+		}
+		if stderrDone != nil {
+			select {
+			case <-stderrDone:
+			case <-time.After(time.Second):
+			}
+		}
+		if allowUVXCompatibilityRetry && stderrCapture != nil && shouldRetryUVXWithMCPV1(stdioCommand, stdioArgs, stderrCapture.text()) {
+			compatibilityArgs := withMCPV1Constraint(stdioArgs)
+			common.SysLog(fmt.Sprintf("Retrying uvx service %s (ID: %d) with mcp<2 after detecting a Python MCP SDK 2.x compatibility error", serviceConfigForInstance.Name, serviceConfigForInstance.ID))
+			return createActualMcpGoServerAndClientWithStdioOptions(
+				handshakeCtx,
+				runtimeCtx,
+				cacheKey,
+				serviceConfigForInstance,
+				instanceNameDetail,
+				compatibilityArgs,
+				false,
+			)
 		}
 		safeInitErr := err.Error()
 		if serviceConfigForInstance.OAuthEnabled && appservice.IsMCPOAuthAuthorizationRequired(err) {

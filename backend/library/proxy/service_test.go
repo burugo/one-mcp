@@ -166,6 +166,28 @@ func TestMonitoredProxiedService_CheckHealth_NilInstance(t *testing.T) {
 	assert.Equal(t, 3, health.WarningLevel) // Critical warning
 }
 
+func TestMonitoredProxiedService_CheckHealthTreatsUnsupportedPingAsHealthy(t *testing.T) {
+	fake := &fakeMcpClient{pingFn: func(context.Context) error {
+		return fmt.Errorf("remote server rejected ping: %w", mcp.ErrMethodNotFound)
+	}}
+	sharedInstance := &SharedMcpInstance{
+		Client:     fake,
+		Tools:      []mcp.Tool{{Name: "working_tool"}},
+		ServerInfo: &mcp.Implementation{Name: "no-ping-server", Version: "1.0.0"},
+	}
+	service := NewMonitoredProxiedService(
+		NewBaseService(2, "no-ping-service", model.ServiceTypeStreamableHTTP),
+		sharedInstance,
+		nil,
+	)
+
+	health, err := service.CheckHealth(context.Background())
+
+	assert.NoError(t, err)
+	assert.Equal(t, StatusHealthy, health.Status)
+	assert.Empty(t, health.ErrorMessage)
+}
+
 // TestServiceFactory_SupportedTypes tests ServiceFactory with supported types
 func TestServiceFactory_SupportedTypes(t *testing.T) {
 	teardown := setupTestEnvironmentForProxy()

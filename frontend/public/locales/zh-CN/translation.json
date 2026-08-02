@@ -169,7 +169,13 @@
         "confirmUninstallDescription": "您确定要卸载此服务吗？这将删除所有相关配置。",
         "cancel": "取消",
         "edit": "编辑",
-        "editService": "编辑服务"
+        "editService": "编辑服务",
+        "oauthAuthorized": "OAuth 已授权",
+        "oauthAuthorizationRequired": "OAuth 需要授权",
+        "oauthAuthorizeInBrowser": "在浏览器中授权",
+        "oauthReauthorize": "在浏览器中重新授权",
+        "oauthAuthorizationFailed": "OAuth 授权失败",
+        "oauthAuthorizationUrlMissing": "服务未返回授权地址"
     },
     "serviceTools": {
         "toolsList": "工具",
@@ -537,9 +543,19 @@
         "actions": {
             "cancel": "取消",
             "createService": "创建服务",
+            "createAndAuthorize": "创建并 OAuth 登录",
             "validating": "验证中...",
             "validationSuccess": "验证成功",
             "creating": "创建中..."
+        },
+        "oauth": {
+            "checking": "正在检测 OAuth 支持...",
+            "detected": "检测到 OAuth",
+            "defaultScopes": "默认请求全部权限范围：",
+            "notDetected": "未检测到 OAuth 元数据",
+            "discoveryFailed": "OAuth 检测失败，仍可创建服务",
+            "manualConfigurationRequired": "检测到 OAuth，但不支持自动注册客户端。请先创建服务，再到编辑页面配置客户端凭据。",
+            "authorizationStartFailed": "服务已创建，但未能启动授权。可在服务列表中点击 OAuth 按钮重试。"
         },
         "messages": {
             "createSuccess": "创建成功",
@@ -638,6 +654,28 @@
             "validating": "验证中...",
             "validationSuccess": "验证成功 ✓",
             "updating": "更新中..."
+        },
+        "oauth": {
+            "title": "OAuth",
+            "sharedDescription": "由一名管理员完成授权，授权结果全局共享。",
+            "status": "状态",
+            "callback": "回调地址",
+            "login": "OAuth 登录",
+            "advancedSettings": "高级 OAuth 设置",
+            "advancedDescription": "仅当 OAuth 提供方要求预先注册客户端或指定权限范围时，才需要填写以下字段。",
+            "clientId": "客户端 ID",
+            "clientSecret": "客户端密钥",
+            "scopes": "权限范围",
+            "scopesPlaceholder": "read write",
+            "statuses": {
+                "not_configured": "未配置",
+                "auth_required": "需要授权",
+                "authorized": "已授权"
+            },
+            "disableConfirmTitle": "确认停用 OAuth？",
+            "disableConfirmDescription": "此操作会删除全局共享的 OAuth 客户端凭据和令牌，服务之后需要重新授权。",
+            "disableConfirmAction": "停用 OAuth",
+            "disableCancelAction": "保持 OAuth 启用"
         }
     },
     "logs": {

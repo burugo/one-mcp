@@ -1388,6 +1388,7 @@ func ListInstalledMCPServices(c *gin.Context) {
 		b, _ := json.Marshal(svc)
 		_ = json.Unmarshal(b, &svcMap)
 		svcMap["env_vars"] = finalEnvVars // 使用合并后的环境变量
+		svcMap["oauth_configured"] = svc.OAuthAuthStatus != "" && svc.OAuthAuthStatus != service.MCPOAuthStatusNotConfigured
 
 		// tool_count 从健康缓存读取，默认为 0
 		svcMap["tool_count"] = 0
@@ -1628,13 +1629,16 @@ func CreateCustomService(c *gin.Context) {
 	lang := c.GetString("lang")
 
 	type CustomServiceRequest struct {
-		Name         string `json:"name" binding:"required"`
-		Type         string `json:"type" binding:"required"` // stdio, sse, streamableHttp
-		Command      string `json:"command"`
-		Arguments    string `json:"arguments"`
-		Environments string `json:"environments"`
-		URL          string `json:"url"`
-		Headers      string `json:"headers"`
+		Name                              string `json:"name" binding:"required"`
+		Type                              string `json:"type" binding:"required"` // stdio, sse, streamableHttp
+		Command                           string `json:"command"`
+		Arguments                         string `json:"arguments"`
+		Environments                      string `json:"environments"`
+		URL                               string `json:"url"`
+		Headers                           string `json:"headers"`
+		OAuthEnabled                      bool   `json:"oauth_enabled"`
+		OAuthScopes                       string `json:"oauth_scopes"`
+		OAuthProtectedResourceMetadataURL string `json:"oauth_protected_resource_metadata_url"`
 	}
 
 	var requestBody CustomServiceRequest
@@ -1734,6 +1738,15 @@ func CreateCustomService(c *gin.Context) {
 	} else {
 		// 对于sse和streamableHttp类型，将URL存储在Command字段
 		newService.Command = requestBody.URL
+		if requestBody.OAuthEnabled {
+			if err := service.ValidateMCPOAuthProtectedResourceMetadataURL(requestBody.URL, requestBody.OAuthProtectedResourceMetadataURL); err != nil {
+				common.RespError(c, http.StatusBadRequest, "invalid MCP OAuth discovery metadata", err)
+				return
+			}
+			newService.OAuthEnabled = true
+			newService.OAuthScopes = strings.Join(strings.Fields(requestBody.OAuthScopes), " ")
+			newService.OAuthAuthStatus = service.MCPOAuthStatusAuthRequired
+		}
 
 		// 处理Headers
 		if requestBody.Headers != "" {
@@ -1762,6 +1775,23 @@ func CreateCustomService(c *gin.Context) {
 	// 保存服务到数据库
 	if err := model.CreateService(&newService); err != nil {
 		common.RespError(c, http.StatusInternalServerError, i18n.Translate("create_mcp_service_failed", lang), err)
+		return
+	}
+	if newService.OAuthEnabled {
+		if err := model.SaveMCPOAuth(&model.MCPOAuth{
+			ServiceID:                    newService.ID,
+			ProtectedResourceMetadataURL: strings.TrimSpace(requestBody.OAuthProtectedResourceMetadataURL),
+		}); err != nil {
+			_ = model.DeleteService(newService.ID)
+			common.RespError(c, http.StatusInternalServerError, "create MCP OAuth configuration failed", err)
+			return
+		}
+		common.RespSuccess(c, gin.H{
+			"message":             "自定义服务创建成功，等待 OAuth 授权",
+			"mcp_service_id":      newService.ID,
+			"service":             newService,
+			"oauth_auth_required": true,
+		})
 		return
 	}
 

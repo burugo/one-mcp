@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -7,12 +7,13 @@ import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { CheckCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, ExternalLink, Loader2 } from 'lucide-react';
+import api, { APIResponse } from '@/utils/api';
 
 interface CustomServiceModalProps {
     open: boolean;
     onClose: () => void;
-    onCreateService: (serviceData: CustomServiceData) => Promise<void>;
+    onCreateService: (serviceData: CustomServiceData) => Promise<unknown>;
     autoFillEnv: string;
     setAutoFillEnv: (value: string) => void;
 }
@@ -24,6 +25,19 @@ export interface CustomServiceData {
     environments?: string;
     url?: string;
     headers?: string;
+    oauth_enabled?: boolean;
+    oauth_scopes?: string;
+    oauth_protected_resource_metadata_url?: string;
+}
+
+interface OAuthDiscoveryResult {
+    oauth_available: boolean;
+    automatic_authorization_supported: boolean;
+    authorization_server?: string;
+    protected_resource_metadata_url?: string;
+    scopes?: string[];
+    dynamic_client_registration_supported: boolean;
+    pkce_s256_supported: boolean;
 }
 
 // Define submission status types
@@ -42,6 +56,9 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
         headers: ''
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [oauthDiscovery, setOAuthDiscovery] = useState<OAuthDiscoveryResult | null>(null);
+    const [oauthDiscoveryStatus, setOAuthDiscoveryStatus] = useState<'idle' | 'checking' | 'found' | 'manual' | 'not_found' | 'error'>('idle');
+    const oauthDiscoveryRequestRef = useRef('');
 
     useEffect(() => {
         if (autoFillEnv) {
@@ -86,6 +103,9 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
             });
             setErrors({});
             setSubmissionStatus('idle');
+            setOAuthDiscovery(null);
+            setOAuthDiscoveryStatus('idle');
+            oauthDiscoveryRequestRef.current = '';
         } else {
             handleReset();
             setSubmissionStatus('idle');
@@ -94,10 +114,57 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
 
     const handleChange = (field: keyof CustomServiceData, value: string) => {
         setServiceData(prev => ({ ...prev, [field]: value }));
+        if (field === 'url' || field === 'type') {
+            setOAuthDiscovery(null);
+            setOAuthDiscoveryStatus('idle');
+            oauthDiscoveryRequestRef.current = '';
+        }
         if (errors[field]) {
             setErrors(prev => ({ ...prev, [field]: '' }));
         }
     };
+
+    const discoverOAuth = useCallback(async () => {
+        if (serviceData.type === 'stdio' || !serviceData.url?.trim()) return;
+        try {
+            new URL(serviceData.url);
+        } catch {
+            return;
+        }
+
+        const requestKey = `${serviceData.type}:${serviceData.url.trim()}`;
+        if (oauthDiscoveryRequestRef.current === requestKey) return;
+        oauthDiscoveryRequestRef.current = requestKey;
+        setOAuthDiscoveryStatus('checking');
+        try {
+            const response = await api.post('/mcp_market/oauth/discover', {
+                url: serviceData.url.trim(),
+                type: serviceData.type,
+            }) as APIResponse<OAuthDiscoveryResult>;
+            if (!response.success || !response.data) {
+                throw new Error(response.message || t('customServiceModal.oauth.discoveryFailed'));
+            }
+            if (oauthDiscoveryRequestRef.current !== requestKey) return;
+            if (response.data.oauth_available && !response.data.automatic_authorization_supported) {
+                setOAuthDiscovery(response.data);
+                setOAuthDiscoveryStatus('manual');
+                return;
+            }
+            setOAuthDiscovery(response.data);
+            setOAuthDiscoveryStatus(response.data.oauth_available ? 'found' : 'not_found');
+        } catch {
+            if (oauthDiscoveryRequestRef.current !== requestKey) return;
+            oauthDiscoveryRequestRef.current = '';
+            setOAuthDiscovery(null);
+            setOAuthDiscoveryStatus('error');
+        }
+    }, [serviceData.type, serviceData.url, t]);
+
+    useEffect(() => {
+        if (!open || serviceData.type === 'stdio' || !serviceData.url?.trim()) return;
+        const timer = window.setTimeout(() => void discoverOAuth(), 800);
+        return () => window.clearTimeout(timer);
+    }, [discoverOAuth, open, serviceData.type, serviceData.url]);
 
     const validateForm = (): boolean => {
         const newErrors: Record<string, string> = {};
@@ -151,7 +218,12 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
 
         setSubmissionStatus('submittingApi');
         try {
-            await onCreateService(serviceData);
+            await onCreateService({
+                ...serviceData,
+                oauth_enabled: oauthDiscoveryStatus === 'found',
+                oauth_scopes: oauthDiscovery?.scopes?.join(' ') || '',
+                oauth_protected_resource_metadata_url: oauthDiscovery?.protected_resource_metadata_url || '',
+            });
             // Remove onSuccess() call - let the parent component handle all success logic
             setSubmissionStatus('idle'); // Reset to idle after successful submission
         } catch (error: unknown) {
@@ -196,6 +268,9 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
             headers: ''
         });
         setErrors({});
+        setOAuthDiscovery(null);
+        setOAuthDiscoveryStatus('idle');
+        oauthDiscoveryRequestRef.current = '';
     };
 
     const triggerCloseFromDialog = () => {
@@ -319,10 +394,39 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                                     id="service-url"
                                     value={serviceData.url}
                                     onChange={(e) => handleChange('url', e.target.value)}
+                                    onBlur={() => void discoverOAuth()}
                                     placeholder={t('customServiceModal.form.serverUrlPlaceholder')}
                                     className={errors.url ? 'border-red-500' : ''}
                                 />
                                 {errors.url && <p className="text-red-500 text-xs">{errors.url}</p>}
+                                {oauthDiscoveryStatus === 'checking' && (
+                                    <p className="flex items-center text-xs text-muted-foreground"><Loader2 className="mr-2 h-3 w-3 animate-spin" />{t('customServiceModal.oauth.checking')}</p>
+                                )}
+                                {oauthDiscoveryStatus === 'found' && (
+                                    <div className="rounded-md border border-green-500/40 bg-green-500/10 p-3 text-sm">
+                                        <div className="flex items-center font-medium text-green-700 dark:text-green-300">
+                                            <CheckCircle className="mr-2 h-4 w-4" />{t('customServiceModal.oauth.detected')}
+                                        </div>
+                                        {oauthDiscovery?.authorization_server && (
+                                            <p className="mt-1 break-all text-xs text-muted-foreground">{oauthDiscovery.authorization_server}</p>
+                                        )}
+                                        {oauthDiscovery?.scopes && oauthDiscovery.scopes.length > 0 && (
+                                            <p className="mt-2 break-words text-xs text-muted-foreground">
+                                                <span className="font-medium text-foreground">{t('customServiceModal.oauth.defaultScopes')}</span>{' '}
+                                                {oauthDiscovery.scopes.join(' ')}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                                {oauthDiscoveryStatus === 'not_found' && (
+                                    <p className="text-xs text-muted-foreground">{t('customServiceModal.oauth.notDetected')}</p>
+                                )}
+                                {oauthDiscoveryStatus === 'manual' && (
+                                    <p className="text-xs text-amber-600">{t('customServiceModal.oauth.manualConfigurationRequired')}</p>
+                                )}
+                                {oauthDiscoveryStatus === 'error' && (
+                                    <p className="text-xs text-amber-600">{t('customServiceModal.oauth.discoveryFailed')}</p>
+                                )}
                             </div>
 
                             <div className="space-y-2">
@@ -351,8 +455,8 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
                             {submissionStatus === 'validating' && t('customServiceModal.actions.validating')}
                             {submissionStatus === 'validationSuccess' && t('customServiceModal.actions.validationSuccess')}
                             {submissionStatus === 'submittingApi' && t('customServiceModal.actions.creating')}
-                            {submissionStatus === 'idle' && t('customServiceModal.actions.createService')}
-                            {submissionStatus === 'error' && t('customServiceModal.actions.createService')}
+                            {(submissionStatus === 'idle' || submissionStatus === 'error') && oauthDiscoveryStatus === 'found' && <ExternalLink className="mr-2 h-4 w-4" />}
+                            {(submissionStatus === 'idle' || submissionStatus === 'error') && (oauthDiscoveryStatus === 'found' ? t('customServiceModal.actions.createAndAuthorize') : t('customServiceModal.actions.createService'))}
                         </Button>
                     </DialogFooter>
                 </form>
@@ -361,4 +465,4 @@ const CustomServiceModal: React.FC<CustomServiceModalProps> = ({ open, onClose, 
     );
 };
 
-export default CustomServiceModal; 
+export default CustomServiceModal;

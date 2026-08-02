@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"one-mcp/backend/model"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeMcpClient struct {
@@ -175,4 +177,58 @@ func TestSharedMcpInstance_Heartbeat_RemovesCacheOnPingFailure(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+}
+
+func TestSharedMcpInstance_HeartbeatKeepsCacheWhenPingIsUnsupported(t *testing.T) {
+	common.OptionMapRWMutex.Lock()
+	previousInterval := common.OptionMap[common.OptionNetworkMcpHeartbeatInterval]
+	previousTimeout := common.OptionMap[common.OptionNetworkMcpHeartbeatTimeout]
+	previousJitter := common.OptionMap[common.OptionNetworkMcpHeartbeatJitter]
+	common.OptionMap[common.OptionNetworkMcpHeartbeatInterval] = "10ms"
+	common.OptionMap[common.OptionNetworkMcpHeartbeatTimeout] = "5ms"
+	common.OptionMap[common.OptionNetworkMcpHeartbeatJitter] = "0s"
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap[common.OptionNetworkMcpHeartbeatInterval] = previousInterval
+		common.OptionMap[common.OptionNetworkMcpHeartbeatTimeout] = previousTimeout
+		common.OptionMap[common.OptionNetworkMcpHeartbeatJitter] = previousJitter
+		common.OptionMapRWMutex.Unlock()
+	})
+
+	sharedMCPServersMutex.Lock()
+	sharedMCPServers = make(map[string]*SharedMcpInstance)
+	sharedMCPServersMutex.Unlock()
+
+	fake := &fakeMcpClient{pingFn: func(context.Context) error {
+		return fmt.Errorf("ping failed: %w", mcp.ErrMethodNotFound)
+	}}
+	inst := &SharedMcpInstance{
+		Client:      fake,
+		cancel:      func() {},
+		serviceID:   124,
+		serviceName: "no-ping-service",
+		serviceType: model.ServiceTypeStreamableHTTP,
+		cacheKey:    "no-ping-cache",
+	}
+
+	sharedMCPServersMutex.Lock()
+	sharedMCPServers[inst.cacheKey] = inst
+	sharedMCPServersMutex.Unlock()
+	t.Cleanup(func() {
+		sharedMCPServersMutex.Lock()
+		delete(sharedMCPServers, inst.cacheKey)
+		sharedMCPServersMutex.Unlock()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	inst.startMaintenanceLoops(ctx)
+	t.Cleanup(cancel)
+	time.Sleep(50 * time.Millisecond)
+
+	sharedMCPServersMutex.Lock()
+	cached := sharedMCPServers[inst.cacheKey]
+	sharedMCPServersMutex.Unlock()
+	require.Same(t, inst, cached)
+	require.False(t, fake.closeCalled.Load())
 }

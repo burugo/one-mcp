@@ -144,6 +144,7 @@ func SetApiRouter(route *gin.Engine) {
 			adminMarketRoute := marketRoute.Group("/")
 			adminMarketRoute.Use(middleware.AdminAuth()) // JWTAuth already applied by parent group
 			{
+				adminMarketRoute.POST("/oauth/discover", handler.DiscoverMCPOAuth)
 				adminMarketRoute.POST("/install_or_add_service", handler.InstallOrAddService)
 				adminMarketRoute.POST("/batch-import", handler.StartBatchImport)
 				adminMarketRoute.POST("/uninstall", handler.UninstallService)

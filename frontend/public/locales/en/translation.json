@@ -169,7 +169,13 @@
         "confirmUninstallDescription": "Are you sure you want to uninstall this service? This will remove all related configurations.",
         "cancel": "Cancel",
         "edit": "Edit",
-        "editService": "Edit Service"
+        "editService": "Edit Service",
+        "oauthAuthorized": "OAuth authorized",
+        "oauthAuthorizationRequired": "OAuth authorization required",
+        "oauthAuthorizeInBrowser": "Authorize in browser",
+        "oauthReauthorize": "Reauthorize in browser",
+        "oauthAuthorizationFailed": "OAuth authorization failed",
+        "oauthAuthorizationUrlMissing": "The authorization URL was not returned"
     },
     "serviceTools": {
         "toolsList": "Tools",
@@ -536,9 +542,19 @@
         "actions": {
             "cancel": "Cancel",
             "createService": "Create Service",
+            "createAndAuthorize": "Create and OAuth Login",
             "validating": "Validating...",
             "validationSuccess": "Validation Success",
             "creating": "Creating..."
+        },
+        "oauth": {
+            "checking": "Checking OAuth support...",
+            "detected": "OAuth detected",
+            "defaultScopes": "Requesting all advertised scopes by default:",
+            "notDetected": "No OAuth metadata was detected",
+            "discoveryFailed": "OAuth detection failed; you can still create the service",
+            "manualConfigurationRequired": "OAuth was detected, but automatic client registration is unavailable. Create the service and configure client credentials in the editor.",
+            "authorizationStartFailed": "The service was created, but authorization could not be started. Use the OAuth button in the service list to retry."
         },
         "messages": {
             "createSuccess": "Create Success",
@@ -639,6 +655,28 @@
             "validating": "Validating...",
             "validationSuccess": "Validated ✓",
             "updating": "Updating..."
+        },
+        "oauth": {
+            "title": "OAuth",
+            "sharedDescription": "One administrator authorization is shared globally.",
+            "status": "Status",
+            "callback": "Callback",
+            "login": "OAuth Login",
+            "advancedSettings": "Advanced OAuth settings",
+            "advancedDescription": "Only fill these fields when the OAuth provider requires a pre-registered client or explicit scopes.",
+            "clientId": "Client ID",
+            "clientSecret": "Client Secret",
+            "scopes": "Scopes",
+            "scopesPlaceholder": "read write",
+            "statuses": {
+                "not_configured": "Not configured",
+                "auth_required": "Authorization required",
+                "authorized": "Authorized"
+            },
+            "disableConfirmTitle": "Disable OAuth?",
+            "disableConfirmDescription": "This removes the shared OAuth client credentials and token. The service will require authorization again.",
+            "disableConfirmAction": "Disable OAuth",
+            "disableCancelAction": "Keep OAuth enabled"
         }
     },
     "logs": {

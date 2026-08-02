@@ -7,15 +7,17 @@ import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { CheckCircle, ExternalLink, Loader2 } from 'lucide-react';
+import { CheckCircle, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { ServiceType } from '@/store/marketStore';
 import api, { APIResponse } from '@/utils/api';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 interface EditServiceModalProps {
     open: boolean;
     onClose: () => void;
     service: ServiceType;
     onUpdateService: (serviceData: EditServiceData) => Promise<void>;
+    onOAuthStatusChange?: () => Promise<void> | void;
 }
 
 export interface EditServiceData {
@@ -37,7 +39,7 @@ export interface EditServiceData {
 // Define submission status types
 type SubmissionStatus = 'idle' | 'validating' | 'validationSuccess' | 'submittingApi' | 'error';
 
-const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, service, onUpdateService }) => {
+const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, service, onUpdateService, onOAuthStatusChange }) => {
     const { t } = useTranslation();
     const { toast } = useToast();
     const [submissionStatus, setSubmissionStatus] = useState<SubmissionStatus>('idle');
@@ -61,6 +63,9 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
     const [oauthStatus, setOAuthStatus] = useState('not_configured');
     const [oauthCallbackUrl, setOAuthCallbackUrl] = useState('');
     const [oauthWasConfigured, setOAuthWasConfigured] = useState(false);
+    const [oauthAdvancedOpen, setOAuthAdvancedOpen] = useState(false);
+    const [oauthAuthorizing, setOAuthAuthorizing] = useState(false);
+    const [oauthDisableConfirmOpen, setOAuthDisableConfirmOpen] = useState(false);
 
     // Initialize form data when service prop changes
     useEffect(() => {
@@ -177,7 +182,10 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
             setOAuthClientSecret('');
             setOAuthStatus(service.oauth_auth_status || 'not_configured');
             setOAuthCallbackUrl('');
-            setOAuthWasConfigured(Boolean(service.oauth_enabled));
+            setOAuthWasConfigured(Boolean(service.oauth_enabled || service.oauth_configured));
+            setOAuthAdvancedOpen(false);
+            setOAuthAuthorizing(false);
+            setOAuthDisableConfirmOpen(false);
         }
     }, [service, open]);
 
@@ -188,7 +196,7 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
     }, [open]);
 
     useEffect(() => {
-        if (!open || !service.oauth_enabled) return;
+        if (!open || (!service.oauth_enabled && !service.oauth_configured)) return;
         api.get(`/mcp_services/${service.id}/oauth`).then((response) => {
             const oauthResponse = response as APIResponse<{ client_id?: string; status?: string; scopes?: string; callback_url?: string }>;
             if (oauthResponse.success && oauthResponse.data) {
@@ -198,7 +206,7 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                 setOAuthCallbackUrl(oauthResponse.data.callback_url || '');
             }
         }).catch(() => undefined);
-    }, [open, service.id, service.oauth_enabled]);
+    }, [open, service.id, service.oauth_enabled, service.oauth_configured]);
 
     const handleChange = (field: keyof EditServiceData, value: string) => {
         setServiceData(prev => ({ ...prev, [field]: value }));
@@ -283,6 +291,7 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
 
     const handleAuthorizeOAuth = async () => {
         let configured = false;
+        setOAuthAuthorizing(true);
         try {
             const configResponse = await api.put(`/mcp_services/${service.id}/oauth`, {
                 client_id: oauthClientId,
@@ -298,7 +307,7 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
             if (!authorizeResponse.success || !authorizeResponse.data?.authorization_url) {
                 throw new Error(authorizeResponse.message || 'Failed to start OAuth authorization');
             }
-            window.location.href = authorizeResponse.data.authorization_url;
+            window.open(authorizeResponse.data.authorization_url, '_self', 'noopener,noreferrer');
         } catch (error) {
             setOAuthWasConfigured(configured || Boolean(service.oauth_enabled));
             toast({
@@ -306,22 +315,33 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                 description: error instanceof Error ? error.message : 'Unknown error',
                 variant: 'destructive'
             });
+            setOAuthAuthorizing(false);
         }
     };
 
-    const handleOAuthEnabledChange = async (enabled: boolean) => {
-        setOAuthEnabled(enabled);
-        if (enabled || !oauthWasConfigured) return;
+    const handleOAuthEnabledChange = (enabled: boolean) => {
+        if (enabled) {
+            setOAuthEnabled(true);
+            return;
+        }
+        if (!oauthWasConfigured) {
+            setOAuthEnabled(false);
+            return;
+        }
+        setOAuthDisableConfirmOpen(true);
+    };
+
+    const disableOAuth = async () => {
         try {
             const response = await api.delete(`/mcp_services/${service.id}/oauth`) as APIResponse;
             if (!response.success) {
                 throw new Error(response.message || 'Failed to disable OAuth');
             }
-            setOAuthStatus('not_configured');
-            setOAuthClientId('');
+            setOAuthEnabled(false);
+            setOAuthStatus('auth_required');
             setOAuthClientSecret('');
-            setOAuthScopes('');
-            setOAuthWasConfigured(false);
+            setOAuthWasConfigured(true);
+            await onOAuthStatusChange?.();
         } catch (error) {
             setOAuthEnabled(true);
             toast({
@@ -481,37 +501,52 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                             <div className="space-y-3 rounded-md border p-3">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <Label htmlFor="service-oauth-enabled">OAuth</Label>
-                                        <p className="text-xs text-muted-foreground">One administrator authorization is shared globally.</p>
+                                        <Label htmlFor="service-oauth-enabled">{t('editServiceModal.oauth.title')}</Label>
+                                        <p className="text-xs text-muted-foreground">{t('editServiceModal.oauth.sharedDescription')}</p>
                                     </div>
                                     <input
                                         id="service-oauth-enabled"
                                         type="checkbox"
                                         checked={oauthEnabled}
-                                        onChange={(event) => void handleOAuthEnabledChange(event.target.checked)}
+                                        onChange={(event) => handleOAuthEnabledChange(event.target.checked)}
                                     />
                                 </div>
                                 {oauthEnabled && (
                                     <>
-                                        <p className="text-xs">Status: <strong>{oauthStatus}</strong></p>
+                                        <p className="text-xs">{t('editServiceModal.oauth.status')}: <strong>{t(`editServiceModal.oauth.statuses.${oauthStatus}`)}</strong></p>
                                         {oauthCallbackUrl && (
-                                            <p className="break-all text-xs text-muted-foreground">Callback: {oauthCallbackUrl}</p>
+                                            <p className="break-all text-xs text-muted-foreground">{t('editServiceModal.oauth.callback')}: {oauthCallbackUrl}</p>
                                         )}
-                                        <div className="space-y-2">
-                                            <Label htmlFor="service-oauth-client-id">Client ID (optional with DCR)</Label>
-                                            <Input id="service-oauth-client-id" value={oauthClientId} onChange={(event) => setOAuthClientId(event.target.value)} />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="service-oauth-client-secret">Client Secret</Label>
-                                            <Input id="service-oauth-client-secret" type="password" value={oauthClientSecret} onChange={(event) => setOAuthClientSecret(event.target.value)} />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="service-oauth-scopes">Scopes</Label>
-                                            <Input id="service-oauth-scopes" value={oauthScopes} onChange={(event) => setOAuthScopes(event.target.value)} placeholder="read write" />
-                                        </div>
-                                        <Button type="button" variant="secondary" onClick={handleAuthorizeOAuth}>
-                                            <ExternalLink className="mr-2 h-4 w-4" /> Authorize / Reauthorize
+                                        <Button type="button" variant="secondary" disabled={oauthAuthorizing} onClick={handleAuthorizeOAuth}>
+                                            {oauthAuthorizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />} {t('editServiceModal.oauth.login')}
                                         </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            aria-expanded={oauthAdvancedOpen}
+                                            onClick={() => setOAuthAdvancedOpen(open => !open)}
+                                        >
+                                            <ChevronDown className={`mr-2 h-4 w-4 transition-transform ${oauthAdvancedOpen ? 'rotate-180' : ''}`} />
+                                            {t('editServiceModal.oauth.advancedSettings')}
+                                        </Button>
+                                        {oauthAdvancedOpen && (
+                                            <div className="space-y-3 border-t pt-3">
+                                                <p className="text-xs text-muted-foreground">{t('editServiceModal.oauth.advancedDescription')}</p>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="service-oauth-client-id">{t('editServiceModal.oauth.clientId')}</Label>
+                                                    <Input id="service-oauth-client-id" value={oauthClientId} onChange={(event) => setOAuthClientId(event.target.value)} />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="service-oauth-client-secret">{t('editServiceModal.oauth.clientSecret')}</Label>
+                                                    <Input id="service-oauth-client-secret" type="password" value={oauthClientSecret} onChange={(event) => setOAuthClientSecret(event.target.value)} />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="service-oauth-scopes">{t('editServiceModal.oauth.scopes')}</Label>
+                                                    <Input id="service-oauth-scopes" value={oauthScopes} onChange={(event) => setOAuthScopes(event.target.value)} placeholder={t('editServiceModal.oauth.scopesPlaceholder')} />
+                                                </div>
+                                            </div>
+                                        )}
                                     </>
                                 )}
                             </div>
@@ -535,6 +570,16 @@ const EditServiceModal: React.FC<EditServiceModalProps> = ({ open, onClose, serv
                         </Button>
                     </DialogFooter>
                 </form>
+                <ConfirmDialog
+                    isOpen={oauthDisableConfirmOpen}
+                    onOpenChange={setOAuthDisableConfirmOpen}
+                    title={t('editServiceModal.oauth.disableConfirmTitle')}
+                    description={t('editServiceModal.oauth.disableConfirmDescription')}
+                    confirmText={t('editServiceModal.oauth.disableConfirmAction')}
+                    cancelText={t('editServiceModal.oauth.disableCancelAction')}
+                    confirmButtonVariant="destructive"
+                    onConfirm={() => void disableOAuth()}
+                />
             </DialogContent>
         </Dialog>
     );

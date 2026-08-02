@@ -36,6 +36,7 @@ export interface ServiceType {
     default_envs_json?: string;
     tool_count?: number; // 工具数量
     oauth_enabled?: boolean;
+    oauth_configured?: boolean;
     oauth_scopes?: string;
     oauth_auth_status?: 'not_configured' | 'auth_required' | 'authorized';
 }

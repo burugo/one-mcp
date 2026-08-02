@@ -9,7 +9,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'; // Assuming alert-dialog is already part of shadcn/ui setup
-import { ButtonProps } from '@/components/ui/button'; // For confirmButtonVariant
+import { buttonVariants, ButtonProps } from '@/components/ui/button'; // For confirmButtonVariant
 
 interface ConfirmDialogProps {
     isOpen: boolean;
@@ -32,6 +32,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     description,
     confirmText = 'Confirm',
     cancelText = 'Cancel',
+    confirmButtonVariant,
 }) => {
     if (!isOpen) {
         return null;
@@ -58,11 +59,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={handleCancel}>{cancelText}</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleConfirm}>
+                    <AlertDialogAction className={buttonVariants({ variant: confirmButtonVariant })} onClick={handleConfirm}>
                         {confirmText}
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
     );
-}; 
+};

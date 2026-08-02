@@ -9,6 +9,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMarketStore, ServiceType } from '@/store/marketStore';
 import ServiceToolsModal from '@/components/market/ServiceToolsModal';
 import ServiceConfigModal from '@/components/market/ServiceConfigModal';
+import { OAuthAuthorizationButton } from '@/components/market/OAuthAuthorizationButton';
 import CustomServiceModal, { CustomServiceData } from '@/components/market/CustomServiceModal';
 import EditServiceModal, { EditServiceData } from '@/components/market/EditServiceModal';
 import BatchImportModal from '@/components/market/BatchImportModal';
@@ -395,6 +396,21 @@ export function ServicesPage() {
                     // 对于 stdio 服务，立即关闭模态框，因为轮询会处理后续状态
                     setCustomServiceModalOpen(false);
                 } else {
+                    if (res.data?.oauth_auth_required && res.data?.mcp_service_id) {
+                        const authorizeResponse = await api.post(`/mcp_services/${res.data.mcp_service_id}/oauth/authorize`) as APIResponse<{ authorization_url: string }>;
+                        if (!authorizeResponse.success || !authorizeResponse.data?.authorization_url) {
+                            toast({
+                                title: t('customServiceModal.messages.createSuccess'),
+                                description: authorizeResponse.message || t('customServiceModal.oauth.authorizationStartFailed'),
+                                variant: 'destructive'
+                            });
+                            await fetchInstalledServices();
+                            setCustomServiceModalOpen(false);
+                            return res.data;
+                        }
+                        window.open(authorizeResponse.data.authorization_url, '_self', 'noopener,noreferrer');
+                        return res.data;
+                    }
                     // sse 和 streamableHttp 服务直接创建完成
                     toast({
                         title: t('customServiceModal.messages.createSuccess'),
@@ -586,7 +602,10 @@ export function ServicesPage() {
                                 </div>
                             </TableCell>
                             <TableCell>
-                                <div className="font-medium">{service.display_name || service.name}</div>
+                                <div className="flex items-center gap-1">
+                                    <div className="font-medium">{service.display_name || service.name}</div>
+                                    {isAdmin && <OAuthAuthorizationButton service={service} />}
+                                </div>
                                 <div className="text-sm text-muted-foreground">{service.name}</div>
                             </TableCell>
                             <TableCell>
@@ -694,7 +713,10 @@ export function ServicesPage() {
                                         <RotateCcw size={12} className={checkingHealthServices.has(service.id) ? "animate-spin" : ""} />
                                     </button>
                                 </div>
-                                <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
+                                <div className="flex items-center gap-1">
+                                    <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
+                                    {isAdmin && <OAuthAuthorizationButton service={service} />}
+                                </div>
                                 {(service.tool_count || 0) > 0 && (service.health_status === "healthy" || service.health_status === "Healthy") && (
                                     <Badge 
                                         variant="secondary" 
@@ -901,6 +923,7 @@ export function ServicesPage() {
                     onClose={() => setEditModalOpen(false)}
                     service={serviceToEdit}
                     onUpdateService={handleUpdateService}
+                    onOAuthStatusChange={fetchInstalledServices}
                 />
             )}
 

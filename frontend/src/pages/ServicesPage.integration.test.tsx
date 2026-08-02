@@ -5,6 +5,31 @@ import { createMockService } from '@/__tests__/utils/test-utils'
 import { ServicesPage } from './ServicesPage'
 import type { ServiceType } from '@/store/marketStore'
 
+vi.mock('@/contexts/AuthContext', () => ({
+    useAuth: () => ({
+        currentUser: { id: 1, username: 'admin', role: 10 },
+        updateUserInfo: vi.fn(),
+    }),
+}))
+
+vi.mock('react-i18next', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-i18next')>()
+    return {
+        ...actual,
+        useTranslation: () => ({ t: (key: string) => ({
+            'services.noServicesFound': 'No installed services.',
+            'services.configure': 'Configure',
+            'services.addService': 'Add Service',
+            'services.uninstallService': '卸载服务',
+            'services.confirmUninstall': '确认卸载',
+            'services.confirmUninstallDescription': '确定要卸载此服务吗？这将移除所有相关配置。',
+            'services.uninstall': '卸载',
+            'services.cancel': '取消',
+            'services.oauthAuthorizeInBrowser': 'Authorize in browser',
+        }[key] || key) }),
+    }
+})
+
 // Mock the market store
 const mockStore = {
     installedServices: [] as ServiceType[],
@@ -18,11 +43,13 @@ vi.mock('@/store/marketStore', () => ({
 
 // Mock react-router-dom
 const mockNavigate = vi.fn()
+const mockSetSearchParams = vi.fn()
 vi.mock('react-router-dom', async () => {
     const actual = await vi.importActual('react-router-dom')
     return {
         ...actual,
         useNavigate: () => mockNavigate,
+        useSearchParams: () => [new URLSearchParams(), mockSetSearchParams],
         BrowserRouter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     }
 })
@@ -38,6 +65,7 @@ vi.mock('@/hooks/use-toast', () => ({
 describe('ServicesPage Integration', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        vi.mocked(localStorage.getItem).mockReturnValue(null)
         mockStore.installedServices = []
     })
 
@@ -69,6 +97,45 @@ describe('ServicesPage Integration', () => {
 
         expect(screen.getByText('Test Service 1')).toBeInTheDocument()
         expect(screen.getByText('Test Service 2')).toBeInTheDocument()
+    })
+
+    it('shows the OAuth authorization icon for a disabled configured service in grid view', () => {
+        mockStore.installedServices = [createMockService({
+            id: '42',
+            name: 'protected-service',
+            display_name: 'Protected Service',
+            oauth_enabled: false,
+            oauth_configured: true,
+            oauth_auth_status: 'auth_required',
+        })]
+
+        render(<ServicesPage />, { withRouter: true })
+
+        const serviceName = screen.getByText('Protected Service')
+        expect(serviceName.parentElement).toContainElement(
+            screen.getByRole('button', { name: 'Authorize in browser' }),
+        )
+        expect(screen.queryByText('OAuth 需要授权')).not.toBeInTheDocument()
+    })
+
+    it('shows the OAuth authorization icon for a disabled configured service in list view', () => {
+        vi.mocked(localStorage.getItem).mockImplementation((key) => key === 'services_view_mode' ? 'list' : null)
+        mockStore.installedServices = [createMockService({
+            id: '42',
+            name: 'protected-service',
+            display_name: 'Protected Service',
+            oauth_enabled: false,
+            oauth_configured: true,
+            oauth_auth_status: 'auth_required',
+        })]
+
+        render(<ServicesPage />, { withRouter: true })
+
+        const serviceName = screen.getByText('Protected Service')
+        expect(serviceName.parentElement).toContainElement(
+            screen.getByRole('button', { name: 'Authorize in browser' }),
+        )
+        expect(screen.queryByRole('columnheader', { name: 'OAuth' })).not.toBeInTheDocument()
     })
 
     it('should handle service uninstall flow', async () => {
@@ -267,4 +334,4 @@ describe('ServicesPage Integration', () => {
         expect(addButton).toBeInTheDocument()
         // TODO: Extend this test to cover dropdown interaction and modal opening
     })
-}) 
+})

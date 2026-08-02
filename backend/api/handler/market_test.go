@@ -82,6 +82,44 @@ func TestUninstallServiceUnregistersServiceWithoutInstalledVersion(t *testing.T)
 	assert.ErrorIs(t, err, proxy.ErrServiceNotFound)
 }
 
+func TestListInstalledMCPServicesMarksDisabledOAuthConfiguration(t *testing.T) {
+	originalSQLitePath := common.SQLitePath
+	common.SQLitePath = filepath.Join(t.TempDir(), "market_oauth_configured_test.db")
+	t.Cleanup(func() { common.SQLitePath = originalSQLitePath })
+	require.NoError(t, model.InitDB())
+
+	service := &model.MCPService{
+		Name:            "disabled-oauth-service",
+		DisplayName:     "Disabled OAuth Service",
+		Type:            model.ServiceTypeStreamableHTTP,
+		Command:         "https://mcp.example.test/mcp",
+		OAuthEnabled:    false,
+		OAuthAuthStatus: "auth_required",
+	}
+	require.NoError(t, model.CreateService(service))
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/mcp_market/installed", nil)
+	ListInstalledMCPServices(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool `json:"success"`
+		Data    []struct {
+			Name            string `json:"name"`
+			OAuthEnabled    bool   `json:"oauth_enabled"`
+			OAuthConfigured bool   `json:"oauth_configured"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+	require.Len(t, response.Data, 1)
+	require.Equal(t, "disabled-oauth-service", response.Data[0].Name)
+	require.False(t, response.Data[0].OAuthEnabled)
+	require.True(t, response.Data[0].OAuthConfigured)
+}
+
 func TestSanitizeServiceName(t *testing.T) {
 	tests := []struct {
 		name     string
