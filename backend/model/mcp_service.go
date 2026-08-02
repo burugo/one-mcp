@@ -74,7 +74,7 @@ type MCPService struct {
 	HeadersJSON           string          `json:"headers_json,omitempty" db:"headers_json,default:'{}'"` // JSON string for custom request headers map[string]string
 	RPDLimit              int             `json:"rpd_limit,omitempty" db:"rpd_limit,default:0"`          // 每日请求次数限制(0表示不限制)
 	OAuthEnabled          bool            `json:"oauth_enabled" db:"oauth_enabled,default:0"`
-	OAuthScopes           string          `json:"oauth_scopes,omitempty" db:"oauth_scopes"`
+	OAuthScopes           string          `json:"oauth_scopes,omitempty" db:"oauth_scopes,default:''"`
 	OAuthAuthStatus       string          `json:"oauth_auth_status,omitempty" db:"oauth_auth_status,default:'not_configured'"`
 }
 

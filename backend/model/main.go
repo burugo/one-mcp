@@ -1,6 +1,8 @@
 package model
 
 import (
+	"context"
+	"fmt"
 	"one-mcp/backend/common"
 
 	"github.com/burugo/thing"
@@ -44,6 +46,22 @@ func createRootAccountIfNeed() error {
 	return nil
 }
 
+func migrateMCPServiceOAuthDefaults(dbAdapter thing.DBAdapter) error {
+	if _, err := dbAdapter.Exec(context.Background(), `
+		UPDATE mcp_services
+		SET oauth_enabled = COALESCE(oauth_enabled, 0),
+			oauth_scopes = COALESCE(oauth_scopes, ''),
+			oauth_auth_status = COALESCE(NULLIF(oauth_auth_status, ''), 'not_configured')
+		WHERE oauth_enabled IS NULL
+			OR oauth_scopes IS NULL
+			OR oauth_auth_status IS NULL
+			OR oauth_auth_status = ''
+	`); err != nil {
+		return fmt.Errorf("migrate MCP service OAuth defaults: %w", err)
+	}
+	return nil
+}
+
 func InitDB() (err error) {
 	dbAdapter, err := sqlite.NewSQLiteAdapter(common.SQLitePath)
 	if err != nil {
@@ -63,6 +81,9 @@ func InitDB() (err error) {
 	thing.AllowDropColumn = true
 	err = thing.AutoMigrate(&User{}, &Option{}, &MCPService{}, &UserConfig{}, &ConfigService{}, &ProxyRequestStat{}, &MCPLog{}, &MCPServiceGroup{}, &MCPOAuth{})
 	if err != nil {
+		return err
+	}
+	if err := migrateMCPServiceOAuthDefaults(dbAdapter); err != nil {
 		return err
 	}
 
