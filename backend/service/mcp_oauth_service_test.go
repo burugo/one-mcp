@@ -383,6 +383,50 @@ func TestValidateMCPOAuthServerMetadataRejectsInsecureEndpoints(t *testing.T) {
 	require.ErrorContains(t, err, "requires HTTPS")
 }
 
+func TestDiscoverAuthorizationServerMetadataReportsUpstreamFailure(t *testing.T) {
+	oauthHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			http.Error(w, "blocked by upstream", http.StatusForbidden)
+		case "/.well-known/openid-configuration":
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer oauthHTTP.Close()
+
+	_, err := discoverAuthorizationServerMetadata(context.Background(), oauthHTTP.URL, oauthHTTP.Client())
+
+	require.ErrorContains(t, err, oauthHTTP.URL+"/.well-known/oauth-authorization-server")
+	require.ErrorContains(t, err, "status 403")
+	require.ErrorContains(t, err, "upstream server may be blocking this host or IP address")
+}
+
+func TestDiscoverAuthorizationServerMetadataUsesLaterCandidateAfterFailure(t *testing.T) {
+	oauthHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			http.Error(w, "temporary upstream failure", http.StatusBadGateway)
+		case "/.well-known/openid-configuration":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"issuer":"` + oauthHTTPURL(r) + `","authorization_endpoint":"https://auth.example.test/authorize","token_endpoint":"https://auth.example.test/token"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer oauthHTTP.Close()
+
+	metadata, err := discoverAuthorizationServerMetadata(context.Background(), oauthHTTP.URL, oauthHTTP.Client())
+
+	require.NoError(t, err)
+	require.Equal(t, oauthHTTP.URL, metadata.Issuer)
+}
+
+func oauthHTTPURL(r *http.Request) string {
+	return "http://" + r.Host
+}
+
 func TestMCPOAuthRefreshPersistsNewAccessToken(t *testing.T) {
 	setupMCPOAuthTestDB(t)
 	service := createMCPOAuthTestService(t, 6)

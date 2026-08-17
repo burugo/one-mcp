@@ -2,14 +2,18 @@ package proxy
 
 import (
 	"context"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"one-mcp/backend/common"
 	"one-mcp/backend/model"
 
 	"github.com/burugo/thing"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeHealthyService struct {
@@ -179,4 +183,104 @@ func TestServiceManagerRejectsDisabledOrUninstalledServices(t *testing.T) {
 			assert.Empty(t, manager.GetAllServices())
 		})
 	}
+}
+
+func TestServiceManagerEnsureServiceReadyRegistersAndStartsMissingService(t *testing.T) {
+	originalSQLitePath := common.SQLitePath
+	common.SQLitePath = filepath.Join(t.TempDir(), "ensure-service-ready.db")
+	require.NoError(t, model.InitDB())
+	defer func() { common.SQLitePath = originalSQLitePath }()
+
+	manager := &ServiceManager{
+		services:      make(map[int64]Service),
+		healthChecker: NewHealthChecker(1 * time.Hour),
+		lastAccessed:  make(map[int64]time.Time),
+	}
+	serviceConfig := &model.MCPService{
+		Name:    "missing-on-first-request",
+		Type:    model.ServiceType("test"),
+		Enabled: true,
+	}
+	require.NoError(t, model.CreateService(serviceConfig))
+
+	const callers = 8
+	services := make([]Service, callers)
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			services[index], errs[index] = manager.EnsureServiceReady(context.Background(), serviceConfig)
+		}(i)
+	}
+	wg.Wait()
+
+	service := services[0]
+	for i := 0; i < callers; i++ {
+		assert.NoError(t, errs[i])
+		assert.Same(t, service, services[i])
+	}
+	assert.True(t, service.IsRunning())
+	assert.Len(t, manager.GetAllServices(), 1)
+	_, accessed := manager.lastAccessed[serviceConfig.ID]
+	assert.True(t, accessed)
+
+	secondService, err := manager.EnsureServiceReady(context.Background(), serviceConfig)
+	assert.NoError(t, err)
+	assert.Same(t, service, secondService)
+	assert.Len(t, manager.GetAllServices(), 1)
+}
+
+func TestServiceManagerUninstallLifecycleBlocksStaleFirstRequestRecovery(t *testing.T) {
+	originalSQLitePath := common.SQLitePath
+	common.SQLitePath = filepath.Join(t.TempDir(), "uninstall-lifecycle.db")
+	require.NoError(t, model.InitDB())
+	defer func() { common.SQLitePath = originalSQLitePath }()
+
+	manager := &ServiceManager{
+		services:      make(map[int64]Service),
+		healthChecker: NewHealthChecker(1 * time.Hour),
+		lastAccessed:  make(map[int64]time.Time),
+	}
+	serviceConfig := &model.MCPService{
+		Name:    "uninstall-race-service",
+		Type:    model.ServiceType("test"),
+		Enabled: true,
+	}
+	require.NoError(t, model.CreateService(serviceConfig))
+	require.NoError(t, manager.RegisterService(context.Background(), serviceConfig))
+
+	staleConfig := *serviceConfig
+	finalizerStarted := make(chan struct{})
+	allowFinalizer := make(chan struct{})
+	uninstallDone := make(chan error, 1)
+	go func() {
+		uninstallDone <- manager.UnregisterServiceAndFinalize(context.Background(), serviceConfig.ID, func() error {
+			close(finalizerStarted)
+			<-allowFinalizer
+			serviceConfig.Enabled = false
+			serviceConfig.Deleted = true
+			return model.UpdateService(serviceConfig)
+		})
+	}()
+	<-finalizerStarted
+
+	ensureDone := make(chan error, 1)
+	go func() {
+		_, err := manager.EnsureServiceReady(context.Background(), &staleConfig)
+		ensureDone <- err
+	}()
+
+	select {
+	case err := <-ensureDone:
+		t.Fatalf("stale recovery completed before uninstall finalizer: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(allowFinalizer)
+	require.NoError(t, <-uninstallDone)
+	assert.Error(t, <-ensureDone)
+	_, err := manager.GetService(serviceConfig.ID)
+	assert.ErrorIs(t, err, ErrServiceNotFound)
 }

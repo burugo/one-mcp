@@ -278,31 +278,26 @@ func ProxyHandler(c *gin.Context) {
 		}
 		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
 		if strategy == common.StrategyStartOnDemand {
-			service, err := serviceManager.GetService(mcpDBService.ID)
+			wasRunning := false
+			if existingService, getErr := serviceManager.GetService(mcpDBService.ID); getErr == nil {
+				wasRunning = existingService.IsRunning()
+			}
+
+			service, err := serviceManager.EnsureServiceReady(c.Request.Context(), mcpDBService)
 			if err != nil {
-				common.SysError(fmt.Sprintf("[ProxyHandler] Failed to get service %s: %v", serviceName, err))
-				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Service unavailable"})
+				common.SysError(fmt.Sprintf("[ProxyHandler] Failed to prepare on-demand service %s: %v", serviceName, err))
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Failed to start service"})
 				return
 			}
 
-			if !service.IsRunning() {
-				common.SysLog(fmt.Sprintf("[ProxyHandler] Starting on-demand stdio service: %s", serviceName))
-				ctx := c.Request.Context()
-				if err := serviceManager.StartService(ctx, mcpDBService.ID); err != nil {
-					common.SysError(fmt.Sprintf("[ProxyHandler] Failed to start on-demand service %s: %v", serviceName, err))
-					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Failed to start service"})
-					return
-				}
-
+			if !wasRunning && service.IsRunning() {
+				common.SysLog(fmt.Sprintf("[ProxyHandler] Started on-demand stdio service: %s", serviceName))
 				// Trigger an immediate health refresh so UI reflects the running state promptly.
 				go func(serviceID int64, svcName string) {
 					if _, err := serviceManager.ForceCheckServiceHealth(serviceID); err != nil {
 						common.SysLog(fmt.Sprintf("[ProxyHandler] Force health check failed for %s after start: %v", svcName, err))
 					}
 				}(mcpDBService.ID, serviceName)
-
-				// Initialize last access time so idle shutdown can track this new session.
-				serviceManager.UpdateServiceAccessTime(mcpDBService.ID)
 			}
 		}
 	}

@@ -586,10 +586,12 @@ func discoverAuthorizationServerMetadata(ctx context.Context, issuer string, htt
 	if err != nil {
 		return nil, err
 	}
+	var discoveryErrors []error
 	for _, candidate := range candidates {
 		var metadata transport.AuthServerMetadata
 		found, err := fetchMCPOAuthJSON(ctx, httpClient, candidate, &metadata)
 		if err != nil {
+			discoveryErrors = append(discoveryErrors, err)
 			continue
 		}
 		if !found {
@@ -599,6 +601,9 @@ func discoverAuthorizationServerMetadata(ctx context.Context, issuer string, htt
 			return nil, fmt.Errorf("authorization server metadata issuer %q does not match %q", metadata.Issuer, issuer)
 		}
 		return &metadata, nil
+	}
+	if len(discoveryErrors) > 0 {
+		return nil, fmt.Errorf("authorization server metadata discovery failed: %w", errors.Join(discoveryErrors...))
 	}
 	return nil, fmt.Errorf("authorization server metadata was not found")
 }
@@ -638,6 +643,9 @@ func fetchMCPOAuthJSON(ctx context.Context, httpClient *http.Client, target stri
 		return false, nil
 	}
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusForbidden {
+			return false, fmt.Errorf("OAuth discovery endpoint %q returned status %d; the upstream server may be blocking this host or IP address", target, resp.StatusCode)
+		}
 		return false, fmt.Errorf("OAuth discovery endpoint %q returned status %d", target, resp.StatusCode)
 	}
 	limited := io.LimitReader(resp.Body, 1<<20)
@@ -681,7 +689,7 @@ func newMCPOAuthDiscoveryHTTPClient(endpoint string) (*http.Client, error) {
 	}
 	return &http.Client{
 		Transport: transport,
-		Timeout:   10 * time.Second,
+		Timeout:   15 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 3 {
 				return fmt.Errorf("too many OAuth discovery redirects")

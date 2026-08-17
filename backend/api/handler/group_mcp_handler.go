@@ -78,7 +78,7 @@ func getGroupServiceNames(group *model.MCPServiceGroup) []string {
 	names := make([]string, 0, len(ids))
 	for _, id := range ids {
 		svc, err := model.GetServiceByID(id)
-		if err == nil {
+		if err == nil && svc.Enabled && !svc.Deleted {
 			names = append(names, svc.Name)
 		}
 	}

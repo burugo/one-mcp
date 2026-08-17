@@ -42,7 +42,7 @@ func DiscoverMCPOAuth(c *gin.Context) {
 		return
 	}
 
-	discoveryCtx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+	discoveryCtx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
 	result, err := appservice.DiscoverMCPOAuth(discoveryCtx, strings.TrimSpace(request.URL), serviceType, nil)
 	if err != nil {

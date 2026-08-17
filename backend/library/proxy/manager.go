@@ -28,6 +28,7 @@ var (
 type ServiceManager struct {
 	services                 map[int64]Service
 	mutex                    sync.RWMutex
+	serviceReadyLocks        map[int64]*sync.Mutex
 	healthChecker            *HealthChecker
 	initialized              bool
 	lastAccessed             map[int64]time.Time
@@ -43,6 +44,7 @@ func GetServiceManager() *ServiceManager {
 	managerOnce.Do(func() {
 		globalManager = &ServiceManager{
 			services:                 make(map[int64]Service),
+			serviceReadyLocks:        make(map[int64]*sync.Mutex),
 			healthChecker:            NewHealthChecker(10 * time.Minute),
 			initialized:              false,
 			lastAccessed:             make(map[int64]time.Time),
@@ -61,9 +63,6 @@ func (m *ServiceManager) Initialize(ctx context.Context) error {
 	// Note: HealthChecker is used for registration and health caching, but we don't start
 	// its separate checking routine since StartDaemon() already performs comprehensive
 	// health checking with additional service management features.
-
-	// 启动服务管理守护线程（包含健康检查、自动重启和闲置管理）
-	m.StartDaemon()
 
 	// 加载并注册所有启用的服务
 	services, err := model.GetEnabledServices()
@@ -100,6 +99,10 @@ func (m *ServiceManager) Initialize(ctx context.Context) error {
 	}
 
 	m.initialized = true
+
+	// Start management only after the initial registration pass, so its first
+	// health check cannot race an empty or partially populated service map.
+	m.StartDaemon()
 	return nil
 }
 
@@ -187,6 +190,28 @@ func (m *ServiceManager) RegisterService(ctx context.Context, mcpService *model.
 
 // UnregisterService 从管理器移除一个服务
 func (m *ServiceManager) UnregisterService(ctx context.Context, serviceID int64) error {
+	unlock := m.lockServiceReady(serviceID)
+	defer unlock()
+	return m.unregisterService(ctx, serviceID)
+}
+
+// UnregisterServiceAndFinalize keeps first-request recovery blocked until the
+// caller has persisted the lifecycle state that prevents re-registration.
+func (m *ServiceManager) UnregisterServiceAndFinalize(ctx context.Context, serviceID int64, finalize func() error) error {
+	if finalize == nil {
+		return errors.New("service lifecycle finalizer is nil")
+	}
+
+	unlock := m.lockServiceReady(serviceID)
+	defer unlock()
+
+	if err := m.unregisterService(ctx, serviceID); err != nil && !errors.Is(err, ErrServiceNotFound) {
+		return err
+	}
+	return finalize()
+}
+
+func (m *ServiceManager) unregisterService(ctx context.Context, serviceID int64) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -235,6 +260,64 @@ func (m *ServiceManager) GetService(serviceID int64) (Service, error) {
 	}
 
 	return service, nil
+}
+
+// EnsureServiceReady registers a missing enabled service and starts it if needed.
+// RegisterService serializes creation, so concurrent first requests converge on
+// the same manager entry; ErrServiceAlreadyExists is an expected race outcome.
+func (m *ServiceManager) EnsureServiceReady(ctx context.Context, mcpService *model.MCPService) (Service, error) {
+	if mcpService == nil {
+		return nil, errors.New("service config is nil")
+	}
+	unlock := m.lockServiceReady(mcpService.ID)
+	defer unlock()
+
+	// The caller may have loaded this config before waiting for an uninstall or
+	// disable operation. Reload under the lifecycle lock so stale enabled state
+	// cannot recreate a service after that operation completes.
+	freshService, err := model.GetServiceByID(mcpService.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload service %d: %w", mcpService.ID, err)
+	}
+	if !freshService.Enabled || freshService.Deleted {
+		return nil, fmt.Errorf("cannot prepare disabled or uninstalled service %d", freshService.ID)
+	}
+	mcpService = freshService
+
+	service, err := m.GetService(mcpService.ID)
+	if errors.Is(err, ErrServiceNotFound) {
+		if registerErr := m.RegisterService(ctx, mcpService); registerErr != nil && !errors.Is(registerErr, ErrServiceAlreadyExists) {
+			return nil, fmt.Errorf("failed to register service: %w", registerErr)
+		}
+		service, err = m.GetService(mcpService.ID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if !service.IsRunning() {
+		if err := m.StartService(ctx, mcpService.ID); err != nil {
+			return nil, err
+		}
+	}
+	m.UpdateServiceAccessTime(mcpService.ID)
+	return service, nil
+}
+
+func (m *ServiceManager) lockServiceReady(serviceID int64) func() {
+	m.mutex.Lock()
+	if m.serviceReadyLocks == nil {
+		m.serviceReadyLocks = make(map[int64]*sync.Mutex)
+	}
+	serviceLock, ok := m.serviceReadyLocks[serviceID]
+	if !ok {
+		serviceLock = &sync.Mutex{}
+		m.serviceReadyLocks[serviceID] = serviceLock
+	}
+	m.mutex.Unlock()
+
+	serviceLock.Lock()
+	return serviceLock.Unlock
 }
 
 // UpdateServiceAccessTime 更新服务的最后访问时间

@@ -68,7 +68,7 @@ func (g *MCPServiceGroup) effectiveDescription(servicesByID map[int64]*MCPServic
 	lines := make([]string, 0, len(g.GetServiceIDs()))
 	for _, id := range g.GetServiceIDs() {
 		service, exists := servicesByID[id]
-		if !exists || service.Deleted {
+		if !exists || !service.Enabled || service.Deleted {
 			continue
 		}
 		description := strings.TrimSpace(service.Description)
@@ -164,7 +164,7 @@ func (g *MCPServiceGroup) ContainsServiceName(name string) bool {
 		if err != nil {
 			continue
 		}
-		if svc.Name == name {
+		if svc.Enabled && !svc.Deleted && svc.Name == name {
 			return true
 		}
 	}
@@ -178,7 +178,7 @@ func (g *MCPServiceGroup) GetServiceByName(name string) (*MCPService, error) {
 		if err != nil {
 			continue
 		}
-		if svc.Name == name {
+		if svc.Enabled && !svc.Deleted && svc.Name == name {
 			return svc, nil
 		}
 	}

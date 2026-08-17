@@ -1050,25 +1050,30 @@ func UninstallService(c *gin.Context) {
 		log.Printf("[UninstallService] Service ID %d has an active installation task, will skip physical uninstall and proceed with soft delete only", service.ID)
 	}
 
-	// Always unregister before soft deletion, including active installation tasks,
-	// so no health check can retain or recreate the removed service.
-	log.Printf("[UninstallService] Attempting to unregister service ID %d (Name: %s) from ServiceManager", service.ID, service.Name)
+	// Atomically unregister and persist the deleted state with respect to
+	// first-request recovery, so an in-flight request cannot recreate the service.
+	log.Printf("[UninstallService] Attempting to unregister and mark service ID %d (Name: %s) as deleted", service.ID, service.Name)
 	serviceManager := proxy.GetServiceManager()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := serviceManager.UnregisterService(ctx, service.ID); err != nil {
-		if err == proxy.ErrServiceNotFound {
-			log.Printf("[UninstallService] Service ID %d was not registered. Continuing.", service.ID)
-		} else {
-			log.Printf("[UninstallService] Error unregistering service ID %d from ServiceManager: %v.", service.ID, err)
-			if errors.Is(err, context.DeadlineExceeded) {
-				log.Printf("[UninstallService] Unregistration timed out. Skipping physical uninstall.")
-				isPendingOrInstalling = true
-			}
+	service.Enabled = false
+	service.Deleted = true
+	service.HealthStatus = "unknown"
+	service.InstalledVersion = ""
+	if err := serviceManager.UnregisterServiceAndFinalize(ctx, service.ID, func() error {
+		if err := model.DeleteMCPOAuthByServiceID(service.ID); err != nil {
+			return fmt.Errorf("delete service OAuth data: %w", err)
 		}
-	} else {
-		log.Printf("[UninstallService] Successfully unregistered service ID %d from ServiceManager.", service.ID)
+		if err := model.UpdateService(service); err != nil {
+			return fmt.Errorf("mark service as deleted: %w", err)
+		}
+		return nil
+	}); err != nil {
+		log.Printf("[UninstallService] Failed to unregister and mark service ID %d as deleted: %v", service.ID, err)
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("uninstall_failed", lang), err)
+		return
 	}
+	log.Printf("[UninstallService] Successfully unregistered and marked service ID %d as deleted.", service.ID)
 
 	// 对于安装中的服务，跳过物理卸载，直接进行软删除
 	if isPendingOrInstalling {
@@ -1097,25 +1102,6 @@ func UninstallService(c *gin.Context) {
 		} else {
 			log.Printf("Service ID %d is not a stdio type with a package manager, or SourcePackageName is empty. Skipping physical uninstall.", serviceID)
 		}
-	}
-
-	// 标记服务为软删除 (or hard delete if preferred)
-	// Current logic from GetServiceByID already fetched the service
-	if err := model.DeleteMCPOAuthByServiceID(service.ID); err != nil {
-		common.RespError(c, http.StatusInternalServerError, i18n.Translate("uninstall_failed", lang), err)
-		return
-	}
-	service.Enabled = false // Explicitly disable
-	service.Deleted = true
-	service.HealthStatus = "unknown"
-	service.InstalledVersion = "" // Clear installed version
-	if err := model.UpdateService(service); err != nil {
-		log.Printf("Warning: Could not update service (ID: %d) status to deleted: %v", serviceID, err)
-		// Even if DB update fails, if physical uninstall happened, it's a partial success.
-		// However, for the user, the service might still appear.
-		// Consider if a more robust transaction/rollback is needed if this is critical.
-		common.RespError(c, http.StatusInternalServerError, i18n.Translate("update_service_status_failed", lang), err)
-		return
 	}
 
 	// 返回成功

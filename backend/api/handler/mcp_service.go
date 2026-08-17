@@ -312,25 +312,11 @@ func CheckMCPServiceHealth(c *gin.Context) {
 	// 获取服务管理器
 	serviceManager := proxy.GetServiceManager()
 
-	// 检查服务是否已经注册
-	_, err = serviceManager.GetService(id)
-	if err == proxy.ErrServiceNotFound {
-		// 服务尚未注册，尝试注册
-		ctx := c.Request.Context()
-		if err := serviceManager.RegisterService(ctx, service); err != nil {
-			common.RespError(c, http.StatusInternalServerError, i18n.Translate("register_service_failed", lang), err)
-			return
-		}
-	}
-
-	// On-demand stdio services: start once on manual health check
-	if service.Type == model.ServiceTypeStdio {
-		strategy := common.OptionMap[common.OptionStdioServiceStartupStrategy]
-		if strategy == common.StrategyStartOnDemand {
-			if err := serviceManager.StartService(c.Request.Context(), id); err != nil {
-				common.SysError(fmt.Sprintf("failed to start on-demand stdio service %d during health check: %v", id, err))
-			}
-		}
+	// Manual health checks also self-heal a missing manager registration and
+	// start stopped services before checking them.
+	if _, err := serviceManager.EnsureServiceReady(c.Request.Context(), service); err != nil {
+		common.RespError(c, http.StatusInternalServerError, i18n.Translate("register_service_failed", lang), err)
+		return
 	}
 
 	// 强制检查健康状态

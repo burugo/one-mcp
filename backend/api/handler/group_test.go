@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -343,6 +344,115 @@ func TestGroupMCPHandlerToolsList(t *testing.T) {
 	tools, ok := resp.Result["tools"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, tools, 2)
+}
+
+func TestGroupMCPHandlerExcludesDisabledServices(t *testing.T) {
+	teardown := setupGroupTestDB(t)
+	defer teardown()
+
+	enabledService := &model.MCPService{
+		Name:        "enabled-group-service",
+		DisplayName: "Enabled Group Service",
+		Description: "Enabled service description",
+		Type:        model.ServiceTypeStdio,
+		Command:     "echo",
+		ArgsJSON:    `[]`,
+		Enabled:     true,
+	}
+	require.NoError(t, model.CreateService(enabledService))
+
+	disabledService := &model.MCPService{
+		Name:        "disabled-group-service",
+		DisplayName: "Disabled Group Service",
+		Description: "Disabled service description",
+		Type:        model.ServiceTypeStdio,
+		Command:     "echo",
+		ArgsJSON:    `[]`,
+		Enabled:     false,
+	}
+	require.NoError(t, model.CreateService(disabledService))
+
+	group := &model.MCPServiceGroup{
+		UserID:      1,
+		Name:        "group-disabled-filter",
+		DisplayName: "Group Disabled Filter",
+		Enabled:     true,
+	}
+	group.SetServiceIDs([]int64{enabledService.ID, disabledService.ID})
+	require.NoError(t, group.Insert())
+
+	proxy.GetToolsCacheManager().SetServiceTools(disabledService.ID, &proxy.ToolsCacheEntry{
+		Tools: []mcp.Tool{{Name: "stale-disabled-tool"}},
+	})
+	defer proxy.GetToolsCacheManager().DeleteServiceTools(disabledService.ID)
+
+	assert.Equal(t, []string{enabledService.Name}, getGroupServiceNames(group))
+	assert.NotContains(t, group.EffectiveDescription(), disabledService.Name)
+	_, err := searchGroupTools(context.Background(), group, &groupSearchArgs{MCPName: disabledService.Name})
+	assert.Error(t, err)
+
+	disabledFingerprint := groupHandlerFingerprint(group)
+	disabledService.Enabled = true
+	require.NoError(t, model.UpdateService(disabledService))
+	assert.NotEqual(t, disabledFingerprint, groupHandlerFingerprint(group))
+	disabledService.Enabled = false
+	require.NoError(t, model.UpdateService(disabledService))
+
+	sessionID, _ := initializeGroupSession(t, group.Name, group.UserID)
+
+	toolsReq := newJSONRequest(t, http.MethodPost, "/group/"+group.Name+"/mcp", map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/list",
+	})
+	toolsReq.Header.Set("Mcp-Session-Id", sessionID)
+	toolsRecorder := httptest.NewRecorder()
+	toolsCtx, _ := gin.CreateTestContext(toolsRecorder)
+	toolsCtx.Request = toolsReq
+	toolsCtx.Params = gin.Params{{Key: "name", Value: group.Name}}
+	toolsCtx.Set("user_id", group.UserID)
+	GroupMCPHandler(toolsCtx)
+	require.Equal(t, http.StatusOK, toolsRecorder.Code)
+
+	toolsResp := decodeMCPResponse(t, toolsRecorder)
+	tools, ok := toolsResp.Result["tools"].([]any)
+	require.True(t, ok)
+	require.Len(t, tools, 2)
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]any)
+		require.True(t, ok)
+		inputSchema, ok := tool["inputSchema"].(map[string]any)
+		require.True(t, ok)
+		properties, ok := inputSchema["properties"].(map[string]any)
+		require.True(t, ok)
+		mcpName, ok := properties["mcp_name"].(map[string]any)
+		require.True(t, ok)
+		serviceNames, ok := mcpName["enum"].([]any)
+		require.True(t, ok)
+		assert.Equal(t, []any{enabledService.Name}, serviceNames)
+	}
+
+	resourcesReq := newJSONRequest(t, http.MethodPost, "/group/"+group.Name+"/mcp", map[string]any{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "resources/list",
+	})
+	resourcesReq.Header.Set("Mcp-Session-Id", sessionID)
+	resourcesRecorder := httptest.NewRecorder()
+	resourcesCtx, _ := gin.CreateTestContext(resourcesRecorder)
+	resourcesCtx.Request = resourcesReq
+	resourcesCtx.Params = gin.Params{{Key: "name", Value: group.Name}}
+	resourcesCtx.Set("user_id", group.UserID)
+	GroupMCPHandler(resourcesCtx)
+	require.Equal(t, http.StatusOK, resourcesRecorder.Code)
+
+	resourcesResp := decodeMCPResponse(t, resourcesRecorder)
+	resources, ok := resourcesResp.Result["resources"].([]any)
+	require.True(t, ok)
+	require.Len(t, resources, 1)
+	resource, ok := resources[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, enabledService.Name, resource["name"])
 }
 
 func TestGroupMCPHandlerSearchToolsValidation(t *testing.T) {

@@ -58,7 +58,16 @@ func groupHandlerCacheKey(groupID int64, userID int64) string {
 }
 
 func groupHandlerFingerprint(group *model.MCPServiceGroup) string {
-	return fmt.Sprintf("%q|%q|%q", group.Name, group.Description, group.ServiceIDsJSON)
+	serviceStates := make([]string, 0, len(group.GetServiceIDs()))
+	for _, id := range group.GetServiceIDs() {
+		svc, err := model.GetServiceByID(id)
+		if err != nil {
+			serviceStates = append(serviceStates, fmt.Sprintf("%d:missing", id))
+			continue
+		}
+		serviceStates = append(serviceStates, fmt.Sprintf("%d:%q:%q:%t:%t", id, svc.Name, svc.Description, svc.Enabled, svc.Deleted))
+	}
+	return fmt.Sprintf("%q|%q|%q|%q", group.Name, group.Description, group.ServiceIDsJSON, serviceStates)
 }
 
 func buildGroupMCPHandler(group *model.MCPServiceGroup) (http.Handler, error) {
@@ -181,7 +190,7 @@ func addGroupResources(server *mcpserver.MCPServer, group *model.MCPServiceGroup
 	ids := group.GetServiceIDs()
 	for _, id := range ids {
 		svc, err := model.GetServiceByID(id)
-		if err != nil {
+		if err != nil || !svc.Enabled || svc.Deleted {
 			// Skip invalid services or handle error
 			continue
 		}
