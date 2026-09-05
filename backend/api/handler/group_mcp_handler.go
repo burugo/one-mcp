@@ -7,6 +7,7 @@ import (
 	"one-mcp/backend/common"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
+	appservice "one-mcp/backend/service"
 	"strings"
 	"time"
 
@@ -168,6 +169,10 @@ func searchGroupTools(ctx context.Context, group *model.MCPServiceGroup, args *g
 	} else {
 		tools = entry.Tools
 	}
+	tools, err = appservice.FilterEnabledMCPTools(svc.ID, tools)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply tool policy for %s: %v", svc.Name, err)
+	}
 
 	// Convert to YAML for compact response
 	yamlTools := convertToolsToYAML(tools, svc.Name)
@@ -238,6 +243,13 @@ func executeGroupTool(ctx context.Context, group *model.MCPServiceGroup, args *e
 	if err != nil {
 		available := getGroupServiceNames(group)
 		return nil, fmt.Errorf("mcp_name '%s' not in group, available: %v", args.MCPName, available)
+	}
+	toolEnabled, err := appservice.IsMCPToolEnabled(svc.ID, args.ToolName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply tool policy for %s: %v", svc.Name, err)
+	}
+	if !toolEnabled {
+		return nil, fmt.Errorf("tool %q is disabled by administrator", args.ToolName)
 	}
 
 	// Get userID from context for RPD check and stats

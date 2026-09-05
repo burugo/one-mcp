@@ -99,6 +99,22 @@ describe('ServicesPage Integration', () => {
         expect(screen.getByText('Test Service 2')).toBeInTheDocument()
     })
 
+    it('keeps an all-disabled tool inventory available from the enabled/total badge', () => {
+        mockStore.installedServices = [createMockService({
+            id: '7',
+            name: 'policy-service',
+            display_name: 'Policy Service',
+            health_status: 'healthy',
+            tool_count: 2,
+            total_tool_count: 2,
+            enabled_tool_count: 0,
+        })]
+
+        render(<ServicesPage />, { withRouter: true })
+
+        expect(screen.getByText('0/2')).toBeInTheDocument()
+    })
+
     it('shows the OAuth authorization icon for a disabled configured service in grid view', () => {
         mockStore.installedServices = [createMockService({
             id: '42',

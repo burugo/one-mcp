@@ -1393,6 +1393,43 @@ var (
 	httpWrappersMutex            = &sync.Mutex{}
 )
 
+// ApplyMCPToolPolicy updates every live global and user-specific instance for
+// one service. MCPServer emits tools/list_changed notifications for Add/Delete.
+func ApplyMCPToolPolicy(serviceID int64, toolName string, enabled bool) error {
+	sharedMCPServersMutex.Lock()
+	instances := make([]*SharedMcpInstance, 0)
+	for _, instance := range sharedMCPServers {
+		if instance != nil && instance.serviceID == serviceID {
+			instances = append(instances, instance)
+		}
+	}
+	sharedMCPServersMutex.Unlock()
+
+	for _, instance := range instances {
+		if instance.Server == nil {
+			continue
+		}
+		if !enabled {
+			instance.Server.DeleteTools(toolName)
+			continue
+		}
+		if instance.Server.GetTool(toolName) != nil {
+			continue
+		}
+		for _, tool := range instance.Tools {
+			if tool.Name != toolName {
+				continue
+			}
+			if instance.Client == nil {
+				return fmt.Errorf("live MCP instance for service %d has no client", serviceID)
+			}
+			instance.Server.AddTool(tool, newProxyToolHandler(instance.Client, instance.serviceName, instance.cacheKey, serviceID, instance.serviceType, toolName))
+			break
+		}
+	}
+	return nil
+}
+
 func updateServiceDescriptionFromInitResult(service *model.MCPService, initResult *mcp.InitializeResult, serverInfo *mcp.Implementation) {
 	if service == nil {
 		return
@@ -1875,6 +1912,7 @@ func createActualMcpGoServerAndClientWithStdioOptions(
 
 	serverOptions := []mcpserver.ServerOption{
 		mcpserver.WithResourceCapabilities(true, true),
+		mcpserver.WithToolCapabilities(true),
 	}
 	if strings.TrimSpace(serviceConfigForInstance.Description) != "" {
 		serverOptions = append(serverOptions, mcpserver.WithInstructions(serviceConfigForInstance.Description))
@@ -2035,28 +2073,16 @@ func addClientToolsToMCPServer(
 		common.SysLog(fmt.Sprintf("Listed %d tools for %s", len(tools.Tools), mcpServerName))
 		allTools = append(allTools, tools.Tools...)
 		for _, tool := range tools.Tools {
+			enabled, policyErr := appservice.IsMCPToolEnabled(serviceID, tool.Name)
+			if policyErr != nil {
+				return nil, fmt.Errorf("load tool policy for %s/%s: %w", mcpServerName, tool.Name, policyErr)
+			}
+			if !enabled {
+				common.SysLog(fmt.Sprintf("Skipping globally disabled tool %s for %s", tool.Name, mcpServerName))
+				continue
+			}
 			common.SysLog(fmt.Sprintf("Adding tool %s to %s", tool.Name, mcpServerName))
-			toolName := tool.Name
-			mcpGoServer.AddTool(tool, func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				start := time.Now()
-				// Apply configurable timeout for MCP tool calls, consistent with group handler
-				toolCallCtx, toolCallCancel := context.WithTimeout(callCtx, McpToolCallTimeout())
-				defer toolCallCancel()
-				result, callErr := mcpGoClient.CallTool(toolCallCtx, request)
-				duration := time.Since(start)
-				if callErr != nil {
-					trigger := fmt.Sprintf("tool call (%s)", toolName)
-					errMsg := fmt.Sprintf("MCP tool call failed | service=%s | tool=%s | duration=%dms | err=%v", mcpServerName, toolName, duration.Milliseconds(), callErr)
-					common.SysError(errMsg)
-					if globalStderrThrottler.shouldLog(serviceID, errMsg) {
-						_ = model.SaveMCPLog(context.Background(), serviceID, mcpServerName, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg)
-					}
-					if shouldInvalidateInstanceAfterCallError(mcpGoClient, callErr) {
-						handleTransportErrorForCache(cacheKey, serviceID, mcpServerName, serviceType, trigger, callErr)
-					}
-				}
-				return result, callErr
-			})
+			mcpGoServer.AddTool(tool, newProxyToolHandler(mcpGoClient, mcpServerName, cacheKey, serviceID, serviceType, tool.Name))
 		}
 		if tools.NextCursor == "" {
 			break
@@ -2064,6 +2090,43 @@ func addClientToolsToMCPServer(
 		toolsRequest.PaginatedRequest.Params.Cursor = tools.NextCursor
 	}
 	return allTools, nil
+}
+
+func newProxyToolHandler(
+	mcpGoClient mcpclient.MCPClient,
+	mcpServerName string,
+	cacheKey string,
+	serviceID int64,
+	serviceType model.ServiceType,
+	toolName string,
+) mcpserver.ToolHandlerFunc {
+	return func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		enabled, policyErr := appservice.IsMCPToolEnabled(serviceID, toolName)
+		if policyErr != nil {
+			return nil, fmt.Errorf("load tool policy for %s/%s: %w", mcpServerName, toolName, policyErr)
+		}
+		if !enabled {
+			return mcp.NewToolResultError(fmt.Sprintf("tool %q is disabled by administrator", toolName)), nil
+		}
+
+		start := time.Now()
+		toolCallCtx, toolCallCancel := context.WithTimeout(callCtx, McpToolCallTimeout())
+		defer toolCallCancel()
+		result, callErr := mcpGoClient.CallTool(toolCallCtx, request)
+		duration := time.Since(start)
+		if callErr != nil {
+			trigger := fmt.Sprintf("tool call (%s)", toolName)
+			errMsg := fmt.Sprintf("MCP tool call failed | service=%s | tool=%s | duration=%dms | err=%v", mcpServerName, toolName, duration.Milliseconds(), callErr)
+			common.SysError(errMsg)
+			if globalStderrThrottler.shouldLog(serviceID, errMsg) {
+				_ = model.SaveMCPLog(context.Background(), serviceID, mcpServerName, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg)
+			}
+			if shouldInvalidateInstanceAfterCallError(mcpGoClient, callErr) {
+				handleTransportErrorForCache(cacheKey, serviceID, mcpServerName, serviceType, trigger, callErr)
+			}
+		}
+		return result, callErr
+	}
 }
 
 func addClientPromptsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
@@ -2272,6 +2335,22 @@ func GetOrCreateProxyToSSEHandler(ctx context.Context, mcpDBService *model.MCPSe
 	initializedSSEProxyWrappers[handlerCacheKey] = handler
 
 	return handler, nil
+}
+
+// SendSSEProxyResponse delivers a response on an existing downstream SSE session.
+// It never creates an upstream instance or a new session for a rejected call.
+func SendSSEProxyResponse(serviceID int64, sessionID string, response any) error {
+	if sessionID == "" {
+		return errors.New("missing SSE sessionId")
+	}
+	sseWrappersMutex.Lock()
+	handler := initializedSSEProxyWrappers[fmt.Sprintf("service-%d-sseproxy", serviceID)]
+	sseWrappersMutex.Unlock()
+	sseServer, ok := handler.(*mcpserver.SSEServer)
+	if !ok {
+		return errors.New("SSE session is no longer available; reconnect to the service")
+	}
+	return sseServer.SendEventToSession(sessionID, response)
 }
 
 // GetOrCreateProxyToHTTPHandler creates or retrieves a cached HTTP/MCP http.Handler using shared MCP instance

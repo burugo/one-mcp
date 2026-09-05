@@ -35,6 +35,8 @@ export interface ServiceType {
     args_json?: string;
     default_envs_json?: string;
     tool_count?: number; // 工具数量
+    total_tool_count?: number;
+    enabled_tool_count?: number;
     oauth_enabled?: boolean;
     oauth_configured?: boolean;
     oauth_scopes?: string;
@@ -265,6 +267,8 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 					oauth_auth_status: info.oauth_auth_status || 'not_configured',
                     installed_service_id: info.installed_service_id,
                     tool_count: info.tool_count || 0,
+                    total_tool_count: info.total_tool_count ?? info.tool_count ?? 0,
+                    enabled_tool_count: info.enabled_tool_count ?? info.tool_count ?? 0,
                 }));
 
                 set({

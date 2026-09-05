@@ -14,9 +14,11 @@ import (
 	"one-mcp/backend/common"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
+	appservice "one-mcp/backend/service"
 
 	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // parseInt64 is a helper function to safely parse int64 from various numeric types or string.
@@ -81,6 +83,31 @@ func checkDailyRequestLimit(serviceID int64, userID int64, rpdLimit int) error {
 	}
 
 	return nil
+}
+
+func inspectToolCall(request *http.Request) (json.RawMessage, string, bool, error) {
+	if request.Method != http.MethodPost || request.Body == nil {
+		return nil, "", false, nil
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, "", false, err
+	}
+	request.Body = io.NopCloser(bytes.NewReader(body))
+	if len(body) == 0 {
+		return nil, "", false, nil
+	}
+	var payload struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.Method != "tools/call" || payload.Params.Name == "" {
+		return nil, "", false, nil
+	}
+	return payload.ID, payload.Params.Name, true, nil
 }
 
 // tryGetOrCreateUserSpecificHandler attempts to find or create a handler tailored for a specific user.
@@ -256,6 +283,44 @@ func ProxyHandler(c *gin.Context) {
 		common.RespJSONRPCError(c, http.StatusUnauthorized, common.JSONRPCErrorCodeInvalidRequest,
 			"Authentication failed: Invalid or expired API key. Please check your API key in Profile settings or refresh it if recently changed.")
 		return
+	}
+
+	requestID, toolName, isToolCall, inspectErr := inspectToolCall(c.Request)
+	if inspectErr != nil {
+		common.RespJSONRPCError(c, http.StatusBadRequest, common.JSONRPCErrorCodeInvalidRequest, "Failed to read MCP request")
+		return
+	}
+	if isToolCall {
+		enabled, policyErr := appservice.IsMCPToolEnabled(mcpDBService.ID, toolName)
+		if policyErr != nil {
+			common.RespJSONRPCError(c, http.StatusInternalServerError, common.JSONRPCErrorCodeInvalidRequest, "Failed to load MCP tool policy")
+			return
+		}
+		if !enabled {
+			message := fmt.Sprintf("tool %q is disabled by administrator", toolName)
+			logMessage := fmt.Sprintf("MCP tool call rejected | tool=%s | user=%d | reason=%s", toolName, userID, message)
+			common.SysLog(logMessage)
+			if logErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, serviceName, model.MCPLogPhaseRun, model.MCPLogLevelWarn, logMessage); logErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save rejected tool call log for %s: %v", serviceName, logErr))
+			}
+			if len(requestID) == 0 {
+				c.Status(http.StatusAccepted)
+				return
+			}
+			// Disabled tools are unavailable, like tools removed from the registry.
+			// Match mcp-go's INVALID_PARAMS error and preserve the JSON-RPC ID.
+			response := gin.H{"jsonrpc": "2.0", "id": requestID, "error": gin.H{"code": mcp.INVALID_PARAMS, "message": message}}
+			if action == "/message" {
+				if sendErr := proxy.SendSSEProxyResponse(mcpDBService.ID, c.Query("sessionId"), response); sendErr != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"jsonrpc": "2.0", "id": requestID, "error": gin.H{"code": mcp.INVALID_PARAMS, "message": sendErr.Error()}})
+					return
+				}
+				c.Status(http.StatusAccepted)
+			} else {
+				c.JSON(http.StatusOK, response)
+			}
+			return
+		}
 	}
 
 	// Check daily request limit (RPD) if user is authenticated and limit is set

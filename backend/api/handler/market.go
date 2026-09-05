@@ -1064,6 +1064,9 @@ func UninstallService(c *gin.Context) {
 		if err := model.DeleteMCPOAuthByServiceID(service.ID); err != nil {
 			return fmt.Errorf("delete service OAuth data: %w", err)
 		}
+		if err := model.DeleteMCPToolPoliciesForService(service.ID); err != nil {
+			return fmt.Errorf("delete service tool policies: %w", err)
+		}
 		if err := model.UpdateService(service); err != nil {
 			return fmt.Errorf("mark service as deleted: %w", err)
 		}
@@ -1339,6 +1342,22 @@ func ListInstalledMCPServices(c *gin.Context) {
 
 	// 获取缓存管理器
 	cacheManager := proxy.GetHealthCacheManager()
+	toolsCacheManager := proxy.GetToolsCacheManager()
+	toolPolicies, err := model.GetAllMCPToolPolicies()
+	if err != nil {
+		common.RespError(c, http.StatusInternalServerError, "failed to load tool policies", err)
+		return
+	}
+	disabledToolsByService := make(map[int64]map[string]struct{})
+	for _, policy := range toolPolicies {
+		if policy.Enabled {
+			continue
+		}
+		if disabledToolsByService[policy.ServiceID] == nil {
+			disabledToolsByService[policy.ServiceID] = make(map[string]struct{})
+		}
+		disabledToolsByService[policy.ServiceID][policy.ToolName] = struct{}{}
+	}
 
 	var result []map[string]interface{}
 	for _, svc := range services {
@@ -1464,6 +1483,31 @@ func ListInstalledMCPServices(c *gin.Context) {
 				svcMap["health_details"] = "{\"status\": \"unknown\"}" // Minimal fallback
 			}
 		}
+
+		// Counts require the raw inventory: disabled policy rows alone cannot tell
+		// whether a tool is current or dormant. Rehydrate from an already-running
+		// service when possible, but never start a service just to render counts.
+		entry, found := toolsCacheManager.GetServiceTools(svc.ID)
+		if !found {
+			if runningService, getErr := proxy.GetServiceManager().GetService(svc.ID); getErr == nil && runningService.IsRunning() {
+				entry = &proxy.ToolsCacheEntry{Tools: runningService.GetTools(), FetchedAt: time.Now()}
+				toolsCacheManager.SetServiceTools(svc.ID, entry)
+				found = true
+			}
+		}
+		totalToolCount := 0
+		enabledToolCount := 0
+		if found {
+			totalToolCount = len(entry.Tools)
+			for _, tool := range entry.Tools {
+				if _, disabled := disabledToolsByService[svc.ID][tool.Name]; !disabled {
+					enabledToolCount++
+				}
+			}
+		}
+		svcMap["tool_count"] = totalToolCount
+		svcMap["total_tool_count"] = totalToolCount
+		svcMap["enabled_tool_count"] = enabledToolCount
 		result = append(result, svcMap)
 	}
 	common.RespSuccess(c, result)

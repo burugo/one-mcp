@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"one-mcp/backend/common"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
@@ -13,9 +16,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
+	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // setupTestEnvironmentForProxyHandler configures a test environment using an in-memory SQLite DB.
@@ -37,6 +43,154 @@ func setupTestEnvironmentForProxyHandler() func() {
 		common.OptionMap = make(map[string]string)
 		// model.LoadedServicesMap = make(map[string]*model.MCPService) // If such a map exists and is populated by InitDB
 	}
+}
+
+func TestProxyHandlerRejectsDisabledToolBeforeForwardingOrCounting(t *testing.T) {
+	teardown := setupTestEnvironmentForProxyHandler()
+	defer teardown()
+
+	service := &model.MCPService{
+		Name:     "disabled-tool-proxy",
+		Type:     model.ServiceTypeStreamableHTTP,
+		Command:  "https://mcp.example.test/mcp",
+		Enabled:  true,
+		RPDLimit: 1,
+	}
+	require.NoError(t, model.CreateService(service))
+	_, err := model.SetMCPToolPolicy(service.ID, "blocked-tool", false, 1)
+	require.NoError(t, err)
+	quotaKey := fmt.Sprintf("user_request:%s:%d:42:count", time.Now().Format("2006-01-02"), service.ID)
+	require.NoError(t, thing.Cache().Set(context.Background(), quotaKey, "1", time.Hour))
+	defer thing.Cache().Delete(context.Background(), quotaKey)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("userID", int64(42))
+		c.Next()
+	})
+	router.POST("/proxy/:serviceName/*action", ProxyHandler)
+	for _, id := range []string{`7`, `"cached-tool-42"`, `9007199254740993`} {
+		t.Run(id, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/proxy/disabled-tool-proxy/mcp", strings.NewReader(
+				fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"blocked-tool","arguments":{"query":"private-test-argument"}}}`, id),
+			))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Accept", "application/json, text/event-stream")
+			router.ServeHTTP(recorder, request)
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			assert.Contains(t, recorder.Header().Get("Content-Type"), "application/json")
+			var response struct {
+				ID    json.RawMessage `json:"id"`
+				Error *struct {
+					Code    int    `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+				Result json.RawMessage `json:"result"`
+			}
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.JSONEq(t, id, string(response.ID))
+			require.NotNil(t, response.Error)
+			assert.Equal(t, mcp.INVALID_PARAMS, response.Error.Code)
+			assert.Contains(t, response.Error.Message, `tool "blocked-tool" is disabled by administrator`)
+			assert.Empty(t, response.Result)
+		})
+	}
+	statDB, err := model.GetProxyRequestStatThing()
+	require.NoError(t, err)
+	stats, err := statDB.All()
+	require.NoError(t, err)
+	assert.Empty(t, stats)
+	logs, _, err := model.GetMCPLogs(context.Background(), &service.ID, nil, nil, nil, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, logs, 3)
+	assert.Equal(t, model.MCPLogLevelWarn, logs[0].Level)
+	assert.Contains(t, logs[0].Message, "blocked-tool")
+	assert.Contains(t, logs[0].Message, "disabled by administrator")
+	assert.Contains(t, logs[0].Message, "user=42")
+	for _, entry := range logs {
+		assert.NotContains(t, entry.Message, "private-test-argument")
+	}
+	count, err := thing.Cache().Get(context.Background(), quotaKey)
+	require.NoError(t, err)
+	assert.Equal(t, "1", count)
+}
+
+func TestProxyHandlerDisabledToolRepliesOnExistingSSESession(t *testing.T) {
+	teardown := setupTestEnvironmentForProxyHandler()
+	defer teardown()
+	proxy.ClearSSEProxyCache()
+	defer proxy.ClearSSEProxyCache()
+	common.OptionMap["ServerAddress"] = "http://localhost"
+	service := &model.MCPService{Name: "sse-disabled-tool", Type: model.ServiceTypeStreamableHTTP, Command: "https://unused.example.test/mcp", Enabled: true}
+	require.NoError(t, model.CreateService(service))
+	_, err := model.SetMCPToolPolicy(service.ID, "sse-blocked-tool", false, 1)
+	require.NoError(t, err)
+	server := mcpserver.NewMCPServer("policy-test", "1")
+	sseHandler, err := proxy.GetOrCreateProxyToSSEHandler(context.Background(), service, &proxy.SharedMcpInstance{Server: server})
+	require.NoError(t, err)
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("userID", int64(42)); c.Next() })
+	router.GET("/proxy/:serviceName/sse", gin.WrapH(sseHandler))
+	router.POST("/proxy/:serviceName/*action", ProxyHandler)
+	host := httptest.NewServer(router)
+	defer host.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	get, err := http.NewRequestWithContext(ctx, http.MethodGet, host.URL+"/proxy/sse-disabled-tool/sse", nil)
+	require.NoError(t, err)
+	stream, err := http.DefaultClient.Do(get)
+	require.NoError(t, err)
+	defer stream.Body.Close()
+	require.Equal(t, http.StatusOK, stream.StatusCode)
+	data := make(chan string, 4)
+	go func() {
+		defer close(data)
+		scanner := bufio.NewScanner(stream.Body)
+		for scanner.Scan() {
+			if strings.HasPrefix(scanner.Text(), "data: ") {
+				select {
+				case data <- strings.TrimPrefix(scanner.Text(), "data: "):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	endpoint := <-data
+	require.Contains(t, endpoint, "/message?sessionId=")
+	endpointURL, err := url.Parse(endpoint)
+	require.NoError(t, err)
+	post, err := http.NewRequestWithContext(ctx, http.MethodPost, host.URL+endpointURL.RequestURI(), strings.NewReader(`{"jsonrpc":"2.0","id":"cached-tool-42","method":"tools/call","params":{"name":"sse-blocked-tool","arguments":{}}}`))
+	require.NoError(t, err)
+	post.Header.Set("Content-Type", "application/json")
+	ack, err := http.DefaultClient.Do(post)
+	require.NoError(t, err)
+	defer ack.Body.Close()
+	ackBody, err := io.ReadAll(ack.Body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, ack.StatusCode)
+	assert.Empty(t, ackBody, "SSE results belong on the event stream")
+	select {
+	case event := <-data:
+		var response struct {
+			ID    string `json:"id"`
+			Error struct {
+				Code int `json:"code"`
+			} `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(event), &response))
+		assert.Equal(t, "cached-tool-42", response.ID)
+		assert.Equal(t, mcp.INVALID_PARAMS, response.Error.Code)
+		assert.Contains(t, event, "disabled by administrator")
+	case <-time.After(time.Second):
+		t.Fatal("cached tool call received no terminal SSE response")
+	}
+	statDB, err := model.GetProxyRequestStatThing()
+	require.NoError(t, err)
+	stats, err := statDB.All()
+	require.NoError(t, err)
+	assert.Empty(t, stats)
 }
 
 func TestProxyHandler_ServiceNotFound(t *testing.T) {

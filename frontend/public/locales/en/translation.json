@@ -179,13 +179,17 @@
     },
     "serviceTools": {
         "toolsList": "Tools",
-        "availableToolsDescription": "Available tools for this service",
+        "availableToolsDescription": "Expand a tool to view details. Administrators can enable or disable tools globally.",
         "noToolsAvailable": "No tools available",
         "description": "Description",
         "parameters": "Parameters",
         "parameterName": "Name",
         "parameterType": "Type",
-        "parameterDescription": "Description"
+        "parameterDescription": "Description",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "enableTool": "Enable",
+        "updateFailed": "Failed to update tool"
     },
     "market": {
         "title": "Service Marketplace",

@@ -13,9 +13,11 @@ import {
     AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Loader2 } from 'lucide-react';
 import api, { APIResponse } from '@/utils/api';
 import { useTranslation } from 'react-i18next';
+import { useToast } from '@/hooks/use-toast';
 
 interface ToolProperty {
     type?: string;
@@ -34,6 +36,14 @@ interface Tool {
     name: string;
     description?: string;
     inputSchema?: ToolInputSchema;
+    enabled: boolean;
+}
+
+interface ServiceToolsResponse {
+    tools: Tool[];
+    total_tool_count: number;
+    enabled_tool_count: number;
+    disabled_tool_count: number;
 }
 
 interface ServiceToolsModalProps {
@@ -41,6 +51,8 @@ interface ServiceToolsModalProps {
     serviceName: string;
     serviceVersion?: string;
     isOpen: boolean;
+    canManageTools?: boolean;
+    onPolicyUpdated?: () => void;
     onClose: () => void;
 }
 
@@ -49,10 +61,16 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
     serviceName,
     serviceVersion,
     isOpen,
+    canManageTools = false,
+    onPolicyUpdated,
     onClose,
 }) => {
     const { t } = useTranslation();
+    const { toast } = useToast();
     const [tools, setTools] = useState<Tool[]>([]);
+    const [totalToolCount, setTotalToolCount] = useState(0);
+    const [enabledToolCount, setEnabledToolCount] = useState(0);
+    const [savingTools, setSavingTools] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +79,9 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
             fetchTools();
         } else {
             setTools([]);
+            setTotalToolCount(0);
+            setEnabledToolCount(0);
+            setSavingTools(new Set());
             setError(null);
         }
     }, [isOpen, serviceId]);
@@ -69,9 +90,11 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
         setLoading(true);
         setError(null);
         try {
-            const response = await api.get(`/mcp_services/${serviceId}/tools`) as APIResponse<{ tools: Tool[] }>;
+            const response = await api.get(`/mcp_services/${serviceId}/tools`) as APIResponse<ServiceToolsResponse>;
             if (response.success && response.data) {
                 setTools(response.data.tools || []);
+                setTotalToolCount(response.data.total_tool_count || 0);
+                setEnabledToolCount(response.data.enabled_tool_count || 0);
             } else {
                 setError(response.message || 'Failed to fetch tools');
             }
@@ -80,6 +103,35 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
             setError(err.message || 'An error occurred while fetching tools');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const updateToolPolicy = async (tool: Tool, enabled: boolean) => {
+        setSavingTools(current => new Set(current).add(tool.name));
+        try {
+            const response = await api.put(`/mcp_services/${serviceId}/tools/policy`, {
+                tool_name: tool.name,
+                enabled,
+            }) as APIResponse<unknown>;
+            if (!response.success) {
+                throw new Error(response.message || t('serviceTools.updateFailed'));
+            }
+
+            setTools(current => current.map(item => item.name === tool.name ? { ...item, enabled } : item));
+            setEnabledToolCount(current => current + (enabled ? 1 : -1));
+            onPolicyUpdated?.();
+        } catch (err: any) {
+            toast({
+                title: t('serviceTools.updateFailed'),
+                description: err.message || t('serviceTools.updateFailed'),
+                variant: 'destructive',
+            });
+        } finally {
+            setSavingTools(current => {
+                const next = new Set(current);
+                next.delete(tool.name);
+                return next;
+            });
         }
     };
 
@@ -96,7 +148,7 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
                         )}
                         {!loading && !error && (
                             <Badge variant="secondary" className="ml-2">
-                                {tools.length}
+                                {enabledToolCount}/{totalToolCount}
                             </Badge>
                         )}
                     </DialogTitle>
@@ -123,17 +175,33 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
                         <div className="pr-4">
                             <Accordion type="single" collapsible className="w-full">
                                 {tools.map((tool, index) => (
-                                    <AccordionItem key={index} value={`tool-${index}`}>
-                                        <AccordionTrigger className="hover:no-underline hover:bg-muted/50 px-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-                                            <div className="flex flex-col items-start text-left">
-                                                <span className="font-mono font-bold text-primary">{tool.name}</span>
-                                                {tool.description && (
-                                                    <span className="text-xs text-muted-foreground line-clamp-2 mt-1 font-normal">
-                                                        {tool.description}
-                                                    </span>
+                                    <AccordionItem key={tool.name} value={`tool-${index}`}>
+                                        <div className="flex items-center gap-3 pr-2 [&>h3]:min-w-0 [&>h3]:flex-1">
+                                            <AccordionTrigger className={`min-w-0 gap-3 hover:no-underline hover:bg-muted/50 px-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${tool.enabled ? '' : 'opacity-60'}`}>
+                                                <div className="flex min-w-0 flex-col items-start text-left">
+                                                    <span className="font-mono font-bold text-primary break-all">{tool.name}</span>
+                                                    {tool.description && (
+                                                        <span className="text-xs text-muted-foreground line-clamp-2 mt-1 font-normal">
+                                                            {tool.description}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </AccordionTrigger>
+                                            <div className="flex shrink-0 items-center">
+                                                {canManageTools ? (
+                                                    <Switch
+                                                        checked={tool.enabled}
+                                                        disabled={savingTools.has(tool.name)}
+                                                        aria-label={`${t('serviceTools.enableTool')} ${tool.name}`}
+                                                        onCheckedChange={(enabled) => updateToolPolicy(tool, enabled)}
+                                                    />
+                                                ) : (
+                                                    <Badge variant={tool.enabled ? 'secondary' : 'outline'}>
+                                                        {t(tool.enabled ? 'serviceTools.enabled' : 'serviceTools.disabled')}
+                                                    </Badge>
                                                 )}
                                             </div>
-                                        </AccordionTrigger>
+                                        </div>
                                         <AccordionContent className="px-4 py-2 bg-muted/30 rounded-b-md">
                                             <div className="space-y-3 max-h-[300px] overflow-y-auto">
                                                 {tool.description && (

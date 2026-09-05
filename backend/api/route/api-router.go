@@ -103,6 +103,7 @@ func SetApiRouter(route *gin.Engine) {
 			{
 				adminMCPServiceRoute.PUT("/:id", handler.UpdateMCPService)
 				adminMCPServiceRoute.POST("/:id/toggle", handler.ToggleMCPService)
+				adminMCPServiceRoute.PUT("/:id/tools/policy", handler.UpdateMCPToolPolicy)
 				adminMCPServiceRoute.GET("/:id/oauth", handler.GetMCPOAuthStatus)
 				adminMCPServiceRoute.PUT("/:id/oauth", handler.ConfigureMCPOAuth)
 				adminMCPServiceRoute.DELETE("/:id/oauth", handler.DisableMCPOAuth)

@@ -179,13 +179,17 @@
     },
     "serviceTools": {
         "toolsList": "工具",
-        "availableToolsDescription": "该服务可用的工具列表",
+        "availableToolsDescription": "展开工具可查看详情，管理员可在此全局启用或禁用工具。",
         "noToolsAvailable": "暂无可用工具",
         "description": "描述",
         "parameters": "参数",
         "parameterName": "参数名",
         "parameterType": "类型",
-        "parameterDescription": "描述"
+        "parameterDescription": "描述",
+        "enabled": "已启用",
+        "disabled": "已禁用",
+        "enableTool": "启用",
+        "updateFailed": "更新工具状态失败"
     },
     "market": {
         "title": "服务市场",
