@@ -77,6 +77,7 @@ func buildGroupMCPHandler(group *model.MCPServiceGroup) (http.Handler, error) {
 	}
 
 	streamable := mcpserver.NewStreamableHTTPServer(server,
+		mcpserver.WithStreamableHTTPProtocolVersions(mcp.LegacyProtocolVersions()...),
 		mcpserver.WithHeartbeatInterval(30*time.Second),
 	)
 

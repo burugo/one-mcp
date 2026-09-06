@@ -617,7 +617,7 @@ export function ServicesPage() {
                                 <Badge variant="outline">{service.version || 'unknown'}</Badge>
                             </TableCell>
                             <TableCell>
-                                {(service.tool_count || 0) > 0 && (service.health_status === "healthy" || service.health_status === "Healthy") ? (
+                                {(service.total_tool_count ?? 0) > 0 && (service.health_status === "healthy" || service.health_status === "Healthy") ? (
                                     <Badge 
                                         variant="secondary" 
                                         className="cursor-pointer hover:bg-secondary/80"
@@ -626,7 +626,7 @@ export function ServicesPage() {
                                             setToolsModalOpen(true);
                                         }}
                                     >
-                                        {service.tool_count} tools
+                                        {service.enabled_tool_count ?? 0}/{service.total_tool_count ?? 0} tools
                                     </Badge>
                                 ) : (
                                     <span className="text-muted-foreground text-sm">-</span>
@@ -717,17 +717,17 @@ export function ServicesPage() {
                                     <CardTitle className="text-lg">{service.display_name || service.name}</CardTitle>
                                     {isAdmin && <OAuthAuthorizationButton service={service} />}
                                 </div>
-                                {(service.tool_count || 0) > 0 && (service.health_status === "healthy" || service.health_status === "Healthy") && (
+                                {(service.total_tool_count ?? 0) > 0 && (service.health_status === "healthy" || service.health_status === "Healthy") && (
                                     <Badge 
                                         variant="secondary" 
-                                        className="cursor-pointer hover:bg-secondary/80 ml-2"
+                                        className="cursor-pointer hover:bg-secondary/80 ml-2 shrink-0 whitespace-nowrap"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             setServiceForTools(service);
                                             setToolsModalOpen(true);
                                         }}
                                     >
-                                        {service.tool_count} tools
+                                        {service.enabled_tool_count ?? 0}/{service.total_tool_count ?? 0}
                                     </Badge>
                                 )}
                             </div>
@@ -902,6 +902,8 @@ export function ServicesPage() {
                     serviceName={serviceForTools.display_name || serviceForTools.name}
                     serviceVersion={serviceForTools.version}
                     isOpen={toolsModalOpen}
+                    canManageTools={Boolean(isAdmin)}
+                    onPolicyUpdated={fetchInstalledServices}
                     onClose={() => {
                         setToolsModalOpen(false);
                         setServiceForTools(null);

@@ -14,9 +14,11 @@ import (
 	"one-mcp/backend/common"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
+	appservice "one-mcp/backend/service"
 
 	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // parseInt64 is a helper function to safely parse int64 from various numeric types or string.
@@ -81,6 +83,32 @@ func checkDailyRequestLimit(serviceID int64, userID int64, rpdLimit int) error {
 	}
 
 	return nil
+}
+
+type proxyMCPRequest struct {
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method"`
+	Params struct {
+		Name string    `json:"name"`
+		Meta *mcp.Meta `json:"_meta"`
+	} `json:"params"`
+}
+
+func inspectMCPRequest(request *http.Request) (proxyMCPRequest, error) {
+	if request.Method != http.MethodPost || request.Body == nil {
+		return proxyMCPRequest{}, nil
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return proxyMCPRequest{}, err
+	}
+	request.Body = io.NopCloser(bytes.NewReader(body))
+	var payload proxyMCPRequest
+	if err := json.Unmarshal(body, &payload); err != nil {
+		// Leave malformed request handling to the MCP transport.
+		return proxyMCPRequest{}, nil
+	}
+	return payload, nil
 }
 
 // tryGetOrCreateUserSpecificHandler attempts to find or create a handler tailored for a specific user.
@@ -258,6 +286,62 @@ func ProxyHandler(c *gin.Context) {
 		return
 	}
 
+	rpc, inspectErr := inspectMCPRequest(c.Request)
+	if inspectErr != nil {
+		common.RespJSONRPCError(c, http.StatusBadRequest, common.JSONRPCErrorCodeInvalidRequest, "Failed to read MCP request")
+		return
+	}
+	requestID, toolName := rpc.ID, rpc.Params.Name
+	isToolCall := rpc.Method == "tools/call"
+	var rejection *mcp.JSONRPCErrorDetails
+	if action == "/message" {
+		version := c.GetHeader(mcp.HeaderProtocolVersion)
+		if metaVersion := rpc.Params.Meta.ProtocolVersion(); mcp.IsModernProtocol(metaVersion) {
+			version = metaVersion
+		}
+		// The deprecated SSE transport only supports the initialize/session era.
+		// mcp-go v1's SSE server advertises versions but does not enforce them.
+		if mcp.IsModernProtocol(version) {
+			response := (mcp.UnsupportedProtocolVersionError{Version: version, Supported: mcp.LegacyProtocolVersions()}).JSONRPCError()
+			rejection = &response.Error
+		}
+	}
+	if rejection == nil && isToolCall && toolName != "" {
+		enabled, policyErr := appservice.IsMCPToolEnabled(mcpDBService.ID, toolName)
+		if policyErr != nil {
+			common.RespJSONRPCError(c, http.StatusInternalServerError, common.JSONRPCErrorCodeInvalidRequest, "Failed to load MCP tool policy")
+			return
+		}
+		if !enabled {
+			message := fmt.Sprintf("tool %q is disabled by administrator", toolName)
+			logMessage := fmt.Sprintf("MCP tool call rejected | tool=%s | user=%d | reason=%s", toolName, userID, message)
+			common.SysLog(logMessage)
+			if logErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, serviceName, model.MCPLogPhaseRun, model.MCPLogLevelWarn, logMessage); logErr != nil {
+				common.SysError(fmt.Sprintf("Failed to save rejected tool call log for %s: %v", serviceName, logErr))
+			}
+			// Disabled tools are unavailable, like tools removed from the registry.
+			rejection = &mcp.JSONRPCErrorDetails{Code: mcp.INVALID_PARAMS, Message: message}
+		}
+	}
+	if rejection != nil {
+		if len(requestID) == 0 {
+			c.Status(http.StatusAccepted)
+			return
+		}
+		// Preserve the original ID, including numeric IDs larger than float64.
+		response := gin.H{"jsonrpc": "2.0", "id": requestID, "error": rejection}
+		if action == "/message" {
+			if sendErr := proxy.SendSSEProxyResponse(mcpDBService.ID, c.Query("sessionId"), response); sendErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"jsonrpc": "2.0", "id": requestID, "error": gin.H{"code": mcp.INVALID_PARAMS, "message": sendErr.Error()}})
+				return
+			}
+			c.Status(http.StatusAccepted)
+		} else {
+			c.JSON(http.StatusOK, response)
+		}
+		return
+	}
+
 	// Check daily request limit (RPD) if user is authenticated and limit is set
 	if userID > 0 && mcpDBService.RPDLimit > 0 {
 		if rpdErr := checkDailyRequestLimit(mcpDBService.ID, userID, mcpDBService.RPDLimit); rpdErr != nil {
@@ -335,83 +419,35 @@ func ProxyHandler(c *gin.Context) {
 	}
 
 	if targetHandler != nil {
-
-		// Unified logic for determining if this request should be recorded for statistics
-		shouldRecordStat := false
-		requestTypeForStat := ""
-		methodForStat := ""
-		// Capture client name
-		clientName := c.Request.Header.Get("User-Agent")
-
-		if requestMethod == http.MethodPost {
-			if action == "/message" || action == "/mcp" {
-				if c.Request.Body != nil {
-					// Read the entire request body to inspect it.
-					bodyBytes, err := io.ReadAll(c.Request.Body)
-					if err != nil {
-						common.SysError(fmt.Sprintf("[ProxyHandler] failed to read request body for stat check: %v", err))
-					}
-					// Always restore body
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-					// Parse body: detect tools/call and extract client name if present
-					if err == nil && len(bodyBytes) > 0 {
-						var parsedBody map[string]interface{}
-						if json.Unmarshal(bodyBytes, &parsedBody) == nil {
-							if actualMethod, ok := parsedBody["method"].(string); ok && actualMethod == "tools/call" {
-								shouldRecordStat = true
-								methodForStat = "tools/call"
-								if action == "/message" {
-									requestTypeForStat = "sse"
-								} else {
-									requestTypeForStat = "http"
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Measure and serve
-		startTime := time.Now()
-		targetHandler.ServeHTTP(c.Writer, c.Request)
-		duration := time.Since(startTime)
-		statusCode := c.Writer.Status()
-		success := statusCode >= 200 && statusCode < 300
-
-		// Record statistics only for tools/call
+		shouldRecordStat := isToolCall && (action == "/message" || action == "/mcp")
 		if shouldRecordStat {
-			go model.RecordRequestStat(
-				mcpDBService.ID,
-				mcpDBService.Name,
-				userID,
-				model.ProxyRequestType(requestTypeForStat),
-				methodForStat,
-				requestPath,
-				duration.Milliseconds(),
-				statusCode,
-				success,
-			)
-		}
-
-		// Save an info log only for real MCP calls (tools/call) and success
-		if shouldRecordStat && success {
-			reqType := ""
-			switch {
-			case action == "/message" || strings.HasPrefix(action, "/message/"):
-				reqType = "sse"
-			case action == "/mcp" || strings.HasPrefix(action, "/mcp/"):
-				reqType = "http"
-			default:
-				reqType = requestMethod
+			requestType := model.ProxyRequestTypeHTTP
+			statusCode := http.StatusOK
+			if action == "/message" {
+				requestType = model.ProxyRequestTypeSSE
+				statusCode = http.StatusAccepted
 			}
-			msg := fmt.Sprintf("MCP request OK | user=%d | type=%s | action=%s | path=%s | duration=%dms | status=%d | client=%s",
-				userID, reqType, action, requestPath, duration.Milliseconds(), statusCode, clientName)
-			if saveErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelInfo, msg); saveErr != nil {
-				common.SysError(fmt.Sprintf("Failed to save MCP access log for %s: %v", mcpDBService.Name, saveErr))
-			}
+			// Copy request metadata: SSE completion runs after Gin reuses its context.
+			serviceID, serviceName := mcpDBService.ID, mcpDBService.Name
+			clientName := c.Request.Header.Get("User-Agent")
+			started := time.Now()
+			ctx := proxy.WithToolCallObserver(c.Request.Context(), func(result *mcp.CallToolResult, callErr error) {
+				duration := time.Since(started)
+				success := callErr == nil && result != nil && !result.IsError
+				go model.RecordRequestStat(serviceID, serviceName, userID, requestType, "tools/call", requestPath, duration.Milliseconds(), statusCode, success)
+				level, outcome := model.MCPLogLevelInfo, "OK"
+				if !success {
+					level, outcome = model.MCPLogLevelError, "FAILED"
+				}
+				msg := fmt.Sprintf("MCP tool call %s | tool=%s | user=%d | type=%s | path=%s | duration=%dms | status=%d | client=%s",
+					outcome, toolName, userID, requestType, requestPath, duration.Milliseconds(), statusCode, clientName)
+				if saveErr := model.SaveMCPLog(context.Background(), serviceID, serviceName, model.MCPLogPhaseRun, level, msg); saveErr != nil {
+					common.SysError(fmt.Sprintf("Failed to save MCP access log for %s: %v", serviceName, saveErr))
+				}
+			})
+			c.Request = c.Request.WithContext(ctx)
 		}
+		targetHandler.ServeHTTP(c.Writer, c.Request)
 
 		// Only count meaningful MCP calls towards idle tracking.
 		if shouldRecordStat && mcpDBService.Type == model.ServiceTypeStdio {

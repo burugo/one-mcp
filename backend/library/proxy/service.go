@@ -1393,6 +1393,43 @@ var (
 	httpWrappersMutex            = &sync.Mutex{}
 )
 
+// ApplyMCPToolPolicy updates every live global and user-specific instance for
+// one service. MCPServer emits tools/list_changed notifications for Add/Delete.
+func ApplyMCPToolPolicy(serviceID int64, toolName string, enabled bool) error {
+	sharedMCPServersMutex.Lock()
+	instances := make([]*SharedMcpInstance, 0)
+	for _, instance := range sharedMCPServers {
+		if instance != nil && instance.serviceID == serviceID {
+			instances = append(instances, instance)
+		}
+	}
+	sharedMCPServersMutex.Unlock()
+
+	for _, instance := range instances {
+		if instance.Server == nil {
+			continue
+		}
+		if !enabled {
+			instance.Server.DeleteTools(toolName)
+			continue
+		}
+		if instance.Server.GetTool(toolName) != nil {
+			continue
+		}
+		for _, tool := range instance.Tools {
+			if tool.Name != toolName {
+				continue
+			}
+			if instance.Client == nil {
+				return fmt.Errorf("live MCP instance for service %d has no client", serviceID)
+			}
+			instance.Server.AddTool(tool, newProxyToolHandler(instance.Client, instance.serviceName, instance.cacheKey, serviceID, instance.serviceType, toolName))
+			break
+		}
+	}
+	return nil
+}
+
 func updateServiceDescriptionFromInitResult(service *model.MCPService, initResult *mcp.InitializeResult, serverInfo *mcp.Implementation) {
 	if service == nil {
 		return
@@ -1407,7 +1444,7 @@ func updateServiceDescriptionFromInitResult(service *model.MCPService, initResul
 	var description string
 	description = strings.TrimSpace(initResult.Instructions)
 	if description == "" {
-		description = strings.TrimSpace(getInitResultServerInfoDescription(initResult))
+		description = strings.TrimSpace(initResult.ServerInfo.Description)
 	}
 	if description == "" && serverInfo != nil {
 		description = strings.TrimSpace(serverInfo.Title)
@@ -1418,7 +1455,7 @@ func updateServiceDescriptionFromInitResult(service *model.MCPService, initResul
 	if description == "" {
 		return
 	}
-	serverInfoName := strings.TrimSpace(getInitResultServerInfoName(initResult))
+	serverInfoName := strings.TrimSpace(initResult.ServerInfo.Name)
 	if serverInfoName == "" && serverInfo != nil {
 		serverInfoName = strings.TrimSpace(serverInfo.Name)
 	}
@@ -1432,60 +1469,6 @@ func updateServiceDescriptionFromInitResult(service *model.MCPService, initResul
 	if updateErr := model.UpdateService(service); updateErr != nil {
 		common.SysError(fmt.Sprintf("Failed to update description for %s (ID: %d): %v", service.Name, service.ID, updateErr))
 	}
-}
-
-func getInitResultServerInfoDescription(initResult *mcp.InitializeResult) string {
-	if initResult == nil {
-		return ""
-	}
-	raw, err := json.Marshal(initResult)
-	if err != nil {
-		return ""
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ""
-	}
-	serverInfo, ok := payload["serverInfo"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	value, ok := serverInfo["description"]
-	if !ok {
-		return ""
-	}
-	description, ok := value.(string)
-	if !ok {
-		return ""
-	}
-	return description
-}
-
-func getInitResultServerInfoName(initResult *mcp.InitializeResult) string {
-	if initResult == nil {
-		return ""
-	}
-	raw, err := json.Marshal(initResult)
-	if err != nil {
-		return ""
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ""
-	}
-	serverInfo, ok := payload["serverInfo"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	value, ok := serverInfo["name"]
-	if !ok {
-		return ""
-	}
-	name, ok := value.(string)
-	if !ok {
-		return ""
-	}
-	return name
 }
 
 // createActualMcpGoServerAndClientUncached creates and initializes an mcp-go client and server instance.
@@ -1799,7 +1782,8 @@ func createActualMcpGoServerAndClientWithStdioOptions(
 	}
 
 	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	// Keep the stateful protocol while health checks rely on the ping RPC.
+	initRequest.Params.ProtocolVersion = mcp.ProtocolVersion20251125
 	initRequest.Params.ClientInfo = clientInfo
 
 	initResult, err := mcpGoClient.Initialize(handshakeCtx, initRequest)
@@ -1875,6 +1859,8 @@ func createActualMcpGoServerAndClientWithStdioOptions(
 
 	serverOptions := []mcpserver.ServerOption{
 		mcpserver.WithResourceCapabilities(true, true),
+		mcpserver.WithToolCapabilities(true),
+		WithToolCallObservation(),
 	}
 	if strings.TrimSpace(serviceConfigForInstance.Description) != "" {
 		serverOptions = append(serverOptions, mcpserver.WithInstructions(serviceConfigForInstance.Description))
@@ -1921,6 +1907,9 @@ func createSSEHttpHandler(
 	actualMCPGoSSEServer := mcpserver.NewSSEServer(mcpGoServer,
 		mcpserver.WithStaticBasePath(mcpDBService.Name),       // TODO: This might need to be more dynamic based on routing
 		mcpserver.WithBaseURL(oneMCPExternalBaseURL+"/proxy"), // Path for client to connect back
+		mcpserver.WithSSEContextFunc(func(ctx context.Context, _ *http.Request) context.Context {
+			return mcpserver.WithSupportedProtocolVersions(ctx, mcp.LegacyProtocolVersions())
+		}),
 	)
 	return actualMCPGoSSEServer, nil
 }
@@ -1934,6 +1923,7 @@ func createHTTPProxyHttpHandler(mcpGoServer *mcpserver.MCPServer, mcpDBService *
 	// Use NewStreamableHTTPServer to create HTTP/MCP handler with heartbeat to prevent idle timeout
 	actualMCPGoHTTPServer := mcpserver.NewStreamableHTTPServer(mcpGoServer,
 		mcpserver.WithHeartbeatInterval(30*time.Second),
+		mcpserver.WithStreamableHTTPProtocolVersions(mcp.LegacyProtocolVersions()...),
 	)
 
 	common.SysLog(fmt.Sprintf("Successfully created HTTP/MCP handler for %s (ID: %d)", mcpDBService.Name, mcpDBService.ID))
@@ -2020,155 +2010,111 @@ func addClientToolsToMCPServer(
 	serviceID int64,
 	serviceType model.ServiceType,
 ) ([]mcp.Tool, error) {
-	var allTools []mcp.Tool
-	toolsRequest := mcp.ListToolsRequest{}
-	for {
-		tools, err := mcpGoClient.ListTools(ctx, toolsRequest)
-		if err != nil {
-			common.SysError(fmt.Sprintf("ListTools failed for %s: %v", mcpServerName, err))
-			return nil, err
-		}
-		if tools == nil {
-			common.SysLog(fmt.Sprintf("ListTools returned nil tools for %s. No tools to add.", mcpServerName))
-			break
-		}
-		common.SysLog(fmt.Sprintf("Listed %d tools for %s", len(tools.Tools), mcpServerName))
-		allTools = append(allTools, tools.Tools...)
-		for _, tool := range tools.Tools {
-			common.SysLog(fmt.Sprintf("Adding tool %s to %s", tool.Name, mcpServerName))
-			toolName := tool.Name
-			mcpGoServer.AddTool(tool, func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				start := time.Now()
-				// Apply configurable timeout for MCP tool calls, consistent with group handler
-				toolCallCtx, toolCallCancel := context.WithTimeout(callCtx, McpToolCallTimeout())
-				defer toolCallCancel()
-				result, callErr := mcpGoClient.CallTool(toolCallCtx, request)
-				duration := time.Since(start)
-				if callErr != nil {
-					trigger := fmt.Sprintf("tool call (%s)", toolName)
-					errMsg := fmt.Sprintf("MCP tool call failed | service=%s | tool=%s | duration=%dms | err=%v", mcpServerName, toolName, duration.Milliseconds(), callErr)
-					common.SysError(errMsg)
-					if globalStderrThrottler.shouldLog(serviceID, errMsg) {
-						_ = model.SaveMCPLog(context.Background(), serviceID, mcpServerName, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg)
-					}
-					if shouldInvalidateInstanceAfterCallError(mcpGoClient, callErr) {
-						handleTransportErrorForCache(cacheKey, serviceID, mcpServerName, serviceType, trigger, callErr)
-					}
-				}
-				return result, callErr
-			})
-		}
-		if tools.NextCursor == "" {
-			break
-		}
-		toolsRequest.PaginatedRequest.Params.Cursor = tools.NextCursor
+	tools, err := mcpGoClient.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list tools for %s: %w", mcpServerName, err)
 	}
-	return allTools, nil
+	if tools == nil {
+		return nil, fmt.Errorf("list tools for %s returned no result", mcpServerName)
+	}
+	enabledTools, err := appservice.FilterEnabledMCPTools(serviceID, tools.Tools)
+	if err != nil {
+		return nil, fmt.Errorf("load tool policies for %s: %w", mcpServerName, err)
+	}
+	for _, tool := range enabledTools {
+		common.SysLog(fmt.Sprintf("Adding tool %s to %s", tool.Name, mcpServerName))
+		mcpGoServer.AddTool(tool, newProxyToolHandler(mcpGoClient, mcpServerName, cacheKey, serviceID, serviceType, tool.Name))
+	}
+	return tools.Tools, nil
+}
+
+func newProxyToolHandler(
+	mcpGoClient mcpclient.MCPClient,
+	mcpServerName string,
+	cacheKey string,
+	serviceID int64,
+	serviceType model.ServiceType,
+	toolName string,
+) mcpserver.ToolHandlerFunc {
+	return func(callCtx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		enabled, policyErr := appservice.IsMCPToolEnabled(serviceID, toolName)
+		if policyErr != nil {
+			return nil, fmt.Errorf("load tool policy for %s/%s: %w", mcpServerName, toolName, policyErr)
+		}
+		if !enabled {
+			return mcp.NewToolResultError(fmt.Sprintf("tool %q is disabled by administrator", toolName)), nil
+		}
+
+		start := time.Now()
+		toolCallCtx, toolCallCancel := context.WithTimeout(callCtx, McpToolCallTimeout())
+		defer toolCallCancel()
+		result, callErr := mcpGoClient.CallTool(toolCallCtx, request)
+		duration := time.Since(start)
+		if callErr != nil {
+			trigger := fmt.Sprintf("tool call (%s)", toolName)
+			errMsg := fmt.Sprintf("MCP tool call failed | service=%s | tool=%s | duration=%dms | err=%v", mcpServerName, toolName, duration.Milliseconds(), callErr)
+			common.SysError(errMsg)
+			if globalStderrThrottler.shouldLog(serviceID, errMsg) {
+				_ = model.SaveMCPLog(context.Background(), serviceID, mcpServerName, model.MCPLogPhaseRun, model.MCPLogLevelError, errMsg)
+			}
+			if shouldInvalidateInstanceAfterCallError(mcpGoClient, callErr) {
+				handleTransportErrorForCache(cacheKey, serviceID, mcpServerName, serviceType, trigger, callErr)
+			}
+		}
+		return result, callErr
+	}
 }
 
 func addClientPromptsToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
-	promptsRequest := mcp.ListPromptsRequest{}
-	for {
-		prompts, err := mcpGoClient.ListPrompts(ctx, promptsRequest)
-		if err != nil {
-			common.SysError(fmt.Sprintf("ListPrompts failed for %s: %v", mcpServerName, err))
-			return err
-		}
-		if prompts == nil {
-			common.SysLog(fmt.Sprintf("ListPrompts returned nil prompts for %s. No prompts to add.", mcpServerName))
-			break
-		}
-		common.SysLog(fmt.Sprintf("Listed %d prompts for %s", len(prompts.Prompts), mcpServerName))
-		for _, prompt := range prompts.Prompts {
-			common.SysLog(fmt.Sprintf("Adding prompt %s to %s", prompt.Name, mcpServerName))
-			mcpGoServer.AddPrompt(prompt, mcpGoClient.GetPrompt)
-		}
-		if prompts.NextCursor == "" {
-			break
-		}
-		promptsRequest.PaginatedRequest.Params.Cursor = prompts.NextCursor
+	prompts, err := mcpGoClient.ListPrompts(ctx, mcp.ListPromptsRequest{})
+	if err != nil {
+		return fmt.Errorf("list prompts for %s: %w", mcpServerName, err)
+	}
+	if prompts == nil {
+		return fmt.Errorf("list prompts for %s returned no result", mcpServerName)
+	}
+	for _, prompt := range prompts.Prompts {
+		mcpGoServer.AddPrompt(prompt, mcpGoClient.GetPrompt)
 	}
 	return nil
 }
 
-// TODO: Implement addClientResourcesToMCPServer and addClientResourceTemplatesToMCPServer
-// based on user's example if these are required for exa-mcp-server.
-// For now, these are stubbed or simplified.
-
-// --- End Helper Functions ---
-
-// Keep existing ServiceManager and its methods (GetServiceManager, AddService, GetSSEServiceByName etc.)
-// GetSSEServiceByName will now rely on the updated ServiceFactory.
-// ... existing code ...
-
-// --- New Helper Functions ---
-
 func addClientResourcesToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
-	resourcesRequest := mcp.ListResourcesRequest{}
-	for {
-		resources, err := mcpGoClient.ListResources(ctx, resourcesRequest)
-		if err != nil {
-			common.SysError(fmt.Sprintf("ListResources failed for %s: %v", mcpServerName, err))
-			return err
-		}
-		if resources == nil {
-			common.SysLog(fmt.Sprintf("ListResources returned nil resources for %s. No resources to add.", mcpServerName))
-			break
-		}
-		common.SysLog(fmt.Sprintf("Successfully listed %d resources for %s", len(resources.Resources), mcpServerName))
-		for _, resource := range resources.Resources {
-			// Capture range variable for closure
-			resource := resource
-			common.SysLog(fmt.Sprintf("Adding resource %s to %s", resource.Name, mcpServerName))
-			mcpGoServer.AddResource(resource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-				readResource, e := mcpGoClient.ReadResource(ctx, request)
-				if e != nil {
-					return nil, e
-				}
-				return readResource.Contents, nil
-			})
-		}
-		if resources.NextCursor == "" {
-			break
-		}
-		resourcesRequest.PaginatedRequest.Params.Cursor = resources.NextCursor
+	resources, err := mcpGoClient.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		return fmt.Errorf("list resources for %s: %w", mcpServerName, err)
+	}
+	if resources == nil {
+		return fmt.Errorf("list resources for %s returned no result", mcpServerName)
+	}
+	for _, resource := range resources.Resources {
+		mcpGoServer.AddResource(resource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			result, err := mcpGoClient.ReadResource(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			return result.Contents, nil
+		})
 	}
 	return nil
 }
 
 func addClientResourceTemplatesToMCPServer(ctx context.Context, mcpGoClient mcpclient.MCPClient, mcpGoServer *mcpserver.MCPServer, mcpServerName string) error {
-	resourceTemplatesRequest := mcp.ListResourceTemplatesRequest{}
-	for {
-		resourceTemplates, err := mcpGoClient.ListResourceTemplates(ctx, resourceTemplatesRequest)
-		if err != nil {
-			common.SysError(fmt.Sprintf("ListResourceTemplates failed for %s: %v", mcpServerName, err))
-			return err
-		}
-		if resourceTemplates == nil {
-			common.SysLog(fmt.Sprintf("ListResourceTemplates returned nil templates for %s. No templates to add.", mcpServerName))
-			break
-		}
-		common.SysLog(fmt.Sprintf("Successfully listed %d resource templates for %s", len(resourceTemplates.ResourceTemplates), mcpServerName))
-		for _, resourceTemplate := range resourceTemplates.ResourceTemplates {
-			// Capture range variable for closure
-			resourceTemplate := resourceTemplate
-			common.SysLog(fmt.Sprintf("Adding resource template %s to %s", resourceTemplate.Name, mcpServerName))
-			mcpGoServer.AddResourceTemplate(resourceTemplate, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-				// Note: The callback for AddResourceTemplate in mcp-go server might expect a specific request type
-				// or the ReadResourceRequest might be generic enough.
-				// Assuming ReadResourceRequest is appropriate as per user's example.
-				readResource, e := mcpGoClient.ReadResource(ctx, request) // This call might need adjustment if ReadResourceTemplates requires a different read method.
-				// However, mcp-go server.AddResourceTemplate's callback signature is indeed for ReadResourceRequest.
-				if e != nil {
-					return nil, e
-				}
-				return readResource.Contents, nil
-			})
-		}
-		if resourceTemplates.NextCursor == "" {
-			break
-		}
-		resourceTemplatesRequest.PaginatedRequest.Params.Cursor = resourceTemplates.NextCursor
+	templates, err := mcpGoClient.ListResourceTemplates(ctx, mcp.ListResourceTemplatesRequest{})
+	if err != nil {
+		return fmt.Errorf("list resource templates for %s: %w", mcpServerName, err)
+	}
+	if templates == nil {
+		return fmt.Errorf("list resource templates for %s returned no result", mcpServerName)
+	}
+	for _, template := range templates.ResourceTemplates {
+		mcpGoServer.AddResourceTemplate(template, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			result, err := mcpGoClient.ReadResource(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			return result.Contents, nil
+		})
 	}
 	return nil
 }
@@ -2272,6 +2218,22 @@ func GetOrCreateProxyToSSEHandler(ctx context.Context, mcpDBService *model.MCPSe
 	initializedSSEProxyWrappers[handlerCacheKey] = handler
 
 	return handler, nil
+}
+
+// SendSSEProxyResponse delivers a response on an existing downstream SSE session.
+// It never creates an upstream instance or a new session for a rejected call.
+func SendSSEProxyResponse(serviceID int64, sessionID string, response any) error {
+	if sessionID == "" {
+		return errors.New("missing SSE sessionId")
+	}
+	sseWrappersMutex.Lock()
+	handler := initializedSSEProxyWrappers[fmt.Sprintf("service-%d-sseproxy", serviceID)]
+	sseWrappersMutex.Unlock()
+	sseServer, ok := handler.(*mcpserver.SSEServer)
+	if !ok {
+		return errors.New("SSE session is no longer available; reconnect to the service")
+	}
+	return sseServer.SendEventToSession(sessionID, response)
 }
 
 // GetOrCreateProxyToHTTPHandler creates or retrieves a cached HTTP/MCP http.Handler using shared MCP instance

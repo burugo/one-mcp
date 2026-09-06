@@ -11,6 +11,7 @@ import (
 	"one-mcp/backend/common/i18n"
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
+	appservice "one-mcp/backend/service"
 	"one-mcp/backend/templates"
 	"strconv"
 	"strings"
@@ -107,6 +108,10 @@ func buildSkillZip(ctx context.Context, group *model.MCPServiceGroup, user *mode
 				tools = fetchedTools
 			}
 			// If fetch fails, tools remains empty - continue anyway
+		}
+		tools, err = appservice.FilterEnabledMCPTools(svcID, tools)
+		if err != nil {
+			return nil, fmt.Errorf("apply tool policy for service %d: %w", svcID, err)
 		}
 		servicesWithTools = append(servicesWithTools, skillServiceWithTools{service: svc, tools: tools})
 	}

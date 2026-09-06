@@ -11,9 +11,11 @@ import (
 	"one-mcp/backend/library/proxy"
 	"one-mcp/backend/model"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // UpdateMCPService godoc
@@ -372,7 +374,7 @@ func GetMCPServiceTools(c *gin.Context) {
 		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found_or_not_running", lang), loadErr)
 		return
 	}
-	if !mcpService.Enabled {
+	if mcpService.Deleted || !mcpService.Enabled {
 		common.RespError(c, http.StatusNotFound, i18n.Translate("service_not_found_or_not_running", lang), errors.New("service is disabled"))
 		return
 	}
@@ -381,9 +383,7 @@ func GetMCPServiceTools(c *gin.Context) {
 	// This does not trigger any service startup.
 	toolsCache := proxy.GetToolsCacheManager()
 	if entry, found := toolsCache.GetServiceTools(id); found {
-		common.RespSuccess(c, map[string]interface{}{
-			"tools": entry.Tools,
-		})
+		respondWithMCPServiceTools(c, id, entry.Tools)
 		return
 	}
 
@@ -391,7 +391,10 @@ func GetMCPServiceTools(c *gin.Context) {
 	service, err := serviceManager.GetService(id)
 	if err != nil || service == nil || !service.IsRunning() {
 		common.RespSuccess(c, map[string]interface{}{
-			"tools": []interface{}{},
+			"tools":               []interface{}{},
+			"total_tool_count":    0,
+			"enabled_tool_count":  0,
+			"disabled_tool_count": 0,
 		})
 		return
 	}
@@ -404,9 +407,132 @@ func GetMCPServiceTools(c *gin.Context) {
 	if err := serviceManager.UpdateMCPServiceHealth(id); err != nil {
 		common.SysError(fmt.Sprintf("failed to update service %d health after tools cache refresh: %v", id, err))
 	}
+	respondWithMCPServiceTools(c, id, tools)
+}
+
+type mcpServiceToolView struct {
+	Tool    mcp.Tool `json:"-"`
+	Enabled bool     `json:"enabled"`
+}
+
+var mcpToolPolicyUpdateMu sync.Mutex
+
+func (v mcpServiceToolView) MarshalJSON() ([]byte, error) {
+	toolJSON, err := json.Marshal(v.Tool)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(toolJSON, &payload); err != nil {
+		return nil, err
+	}
+	payload["enabled"] = v.Enabled
+	return json.Marshal(payload)
+}
+
+func respondWithMCPServiceTools(c *gin.Context, serviceID int64, tools []mcp.Tool) {
+	policies, err := model.GetMCPToolPoliciesForService(serviceID)
+	if err != nil {
+		common.RespError(c, http.StatusInternalServerError, "failed to load tool policies", err)
+		return
+	}
+	enabledByName := make(map[string]bool, len(policies))
+	for _, policy := range policies {
+		enabledByName[policy.ToolName] = policy.Enabled
+	}
+
+	views := make([]mcpServiceToolView, 0, len(tools))
+	enabledCount := 0
+	for _, tool := range tools {
+		enabled, exists := enabledByName[tool.Name]
+		if !exists {
+			enabled = true
+		}
+		if enabled {
+			enabledCount++
+		}
+		views = append(views, mcpServiceToolView{Tool: tool, Enabled: enabled})
+	}
 	common.RespSuccess(c, map[string]interface{}{
-		"tools": tools,
+		"tools":               views,
+		"total_tool_count":    len(views),
+		"enabled_tool_count":  enabledCount,
+		"disabled_tool_count": len(views) - enabledCount,
 	})
+}
+
+// UpdateMCPToolPolicy persists the administrator-controlled state for one tool.
+func UpdateMCPToolPolicy(c *gin.Context) {
+	serviceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		common.RespError(c, http.StatusBadRequest, "invalid service id", err)
+		return
+	}
+	service, err := model.GetServiceByID(serviceID)
+	if err != nil {
+		common.RespError(c, http.StatusNotFound, "service not found", err)
+		return
+	}
+	if service.Deleted {
+		common.RespErrorStr(c, http.StatusNotFound, "service not found")
+		return
+	}
+
+	var updatedBy int64
+	if value, exists := c.Get("user_id"); exists {
+		updatedBy, _ = parseInt64(value)
+	}
+	if updatedBy == 0 {
+		common.RespErrorStr(c, http.StatusUnauthorized, "administrator authentication required")
+		return
+	}
+
+	var request struct {
+		ToolName string `json:"tool_name" binding:"required"`
+		Enabled  *bool  `json:"enabled" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		common.RespError(c, http.StatusBadRequest, "invalid tool policy", err)
+		return
+	}
+
+	entry, found := proxy.GetToolsCacheManager().GetServiceTools(serviceID)
+	if !found {
+		common.RespErrorStr(c, http.StatusConflict, "tool inventory is unavailable")
+		return
+	}
+	toolExists := false
+	for _, tool := range entry.Tools {
+		if tool.Name == request.ToolName {
+			toolExists = true
+			break
+		}
+	}
+	if !toolExists {
+		common.RespErrorStr(c, http.StatusNotFound, "tool not found")
+		return
+	}
+
+	// Persist and mutate live instances as one ordered operation. Without this
+	// lock, concurrent opposite updates can leave DB policy and tools/list apart.
+	mcpToolPolicyUpdateMu.Lock()
+	defer mcpToolPolicyUpdateMu.Unlock()
+	policy, err := model.SetMCPToolPolicy(serviceID, request.ToolName, *request.Enabled, updatedBy)
+	if err != nil {
+		common.RespError(c, http.StatusInternalServerError, "failed to update tool policy", err)
+		return
+	}
+	if err := proxy.ApplyMCPToolPolicy(serviceID, request.ToolName, *request.Enabled); err != nil {
+		common.RespError(c, http.StatusInternalServerError, "tool policy was saved but could not be applied to live instances", err)
+		return
+	}
+	state := "enabled"
+	if !*request.Enabled {
+		state = "disabled"
+	}
+	_ = model.SaveMCPLog(c.Request.Context(), serviceID, service.Name, model.MCPLogPhaseRun, model.MCPLogLevelInfo,
+		fmt.Sprintf("MCP tool policy updated | tool=%s | state=%s | admin=%d", request.ToolName, state, updatedBy))
+	common.RespSuccess(c, policy)
 }
 
 // 辅助函数：验证服务类型

@@ -140,7 +140,7 @@ func InstallPyPIPackage(ctx context.Context, packageName, version, command strin
 
 	// Initialize client
 	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initRequest.Params.ProtocolVersion = mcp.ProtocolVersion20251125
 	initRequest.Params.ClientInfo = mcp.Implementation{
 		Name:    "one-mcp", // Should this be configurable or a constant?
 		Version: "1.0.0",   // App version

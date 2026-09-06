@@ -499,7 +499,7 @@ func TestGroupMCPHandlerSearchToolsValidation(t *testing.T) {
 	assert.NotEmpty(t, content)
 }
 
-func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
+func TestGroupMCPHandlerSearchToolsOmitsGloballyDisabledTools(t *testing.T) {
 	teardown := setupGroupTestDB(t)
 	defer teardown()
 
@@ -544,6 +544,8 @@ func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
 		},
 	})
 	defer cache.DeleteServiceTools(dbService.ID)
+	_, err = model.SetMCPToolPolicy(dbService.ID, "beta", false, 1)
+	require.NoError(t, err)
 
 	sessionID, _ := initializeGroupSession(t, "group-search", 1)
 
@@ -583,8 +585,58 @@ func TestGroupMCPHandlerSearchToolsSuccess(t *testing.T) {
 	toolsYAML, ok := firstContent["text"].(string)
 	assert.True(t, ok)
 	assert.Contains(t, toolsYAML, "alpha")
-	assert.Contains(t, toolsYAML, "beta")
+	assert.NotContains(t, toolsYAML, "beta")
 	assert.Contains(t, toolsYAML, "current_time:")
+}
+
+func TestGroupMCPHandlerRejectsGloballyDisabledToolExecution(t *testing.T) {
+	teardown := setupGroupTestDB(t)
+	defer teardown()
+
+	svc := &model.MCPService{
+		Name:        "svc-blocked-execute",
+		DisplayName: "Svc Blocked Execute",
+		Type:        model.ServiceTypeStdio,
+		Command:     "echo",
+		ArgsJSON:    `[]`,
+		Enabled:     true,
+	}
+	require.NoError(t, model.CreateService(svc))
+	_, err := model.SetMCPToolPolicy(svc.ID, "dangerous-tool", false, 1)
+	require.NoError(t, err)
+
+	group := &model.MCPServiceGroup{UserID: 1, Name: "group-blocked-execute", DisplayName: "Group Blocked Execute", Enabled: true}
+	group.SetServiceIDs([]int64{svc.ID})
+	require.NoError(t, group.Insert())
+
+	sessionID, _ := initializeGroupSession(t, group.Name, group.UserID)
+	req := newJSONRequest(t, http.MethodPost, "/group/"+group.Name+"/mcp", map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name": "execute_tool",
+			"arguments": map[string]any{
+				"mcp_name":  svc.Name,
+				"tool_name": "dangerous-tool",
+				"arguments": map[string]any{},
+			},
+		},
+	})
+	req.Header.Set("Mcp-Session-Id", sessionID)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = req
+	ctx.Params = gin.Params{{Key: "name", Value: group.Name}}
+	ctx.Set("user_id", group.UserID)
+
+	GroupMCPHandler(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	resp := decodeMCPResponse(t, recorder)
+	require.Equal(t, true, resp.Result["isError"])
+	content, ok := resp.Result["content"].([]any)
+	require.True(t, ok)
+	require.Contains(t, content[0].(map[string]any)["text"], `tool "dangerous-tool" is disabled by administrator`)
 }
 
 func TestGroupMCPHandlerInvalidSessionReturnsNotFound(t *testing.T) {

@@ -1,232 +1,99 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { copyToClipboard, isClipboardSupported, getClipboardErrorMessage } from '../clipboard';
 
-// Mock navigator.clipboard
 const mockWriteText = vi.fn();
-const mockClipboard = {
-    writeText: mockWriteText
-};
-
-// Mock document.execCommand
 const mockExecCommand = vi.fn();
+const restorers: Array<() => void> = [];
+
+// Mock only browser capabilities; keep real DOM nodes and restore descriptors.
+function mockProperty(target: object, key: string, value: unknown) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, key);
+    Object.defineProperty(target, key, { configurable: true, writable: true, value });
+    restorers.push(() => {
+        if (descriptor) Object.defineProperty(target, key, descriptor);
+        else Reflect.deleteProperty(target, key);
+    });
+}
 
 describe('clipboard utils', () => {
     beforeEach(() => {
-        // Reset mocks
         mockWriteText.mockReset();
         mockExecCommand.mockReset();
-
-        // Mock document.execCommand
-        Object.defineProperty(document, 'execCommand', {
-            value: mockExecCommand,
-            writable: true
-        });
-
-        // Mock document.queryCommandSupported
-        Object.defineProperty(document, 'queryCommandSupported', {
-            value: vi.fn().mockReturnValue(true),
-            writable: true
-        });
+        mockProperty(navigator, 'clipboard', undefined);
+        mockProperty(window, 'isSecureContext', false);
+        mockProperty(document, 'execCommand', mockExecCommand);
     });
 
     afterEach(() => {
+        while (restorers.length) restorers.pop()!();
         vi.restoreAllMocks();
     });
 
     describe('copyToClipboard', () => {
         it('should use modern clipboard API when available', async () => {
-            // Mock modern clipboard API
-            Object.defineProperty(navigator, 'clipboard', {
-                value: mockClipboard,
-                writable: true
-            });
-            Object.defineProperty(window, 'isSecureContext', {
-                value: true,
-                writable: true
-            });
-
+            mockProperty(navigator, 'clipboard', { writeText: mockWriteText });
+            mockProperty(window, 'isSecureContext', true);
             mockWriteText.mockResolvedValue(undefined);
 
-            const result = await copyToClipboard('test text');
-
+            expect(await copyToClipboard('test text')).toEqual({ success: true, method: 'modern' });
             expect(mockWriteText).toHaveBeenCalledWith('test text');
-            expect(result).toEqual({
-                success: true,
-                method: 'modern'
-            });
+            expect(mockExecCommand).not.toHaveBeenCalled();
         });
 
         it('should fallback to legacy method when modern API fails', async () => {
-            // Mock modern clipboard API that fails
-            Object.defineProperty(navigator, 'clipboard', {
-                value: mockClipboard,
-                writable: true
-            });
-            Object.defineProperty(window, 'isSecureContext', {
-                value: true,
-                writable: true
-            });
-
+            mockProperty(navigator, 'clipboard', { writeText: mockWriteText });
+            mockProperty(window, 'isSecureContext', true);
             mockWriteText.mockRejectedValue(new Error('Permission denied'));
-            mockExecCommand.mockReturnValue(true);
-
-            // Mock DOM methods
-            const mockTextArea = {
-                value: '',
-                style: {},
-                focus: vi.fn(),
-                select: vi.fn()
-            };
-            const mockAppendChild = vi.fn();
-            const mockRemoveChild = vi.fn();
-
-            Object.defineProperty(document, 'createElement', {
-                value: vi.fn().mockReturnValue(mockTextArea),
-                writable: true
-            });
-            Object.defineProperty(document.body, 'appendChild', {
-                value: mockAppendChild,
-                writable: true
-            });
-            Object.defineProperty(document.body, 'removeChild', {
-                value: mockRemoveChild,
-                writable: true
+            mockExecCommand.mockImplementation(() => {
+                expect(document.activeElement).toBeInstanceOf(HTMLTextAreaElement);
+                expect((document.activeElement as HTMLTextAreaElement).value).toBe('test text');
+                return true;
             });
 
-            const result = await copyToClipboard('test text');
-
+            expect(await copyToClipboard('test text')).toEqual({ success: true, method: 'legacy' });
             expect(mockWriteText).toHaveBeenCalledWith('test text');
             expect(mockExecCommand).toHaveBeenCalledWith('copy');
-            expect(result).toEqual({
-                success: true,
-                method: 'legacy'
-            });
+            expect(document.querySelector('textarea')).toBeNull();
         });
 
         it('should use legacy method when modern API is not available', async () => {
-            // Mock no modern clipboard API
-            Object.defineProperty(navigator, 'clipboard', {
-                value: undefined,
-                writable: true
-            });
-
             mockExecCommand.mockReturnValue(true);
 
-            // Mock DOM methods
-            const mockTextArea = {
-                value: '',
-                style: {},
-                focus: vi.fn(),
-                select: vi.fn()
-            };
-            const mockAppendChild = vi.fn();
-            const mockRemoveChild = vi.fn();
-
-            Object.defineProperty(document, 'createElement', {
-                value: vi.fn().mockReturnValue(mockTextArea),
-                writable: true
-            });
-            Object.defineProperty(document.body, 'appendChild', {
-                value: mockAppendChild,
-                writable: true
-            });
-            Object.defineProperty(document.body, 'removeChild', {
-                value: mockRemoveChild,
-                writable: true
-            });
-
-            const result = await copyToClipboard('test text');
-
+            expect(await copyToClipboard('test text')).toEqual({ success: true, method: 'legacy' });
             expect(mockExecCommand).toHaveBeenCalledWith('copy');
-            expect(result).toEqual({
-                success: true,
-                method: 'legacy'
-            });
+            expect(document.querySelector('textarea')).toBeNull();
         });
 
-        it('should return error when both methods fail', async () => {
-            // Mock no modern clipboard API
-            Object.defineProperty(navigator, 'clipboard', {
-                value: undefined,
-                writable: true
-            });
-
+        it.each([false, true])('should report legacy failure (modern API available: %s)', async (modernAvailable) => {
+            if (modernAvailable) {
+                mockProperty(navigator, 'clipboard', { writeText: mockWriteText });
+                mockProperty(window, 'isSecureContext', true);
+                mockWriteText.mockRejectedValue(new Error('Permission denied'));
+            }
             mockExecCommand.mockReturnValue(false);
 
-            // Mock DOM methods
-            const mockTextArea = {
-                value: '',
-                style: {},
-                focus: vi.fn(),
-                select: vi.fn()
-            };
-            const mockAppendChild = vi.fn();
-            const mockRemoveChild = vi.fn();
-
-            Object.defineProperty(document, 'createElement', {
-                value: vi.fn().mockReturnValue(mockTextArea),
-                writable: true
+            expect(await copyToClipboard('test text')).toEqual({
+                success: false, error: 'execCommand_failed', method: 'manual',
             });
-            Object.defineProperty(document.body, 'appendChild', {
-                value: mockAppendChild,
-                writable: true
-            });
-            Object.defineProperty(document.body, 'removeChild', {
-                value: mockRemoveChild,
-                writable: true
-            });
-
-            const result = await copyToClipboard('test text');
-
-            expect(result).toEqual({
-                success: false,
-                error: 'execCommand_failed',
-                method: 'manual'
-            });
+            expect(mockExecCommand).toHaveBeenCalledWith('copy');
+            expect(document.querySelector('textarea')).toBeNull();
         });
     });
 
     describe('isClipboardSupported', () => {
         it('should return true when modern clipboard API is available', () => {
-            Object.defineProperty(navigator, 'clipboard', {
-                value: mockClipboard,
-                writable: true
-            });
-            Object.defineProperty(window, 'isSecureContext', {
-                value: true,
-                writable: true
-            });
-
+            mockProperty(navigator, 'clipboard', { writeText: mockWriteText });
+            mockProperty(window, 'isSecureContext', true);
+            mockProperty(document, 'execCommand', undefined);
             expect(isClipboardSupported()).toBe(true);
         });
 
         it('should return true when legacy method is supported', () => {
-            Object.defineProperty(navigator, 'clipboard', {
-                value: undefined,
-                writable: true
-            });
-            Object.defineProperty(window, 'isSecureContext', {
-                value: false,
-                writable: true
-            });
-
             expect(isClipboardSupported()).toBe(true);
         });
 
         it('should return false when no clipboard support is available', () => {
-            Object.defineProperty(navigator, 'clipboard', {
-                value: undefined,
-                writable: true
-            });
-            Object.defineProperty(window, 'isSecureContext', {
-                value: false,
-                writable: true
-            });
-            Object.defineProperty(document, 'queryCommandSupported', {
-                value: vi.fn().mockReturnValue(false),
-                writable: true
-            });
-
+            mockProperty(document, 'execCommand', undefined);
             expect(isClipboardSupported()).toBe(false);
         });
     });
@@ -245,4 +112,4 @@ describe('clipboard utils', () => {
             expect(getClipboardErrorMessage()).toBe('clipboardError.accessDenied');
         });
     });
-}); 
+});

@@ -174,9 +174,27 @@ describe('MarketStore', () => {
                 isSecret: false,
                 isRequired: false, // !optional
                 defaultValue: 'false',
-                value: 'false',
+                value: '', // Metadata defaults are not user-provided values.
             })
         })
+
+        it.each([false, true])('restores configured values only for installed services (installed: %s)', async (installed) => {
+            vi.mocked(api.get).mockResolvedValue({
+                success: true,
+                data: {
+                    details: { name: 'test-package' },
+                    is_installed: installed,
+                    env_vars: [{ name: 'DEBUG_MODE', optional: true, default_value: 'false' }],
+                    mcp_config: { mcpServers: { fixture: { env: { DEBUG_MODE: 'true' } } } },
+                },
+            });
+
+            await useMarketStore.getState().fetchServiceDetails('test-id', 'test-package', 'npm');
+
+            expect(useMarketStore.getState().selectedService?.envVars[0]).toMatchObject({
+                name: 'DEBUG_MODE', defaultValue: 'false', value: installed ? 'true' : '',
+            });
+        });
 
         it('should handle API error gracefully', async () => {
             const mockError = new Error('API Error')
@@ -340,4 +358,4 @@ describe('MarketStore', () => {
             expect(updatedService?.envVars[0].value).toBe('new-value')
         })
     })
-}) 
+})
