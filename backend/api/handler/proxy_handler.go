@@ -400,83 +400,35 @@ func ProxyHandler(c *gin.Context) {
 	}
 
 	if targetHandler != nil {
-
-		// Unified logic for determining if this request should be recorded for statistics
-		shouldRecordStat := false
-		requestTypeForStat := ""
-		methodForStat := ""
-		// Capture client name
-		clientName := c.Request.Header.Get("User-Agent")
-
-		if requestMethod == http.MethodPost {
-			if action == "/message" || action == "/mcp" {
-				if c.Request.Body != nil {
-					// Read the entire request body to inspect it.
-					bodyBytes, err := io.ReadAll(c.Request.Body)
-					if err != nil {
-						common.SysError(fmt.Sprintf("[ProxyHandler] failed to read request body for stat check: %v", err))
-					}
-					// Always restore body
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-					// Parse body: detect tools/call and extract client name if present
-					if err == nil && len(bodyBytes) > 0 {
-						var parsedBody map[string]interface{}
-						if json.Unmarshal(bodyBytes, &parsedBody) == nil {
-							if actualMethod, ok := parsedBody["method"].(string); ok && actualMethod == "tools/call" {
-								shouldRecordStat = true
-								methodForStat = "tools/call"
-								if action == "/message" {
-									requestTypeForStat = "sse"
-								} else {
-									requestTypeForStat = "http"
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Measure and serve
-		startTime := time.Now()
-		targetHandler.ServeHTTP(c.Writer, c.Request)
-		duration := time.Since(startTime)
-		statusCode := c.Writer.Status()
-		success := statusCode >= 200 && statusCode < 300
-
-		// Record statistics only for tools/call
+		shouldRecordStat := isToolCall && (action == "/message" || action == "/mcp")
 		if shouldRecordStat {
-			go model.RecordRequestStat(
-				mcpDBService.ID,
-				mcpDBService.Name,
-				userID,
-				model.ProxyRequestType(requestTypeForStat),
-				methodForStat,
-				requestPath,
-				duration.Milliseconds(),
-				statusCode,
-				success,
-			)
-		}
-
-		// Save an info log only for real MCP calls (tools/call) and success
-		if shouldRecordStat && success {
-			reqType := ""
-			switch {
-			case action == "/message" || strings.HasPrefix(action, "/message/"):
-				reqType = "sse"
-			case action == "/mcp" || strings.HasPrefix(action, "/mcp/"):
-				reqType = "http"
-			default:
-				reqType = requestMethod
+			requestType := model.ProxyRequestTypeHTTP
+			statusCode := http.StatusOK
+			if action == "/message" {
+				requestType = model.ProxyRequestTypeSSE
+				statusCode = http.StatusAccepted
 			}
-			msg := fmt.Sprintf("MCP request OK | user=%d | type=%s | action=%s | path=%s | duration=%dms | status=%d | client=%s",
-				userID, reqType, action, requestPath, duration.Milliseconds(), statusCode, clientName)
-			if saveErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, mcpDBService.Name, model.MCPLogPhaseRun, model.MCPLogLevelInfo, msg); saveErr != nil {
-				common.SysError(fmt.Sprintf("Failed to save MCP access log for %s: %v", mcpDBService.Name, saveErr))
-			}
+			// Copy request metadata: SSE completion runs after Gin reuses its context.
+			serviceID, serviceName := mcpDBService.ID, mcpDBService.Name
+			clientName := c.Request.Header.Get("User-Agent")
+			started := time.Now()
+			ctx := proxy.WithToolCallObserver(c.Request.Context(), func(result *mcp.CallToolResult, callErr error) {
+				duration := time.Since(started)
+				success := callErr == nil && result != nil && !result.IsError
+				go model.RecordRequestStat(serviceID, serviceName, userID, requestType, "tools/call", requestPath, duration.Milliseconds(), statusCode, success)
+				level, outcome := model.MCPLogLevelInfo, "OK"
+				if !success {
+					level, outcome = model.MCPLogLevelError, "FAILED"
+				}
+				msg := fmt.Sprintf("MCP tool call %s | tool=%s | user=%d | type=%s | path=%s | duration=%dms | status=%d | client=%s",
+					outcome, toolName, userID, requestType, requestPath, duration.Milliseconds(), statusCode, clientName)
+				if saveErr := model.SaveMCPLog(context.Background(), serviceID, serviceName, model.MCPLogPhaseRun, level, msg); saveErr != nil {
+					common.SysError(fmt.Sprintf("Failed to save MCP access log for %s: %v", serviceName, saveErr))
+				}
+			})
+			c.Request = c.Request.WithContext(ctx)
 		}
+		targetHandler.ServeHTTP(c.Writer, c.Request)
 
 		// Only count meaningful MCP calls towards idle tracking.
 		if shouldRecordStat && mcpDBService.Type == model.ServiceTypeStdio {

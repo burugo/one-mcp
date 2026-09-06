@@ -1913,6 +1913,7 @@ func createActualMcpGoServerAndClientWithStdioOptions(
 	serverOptions := []mcpserver.ServerOption{
 		mcpserver.WithResourceCapabilities(true, true),
 		mcpserver.WithToolCapabilities(true),
+		WithToolCallObservation(),
 	}
 	if strings.TrimSpace(serviceConfigForInstance.Description) != "" {
 		serverOptions = append(serverOptions, mcpserver.WithInstructions(serviceConfigForInstance.Description))
