@@ -267,8 +267,8 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 					oauth_auth_status: info.oauth_auth_status || 'not_configured',
                     installed_service_id: info.installed_service_id,
                     tool_count: info.tool_count || 0,
-                    total_tool_count: info.total_tool_count ?? info.tool_count ?? 0,
-                    enabled_tool_count: info.enabled_tool_count ?? info.tool_count ?? 0,
+                    total_tool_count: info.total_tool_count ?? 0,
+                    enabled_tool_count: info.enabled_tool_count ?? 0,
                 }));
 
                 set({

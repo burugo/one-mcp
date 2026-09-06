@@ -477,7 +477,7 @@ func DiscoverMCPOAuth(ctx context.Context, endpoint string, serviceType model.Se
 
 func discoverMCPOAuthChallenge(ctx context.Context, endpoint string, serviceType model.ServiceType, httpClient *http.Client) (string, []string) {
 	method := http.MethodPost
-	requestBody := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q,"capabilities":{},"clientInfo":{"name":"one-mcp-oauth-discovery","version":"1"}}}`, mcp.LATEST_PROTOCOL_VERSION)
+	requestBody := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q,"capabilities":{},"clientInfo":{"name":"one-mcp-oauth-discovery","version":"1"}}}`, mcp.ProtocolVersion20251125)
 	var body io.Reader = bytes.NewBufferString(requestBody)
 	if serviceType == model.ServiceTypeSSE {
 		method = http.MethodGet

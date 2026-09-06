@@ -41,9 +41,6 @@ interface Tool {
 
 interface ServiceToolsResponse {
     tools: Tool[];
-    total_tool_count: number;
-    enabled_tool_count: number;
-    disabled_tool_count: number;
 }
 
 interface ServiceToolsModalProps {
@@ -68,8 +65,8 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
     const { t } = useTranslation();
     const { toast } = useToast();
     const [tools, setTools] = useState<Tool[]>([]);
-    const [totalToolCount, setTotalToolCount] = useState(0);
-    const [enabledToolCount, setEnabledToolCount] = useState(0);
+    const totalToolCount = tools.length;
+    const enabledToolCount = tools.filter(tool => tool.enabled).length;
     const [savingTools, setSavingTools] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -79,8 +76,6 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
             fetchTools();
         } else {
             setTools([]);
-            setTotalToolCount(0);
-            setEnabledToolCount(0);
             setSavingTools(new Set());
             setError(null);
         }
@@ -93,8 +88,6 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
             const response = await api.get(`/mcp_services/${serviceId}/tools`) as APIResponse<ServiceToolsResponse>;
             if (response.success && response.data) {
                 setTools(response.data.tools || []);
-                setTotalToolCount(response.data.total_tool_count || 0);
-                setEnabledToolCount(response.data.enabled_tool_count || 0);
             } else {
                 setError(response.message || 'Failed to fetch tools');
             }
@@ -118,7 +111,6 @@ const ServiceToolsModal: React.FC<ServiceToolsModalProps> = ({
             }
 
             setTools(current => current.map(item => item.name === tool.name ? { ...item, enabled } : item));
-            setEnabledToolCount(current => current + (enabled ? 1 : -1));
             onPolicyUpdated?.();
         } catch (err: any) {
             toast({

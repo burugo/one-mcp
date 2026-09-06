@@ -434,7 +434,7 @@ func InstallNPMPackage(ctx context.Context, packageName, version, command string
 
 	// Initialize the client
 	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initRequest.Params.ProtocolVersion = mcp.ProtocolVersion20251125
 	initRequest.Params.ClientInfo = mcp.Implementation{
 		Name:    "one-mcp",
 		Version: "1.0.0", // This should be dynamic

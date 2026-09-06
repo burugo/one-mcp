@@ -18,6 +18,7 @@ import (
 
 	"github.com/burugo/thing"
 	"github.com/gin-gonic/gin"
+	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
@@ -191,6 +192,122 @@ func TestProxyHandlerDisabledToolRepliesOnExistingSSESession(t *testing.T) {
 	stats, err := statDB.All()
 	require.NoError(t, err)
 	assert.Empty(t, stats)
+}
+
+func TestProxyHandlerPreservesAllowedCallsAndStatistics(t *testing.T) {
+	originalPath := common.SQLitePath
+	originalOptions := common.OptionMap
+	common.SQLitePath = ":memory:"
+	t.Cleanup(func() {
+		common.SQLitePath = originalPath
+		common.OptionMap = originalOptions
+	})
+	require.NoError(t, model.InitDB())
+	common.OptionMap = map[string]string{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	upstreamMCP := mcpserver.NewMCPServer("stats-fixture", "1")
+	upstreamMCP.AddTool(mcp.NewTool("echo"), func(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText(fmt.Sprint(request.GetArguments()["text"])), nil
+	})
+	upstream := httptest.NewServer(mcpserver.NewStreamableHTTPServer(upstreamMCP))
+	defer upstream.Close()
+	service := &model.MCPService{Name: "stats-fixture", Type: model.ServiceTypeStreamableHTTP, Command: upstream.URL + "/mcp", Enabled: true}
+	require.NoError(t, model.CreateService(service))
+	// The statistics ORM survives InitDB calls; isolate each run's records.
+	userID := time.Now().UnixNano()
+	upstreamClient, err := mcpclient.NewStreamableHttpClient(service.Command)
+	require.NoError(t, err)
+	defer upstreamClient.Close()
+	require.NoError(t, upstreamClient.Start(ctx))
+	init := mcp.InitializeRequest{}
+	init.Params.ProtocolVersion = mcp.ProtocolVersion20251125
+	init.Params.ClientInfo = mcp.Implementation{Name: "stats-proxy", Version: "1"}
+	_, err = upstreamClient.Initialize(ctx, init)
+	require.NoError(t, err)
+	proxyServer := mcpserver.NewMCPServer("stats-proxy", "1", proxy.WithToolCallObservation())
+	proxyServer.AddTool(mcp.NewTool("echo"), upstreamClient.CallTool)
+	instance := &proxy.SharedMcpInstance{Server: proxyServer, Client: upstreamClient}
+	// Keep transport forwarding real while excluding unrelated background health
+	// maintenance from this request/statistics test.
+	originalFactory := proxy.GetOrCreateSharedMcpInstanceWithKey
+	proxy.GetOrCreateSharedMcpInstanceWithKey = func(_ context.Context, requested *model.MCPService, _, _, _ string) (*proxy.SharedMcpInstance, error) {
+		if requested.ID != service.ID {
+			return nil, fmt.Errorf("unexpected fixture service %d", requested.ID)
+		}
+		return instance, nil
+	}
+	defer func() { proxy.GetOrCreateSharedMcpInstanceWithKey = originalFactory }()
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("userID", userID); c.Next() })
+	router.Any("/proxy/:serviceName/*action", ProxyHandler)
+	host := httptest.NewServer(router)
+	defer host.Close()
+	common.OptionMap["ServerAddress"] = host.URL
+	manager := proxy.GetServiceManager()
+	manager.SetService(service.ID, proxy.NewMonitoredProxiedService(proxy.NewBaseService(service.ID, service.Name, service.Type), instance, service))
+	defer manager.UnregisterService(context.Background(), service.ID)
+	statsDB, err := model.GetProxyRequestStatThing()
+	require.NoError(t, err)
+	quotaKey := fmt.Sprintf("user_request:%s:%d:%d:count", time.Now().Format("2006-01-02"), service.ID, userID)
+	t.Cleanup(func() {
+		stats, err := statsDB.Where("service_id = ? AND user_id = ?", service.ID, userID).All()
+		require.NoError(t, err)
+		for _, stat := range stats {
+			require.NoError(t, statsDB.Delete(stat))
+		}
+		require.NoError(t, thing.Cache().Delete(context.Background(), quotaKey))
+		require.NoError(t, thing.Cache().Delete(context.Background(), fmt.Sprintf("request:%s:%d:count", time.Now().Format("2006-01-02"), service.ID)))
+		require.NoError(t, model.DeleteService(service.ID))
+	})
+
+	for index, tc := range []struct{ name, endpoint, version string }{
+		{"http-legacy", "/mcp", "2025-11-25"},
+		{"http-negotiates-legacy", "/mcp", "2026-07-28"},
+		{"sse-legacy", "/sse", "2025-11-25"},
+		{"sse-negotiates-legacy", "/sse", "2026-07-28"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var client *mcpclient.Client
+			var err error
+			endpoint := host.URL + "/proxy/stats-fixture" + tc.endpoint
+			if tc.endpoint == "/sse" {
+				client, err = mcpclient.NewSSEMCPClient(endpoint)
+			} else {
+				client, err = mcpclient.NewStreamableHttpClient(endpoint)
+			}
+			require.NoError(t, err)
+			defer client.Close()
+			require.NoError(t, client.Start(ctx))
+			init := mcp.InitializeRequest{}
+			init.Params.ProtocolVersion = tc.version
+			init.Params.ClientInfo = mcp.Implementation{Name: "stats-client", Version: "1"}
+			initialized, err := client.Initialize(ctx, init)
+			require.NoError(t, err)
+			require.Equal(t, "2025-11-25", initialized.ProtocolVersion)
+			tools, err := client.ListTools(ctx, mcp.ListToolsRequest{})
+			require.NoError(t, err)
+			require.Len(t, tools.Tools, 1)
+			before, err := statsDB.Where("service_id = ? AND user_id = ?", service.ID, userID).All()
+			require.NoError(t, err)
+			require.Len(t, before, index, "initialize and tools/list must not be counted")
+			result, err := client.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: "echo", Arguments: map[string]any{"text": "unchanged arguments"}}})
+			require.NoError(t, err)
+			require.False(t, result.IsError)
+			require.Equal(t, "unchanged arguments", result.Content[0].(mcp.TextContent).Text)
+			require.Eventually(t, func() bool {
+				count, err := thing.Cache().Get(ctx, quotaKey)
+				return err == nil && count == fmt.Sprint(index+1)
+			}, time.Second, 10*time.Millisecond)
+			after, err := statsDB.Where("service_id = ? AND user_id = ?", service.ID, userID).All()
+			require.NoError(t, err)
+			require.Len(t, after, index+1)
+			for _, stat := range after {
+				require.Equal(t, "tools/call", stat.Method)
+				require.True(t, stat.Success)
+			}
+		})
+	}
 }
 
 func TestProxyHandler_ServiceNotFound(t *testing.T) {

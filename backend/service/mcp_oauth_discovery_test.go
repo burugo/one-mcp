@@ -57,6 +57,16 @@ func TestDiscoverMCPOAuthPrefersChallengeMetadataAndScopes(t *testing.T) {
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/mcp":
+			var request struct {
+				Method string `json:"method"`
+				Params struct {
+					ProtocolVersion string `json:"protocolVersion"`
+				} `json:"params"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Method != "initialize" || request.Params.ProtocolVersion != "2025-11-25" {
+				http.Error(w, "expected legacy initialize", http.StatusBadRequest)
+				return
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+server.URL+`/oauth/resource", scope="mcp:write"`)
 			w.WriteHeader(http.StatusUnauthorized)
 		case "/oauth/resource":

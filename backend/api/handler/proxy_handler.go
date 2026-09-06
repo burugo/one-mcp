@@ -85,29 +85,30 @@ func checkDailyRequestLimit(serviceID int64, userID int64, rpdLimit int) error {
 	return nil
 }
 
-func inspectToolCall(request *http.Request) (json.RawMessage, string, bool, error) {
+type proxyMCPRequest struct {
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method"`
+	Params struct {
+		Name string    `json:"name"`
+		Meta *mcp.Meta `json:"_meta"`
+	} `json:"params"`
+}
+
+func inspectMCPRequest(request *http.Request) (proxyMCPRequest, error) {
 	if request.Method != http.MethodPost || request.Body == nil {
-		return nil, "", false, nil
+		return proxyMCPRequest{}, nil
 	}
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
-		return nil, "", false, err
+		return proxyMCPRequest{}, err
 	}
 	request.Body = io.NopCloser(bytes.NewReader(body))
-	if len(body) == 0 {
-		return nil, "", false, nil
+	var payload proxyMCPRequest
+	if err := json.Unmarshal(body, &payload); err != nil {
+		// Leave malformed request handling to the MCP transport.
+		return proxyMCPRequest{}, nil
 	}
-	var payload struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params struct {
-			Name string `json:"name"`
-		} `json:"params"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil || payload.Method != "tools/call" || payload.Params.Name == "" {
-		return nil, "", false, nil
-	}
-	return payload.ID, payload.Params.Name, true, nil
+	return payload, nil
 }
 
 // tryGetOrCreateUserSpecificHandler attempts to find or create a handler tailored for a specific user.
@@ -285,12 +286,27 @@ func ProxyHandler(c *gin.Context) {
 		return
 	}
 
-	requestID, toolName, isToolCall, inspectErr := inspectToolCall(c.Request)
+	rpc, inspectErr := inspectMCPRequest(c.Request)
 	if inspectErr != nil {
 		common.RespJSONRPCError(c, http.StatusBadRequest, common.JSONRPCErrorCodeInvalidRequest, "Failed to read MCP request")
 		return
 	}
-	if isToolCall {
+	requestID, toolName := rpc.ID, rpc.Params.Name
+	isToolCall := rpc.Method == "tools/call"
+	var rejection *mcp.JSONRPCErrorDetails
+	if action == "/message" {
+		version := c.GetHeader(mcp.HeaderProtocolVersion)
+		if metaVersion := rpc.Params.Meta.ProtocolVersion(); mcp.IsModernProtocol(metaVersion) {
+			version = metaVersion
+		}
+		// The deprecated SSE transport only supports the initialize/session era.
+		// mcp-go v1's SSE server advertises versions but does not enforce them.
+		if mcp.IsModernProtocol(version) {
+			response := (mcp.UnsupportedProtocolVersionError{Version: version, Supported: mcp.LegacyProtocolVersions()}).JSONRPCError()
+			rejection = &response.Error
+		}
+	}
+	if rejection == nil && isToolCall && toolName != "" {
 		enabled, policyErr := appservice.IsMCPToolEnabled(mcpDBService.ID, toolName)
 		if policyErr != nil {
 			common.RespJSONRPCError(c, http.StatusInternalServerError, common.JSONRPCErrorCodeInvalidRequest, "Failed to load MCP tool policy")
@@ -303,24 +319,27 @@ func ProxyHandler(c *gin.Context) {
 			if logErr := model.SaveMCPLog(c.Request.Context(), mcpDBService.ID, serviceName, model.MCPLogPhaseRun, model.MCPLogLevelWarn, logMessage); logErr != nil {
 				common.SysError(fmt.Sprintf("Failed to save rejected tool call log for %s: %v", serviceName, logErr))
 			}
-			if len(requestID) == 0 {
-				c.Status(http.StatusAccepted)
-				return
-			}
 			// Disabled tools are unavailable, like tools removed from the registry.
-			// Match mcp-go's INVALID_PARAMS error and preserve the JSON-RPC ID.
-			response := gin.H{"jsonrpc": "2.0", "id": requestID, "error": gin.H{"code": mcp.INVALID_PARAMS, "message": message}}
-			if action == "/message" {
-				if sendErr := proxy.SendSSEProxyResponse(mcpDBService.ID, c.Query("sessionId"), response); sendErr != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"jsonrpc": "2.0", "id": requestID, "error": gin.H{"code": mcp.INVALID_PARAMS, "message": sendErr.Error()}})
-					return
-				}
-				c.Status(http.StatusAccepted)
-			} else {
-				c.JSON(http.StatusOK, response)
-			}
+			rejection = &mcp.JSONRPCErrorDetails{Code: mcp.INVALID_PARAMS, Message: message}
+		}
+	}
+	if rejection != nil {
+		if len(requestID) == 0 {
+			c.Status(http.StatusAccepted)
 			return
 		}
+		// Preserve the original ID, including numeric IDs larger than float64.
+		response := gin.H{"jsonrpc": "2.0", "id": requestID, "error": rejection}
+		if action == "/message" {
+			if sendErr := proxy.SendSSEProxyResponse(mcpDBService.ID, c.Query("sessionId"), response); sendErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"jsonrpc": "2.0", "id": requestID, "error": gin.H{"code": mcp.INVALID_PARAMS, "message": sendErr.Error()}})
+				return
+			}
+			c.Status(http.StatusAccepted)
+		} else {
+			c.JSON(http.StatusOK, response)
+		}
+		return
 	}
 
 	// Check daily request limit (RPD) if user is authenticated and limit is set

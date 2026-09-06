@@ -9,16 +9,8 @@ export default defineConfig(({ mode }) => {
   // 第三个参数 '' 表示加载所有环境变量，不仅仅是 VITE_ 开头的。
   const env = loadEnv(mode, process.cwd(), '');
 
-  console.log('--- vite.config.ts Debug ---');
-  console.log('Current mode:', mode);
-  console.log('Current working directory (process.cwd()):', process.cwd());
-  console.log('Variables loaded by loadEnv:', env);
-  console.log('PORT value from loadEnv:', env.PORT); // 这里应该是你 .env 文件中的 PORT 值
-
   // 使用从 .env 文件加载的 PORT，如果未定义，则回退到 3000
   const backendPort = env.PORT || '3000';
-  console.log(`Using backend port for proxy: ${backendPort}`);
-  console.log('-----------------------------');
 
   return {
     plugins: [react()],
