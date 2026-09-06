@@ -652,6 +652,7 @@ func InstallOrAddService(c *gin.Context) {
 		return
 	} else if requestBody.SourceType == "marketplace" || requestBody.SourceType == "custom" {
 		isCustomSource := requestBody.SourceType == "custom"
+		isGitHubSource := isCustomSource && requestBody.PackageManager == "npm" && strings.HasPrefix(requestBody.PackageName, "github:")
 		if requestBody.PackageName == "" || requestBody.PackageManager == "" {
 			common.RespErrorStr(c, http.StatusBadRequest, i18n.Translate("package_name_and_manager_required", lang))
 			return
@@ -705,6 +706,10 @@ func InstallOrAddService(c *gin.Context) {
 
 		switch requestBody.PackageManager {
 		case "npm":
+			// GitHub source specs are resolved by npx, not the npm registry.
+			if isGitHubSource {
+				break
+			}
 			details, err := market.GetNPMPackageDetails(c.Request.Context(), cleanPackageName)
 			if err != nil {
 				// Package not found or unable to get package info, return error immediately
@@ -788,6 +793,10 @@ func InstallOrAddService(c *gin.Context) {
 			Enabled:               true, // 安装时直接启用服务
 			HealthStatus:          string(market.StatusPending),
 			InstallerUserID:       userID, // 记录安装者
+		}
+		if isGitHubSource {
+			// Keep refs in the source/args, but not as fragments in proxy URLs.
+			newService.Name = strings.ReplaceAll(newService.Name, "#", "-")
 		}
 		if newService.Category == "" {
 			newService.Category = model.CategoryAI
