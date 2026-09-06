@@ -782,34 +782,12 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             const response = await api.post(`/mcp_services/${numericServiceId}/health/check`) as APIResponse<any>;
 
             if (response.success && response.data) {
+                // Reload policy-aware counts after the check refreshes the tool inventory.
+                await get().fetchInstalledServices();
                 toastEmitter.emit({
                     title: "Health Check Complete",
                     description: "Service health status has been updated."
                 });
-
-                // 直接使用返回值更新对应服务的健康状态，而不是重新拉取整个列表
-                const { health_status, health_details, last_checked } = response.data;
-
-
-				const updatedToolCount = typeof health_details?.tool_count === 'number'
-					? health_details.tool_count
-					: Array.isArray(health_details?.tools)
-						? health_details.tools.length
-						: undefined;
-
-                set(state => ({
-                    installedServices: state.installedServices.map(service =>
-                        service.id === serviceId || service.id === numericServiceId.toString()
-                            ? {
-                                ...service,
-                                health_status,
-                                health_details: typeof health_details === 'object' ? JSON.stringify(health_details) : health_details,
-                                last_health_check: last_checked,
-                                ...(updatedToolCount !== undefined && { tool_count: updatedToolCount }),
-                            }
-                            : service
-                    )
-                }));
             } else {
                 throw new Error(response.message || 'Failed to check service health');
             }
